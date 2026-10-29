@@ -1,0 +1,22 @@
+//@version=5
+strategy("Elder Triple Screen", overlay=true)
+wkUp = request.security(syminfo.tickerid, "W",
+ta.ema(close, 26) > ta.ema(close, 26)[1], lookahead=barmerge.lookahead_off)
+wkStoch = request.security(syminfo.tickerid, "W",
+ta.stoch(close, high, low, 14), lookahead=barmerge.lookahead_off)
+dailyTrigger = ta.rsi(close, 2)
+atr = ta.atr(13)
+buySetup  = wkUp and wkStoch < 30 and dailyTrigger > nz(dailyTrigger[1]) and close > open
+sellSetup = not wkUp and wkStoch > 70 and dailyTrigger < nz(dailyTrigger[1]) and close < open
+if buySetup
+strategy.entry("L", strategy.long)
+if sellSetup
+strategy.entry("S", strategy.short)
+if strategy.position_size > 0
+strategy.exit("LX", from_entry="L", stop=strategy.position_avg_price - 2 * atr)
+if strategy.position_size < 0
+strategy.exit("SX", from_entry="S", stop=strategy.position_avg_price + 2 * atr)
+if strategy.position_size > 0 and wkStoch > 70
+strategy.close("L", comment="Weekly OB")
+if strategy.position_size < 0 and wkStoch < 30
+strategy.close("S", comment="Weekly OS")

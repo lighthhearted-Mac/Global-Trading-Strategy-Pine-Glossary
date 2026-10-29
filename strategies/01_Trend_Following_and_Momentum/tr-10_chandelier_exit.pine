@@ -1,0 +1,18 @@
+//@version=5
+strategy("Chandelier Exit Trend Rider", overlay=true)
+nLen = input.int(22, "Lookback")
+mult = input.float(3.0, "ATR Multiple")
+longStop  = ta.highest(high, nLen) - mult * ta.atr(nLen)
+shortStop = ta.lowest(low, nLen) + mult * ta.atr(nLen)
+var float trail = na
+var int   trend = 1
+trend := close > nz(trail[1], shortStop) ? 1 :
+close < nz(trail[1], longStop) ? -1 : nz(trend[1], 1)
+trail := trend == 1 ? math.max(longStop, nz(trail[1], longStop)) :
+math.min(shortStop, nz(trail[1], shortStop))
+if trend == 1 and nz(trend[1]) == -1
+strategy.entry("L", strategy.long)
+if trend == -1 and nz(trend[1]) == 1
+strategy.entry("S", strategy.short)
+plot(trend == 1 ? trail : na, "Long trail", color=color.teal, style=plot.style_linebr)
+plot(trend == -1 ? trail : na, "Short trail", color=color.red, style=plot.style_linebr)

@@ -1,0 +1,11 @@
+//@version=5
+strategy("SuperTrend Flip", overlay=true)
+factor = input.float(3.0, "Factor")
+atrLen = input.int(10, "ATR Length")
+[st, dir] = ta.supertrend(factor, atrLen)
+if dir < 0
+strategy.entry("L", strategy.long)
+if dir > 0
+strategy.entry("S", strategy.short)
+plot(dir < 0 ? st : na, "ST Up", color=color.teal, style=plot.style_linebr)
+plot(dir > 0 ? st : na, "ST Down", color=color.red, style=plot.style_linebr)

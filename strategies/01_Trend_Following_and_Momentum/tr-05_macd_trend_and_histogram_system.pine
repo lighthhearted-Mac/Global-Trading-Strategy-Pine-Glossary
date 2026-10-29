@@ -1,0 +1,12 @@
+//@version=5
+strategy("MACD Zero-Line Trend System", overlay=false)
+[macdLine, sigLine, hist] = ta.macd(close, 12, 26, 9)
+if ta.crossover(macdLine, sigLine) and macdLine > 0
+strategy.entry("L", strategy.long)
+if ta.crossunder(macdLine, sigLine) and macdLine < 0
+strategy.entry("S", strategy.short)
+plot(macdLine, "MACD", color=color.teal)
+plot(sigLine, "Signal", color=color.orange)
+plot(hist, "Histogram", style=plot.style_columns,
+color=hist >= 0 ? color.new(color.teal, 40) : color.new(color.red, 40))
+hline(0)

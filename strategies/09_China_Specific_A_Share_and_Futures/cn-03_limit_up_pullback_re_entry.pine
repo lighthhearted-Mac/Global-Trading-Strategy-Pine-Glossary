@@ -1,0 +1,15 @@
+//@version=5
+strategy("Limit-Up Pullback Re-entry (回马枪)", overlay=true)
+limitPct = input.float(10.0, "Daily limit %")
+lookback = input.int(6, "Recent limit-up within N bars")
+maLen = input.int(20, "Pullback MA")
+lim = close[1] * (1 + limitPct / 100)
+limitUp = close >= lim * 0.998 and close == high
+recentBoard = nz(ta.barssince(limitUp)) <= lookback
+ma = ta.sma(close, maLen)
+pullback = recentBoard and low <= ma and close > ma and volume < ta.sma(volume, 5)
+if pullback and strategy.position_size == 0
+strategy.entry("L", strategy.long)
+atr = ta.atr(14)
+if strategy.position_size > 0 and close < strategy.position_avg_price - 2 * atr
+strategy.close("L", comment="Stop")

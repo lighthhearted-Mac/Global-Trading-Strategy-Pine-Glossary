@@ -1,0 +1,10 @@
+//@version=5
+indicator("OBV Divergence Helper", overlay=false)
+obv = ta.obv
+obvSlope = ta.linreg(obv, 20, 0) - ta.linreg(obv, 20, 1)
+priceSlope = ta.linreg(close, 20, 0) - ta.linreg(close, 20, 1)
+bullDiv = priceSlope < 0 and obvSlope > 0
+bearDiv = priceSlope > 0 and obvSlope < 0
+plot(obv, "OBV", color=color.teal)
+plotshape(bullDiv, "Bull div", shape.circle, location.bottom, color=color.teal, size=size.tiny)
+plotshape(bearDiv, "Bear div", shape.circle, location.top, color=color.red, size=size.tiny)

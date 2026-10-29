@@ -1,0 +1,22 @@
+//@version=5
+strategy("Alligator + Fractal Breakout", overlay=true)
+jaw   = ta.rma(hl2, 13)
+teeth = ta.rma(hl2, 8)
+lip   = ta.rma(hl2, 5)
+alignedUp = lip > teeth and teeth > jaw
+alignedDn = lip < teeth and teeth < jaw
+upFr = ta.pivothigh(high, 2, 2)
+dnFr = ta.pivotlow(low, 2, 2)
+var float lastUpFr = na
+var float lastDnFr = na
+if not na(upFr)
+lastUpFr := upFr
+if not na(dnFr)
+lastDnFr := dnFr
+if alignedUp and not na(lastUpFr) and close > lastUpFr and strategy.position_size <= 0
+strategy.entry("L", strategy.long)
+if alignedDn and not na(lastDnFr) and close < lastDnFr and strategy.position_size >= 0
+strategy.entry("S", strategy.short)
+plot(jaw, "Jaw", color=color.blue, offset=8)
+plot(teeth, "Teeth", color=color.red, offset=5)
+plot(lip, "Lip", color=color.green, offset=3)

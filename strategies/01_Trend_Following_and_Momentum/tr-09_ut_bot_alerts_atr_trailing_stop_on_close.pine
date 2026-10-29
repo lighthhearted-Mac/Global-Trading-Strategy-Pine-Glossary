@@ -1,0 +1,17 @@
+//@version=5
+strategy("UT Bot-Style ATR Trailing Stop", overlay=true)
+keyA   = input.float(2.0, "Sensitivity")
+atrLen = input.int(10, "ATR Length")
+nLoss  = keyA * ta.atr(atrLen)
+var float up = na
+var float dn = na
+up := close > nz(up[1], close) and close[1] > nz(up[1], close) ?
+math.max(nz(up[1]), close - nLoss) : close - nLoss
+dn := close < nz(dn[1], close) and close[1] < nz(dn[1], close) ?
+math.min(nz(dn[1]), close + nLoss) : close + nLoss
+if ta.crossover(close, dn)
+strategy.entry("L", strategy.long)
+if ta.crossunder(close, up)
+strategy.entry("S", strategy.short)
+plot(ta.crossover(close, dn) ? dn : na, "Buy", style=plot.style_circles, color=color.teal, linewidth=3)
+plot(ta.crossunder(close, up) ? up : na, "Sell", style=plot.style_circles, color=color.red, linewidth=3)

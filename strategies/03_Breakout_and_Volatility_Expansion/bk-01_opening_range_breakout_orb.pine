@@ -1,0 +1,27 @@
+//@version=5
+strategy("Opening Range Breakout (ORB)", overlay=true)
+sess  = input.session("0930-0945", "Opening range session")
+tz    = input.string("America/New_York", "Timezone")
+inOR  = not na(time(timeframe.period, sess, tz))
+var float orHi = na
+var float orLo = na
+newDay = ta.change(time("D")) != 0
+if newDay
+orHi := na
+orLo := na
+if inOR
+orHi := na(orHi) ? high : math.max(orHi, high)
+orLo := na(orLo) ? low  : math.min(orLo, low)
+if not inOR and not na(orHi) and strategy.position_size == 0
+if close > orHi
+strategy.entry("L", strategy.long)
+if close < orLo
+strategy.entry("S", strategy.short)
+if strategy.position_size > 0
+strategy.exit("LX", from_entry="L", stop=orLo)
+if strategy.position_size < 0
+strategy.exit("SX", from_entry="S", stop=orHi)
+if newDay
+strategy.close_all(comment="Session reset")
+plot(inOR ? orHi : na, "OR High", color=color.teal, style=plot.style_linebr)
+plot(inOR ? orLo : na, "OR Low", color=color.red, style=plot.style_linebr)

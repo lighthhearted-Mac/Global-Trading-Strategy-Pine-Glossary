@@ -1,0 +1,24 @@
+//@version=5
+strategy("QQE (RSI + RSI-ATR Trailing)", overlay=false)
+rsiLen  = input.int(14, "RSI length")
+smLen   = input.int(5, "RSI smoothing")
+wildLen = input.int(14, "Wilder length")
+sf      = input.float(4.238, "ATR factor")
+rsi   = ta.rsi(close, rsiLen)
+rsiMa = ta.ema(rsi, smLen)
+dar   = ta.ema(ta.rma(math.abs(rsiMa - nz(rsiMa[1], rsiMa)), wildLen), 2 * wildLen - 1)
+band  = sf * dar
+var float trailUp = na
+var float trailDn = na
+trailUp := nz(rsiMa[1], rsiMa) > nz(trailUp[1], 0) and rsiMa > nz(trailUp[1], 0) ?
+math.max(nz(trailUp[1]), rsiMa - band) : rsiMa - band
+trailDn := nz(rsiMa[1], rsiMa) < nz(trailDn[1], 100) and rsiMa < nz(trailDn[1], 100) ?
+math.min(nz(trailDn[1]), rsiMa + band) : rsiMa + band
+if ta.crossover(rsiMa, trailDn)
+strategy.entry("L", strategy.long)
+if ta.crossunder(rsiMa, trailUp)
+strategy.entry("S", strategy.short)
+plot(rsiMa, "RSI MA", color=color.teal)
+plot(trailUp, "Fast trail", color=color.new(color.red, 30))
+plot(trailDn, "Slow trail", color=color.new(color.teal, 30))
+hline(50)

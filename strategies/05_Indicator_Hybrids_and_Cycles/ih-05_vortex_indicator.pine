@@ -1,0 +1,11 @@
+//@version=5
+indicator("Vortex Indicator", overlay=false)
+len = input.int(14, "Length")
+vmPlus  = math.abs(high - nz(low[1]))
+vmMinus = math.abs(low - nz(high[1]))
+trSum = ta.sum(ta.tr(true), len)
+vip = ta.sum(vmPlus, len) / trSum
+vim = ta.sum(vmMinus, len) / trSum
+plot(vip, "VI+", color=color.teal)
+plot(vim, "VI-", color=color.red)
+hline(1)

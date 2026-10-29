@@ -1,0 +1,17 @@
+//@version=5
+strategy("Turtle S2 Condensed (55/20, 2N stop)", overlay=true, pyramiding=4)
+nLen    = input.int(20, "N length (ATR)")
+riskPct = input.float(1.0, "Equity risk per unit, %", step=0.25)
+N       = ta.atr(nLen)
+entryHi = ta.highest(high, 55)[1]
+exitLo  = ta.lowest(low, 20)[1]
+var float lastFill = na
+longSig = strategy.position_size == 0 and close > entryHi
+addSig  = strategy.position_size > 0 and not na(lastFill) and close > lastFill + 0.5 * N and strategy.opentrades < 4
+if longSig or addSig
+strategy.entry("U" + str.tostring(strategy.opentrades + 1), strategy.long,
+qty=(strategy.equity * riskPct / 100) / N)
+lastFill := close
+if strategy.position_size > 0 and ((not na(lastFill) and close < lastFill - 2 * N) or close < exitLo)
+strategy.close_all(comment="2N stop or 20-day low")
+lastFill := na

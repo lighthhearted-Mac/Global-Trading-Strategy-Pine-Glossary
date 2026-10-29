@@ -1,0 +1,16 @@
+//@version=5
+strategy("Heikin-Ashi Trend Flip", overlay=true)
+nRun = input.int(2, "Consecutive HA bars")
+atrF = input.float(0.5, "Min body as ATR fraction")
+var float haO = na
+var float haC = na
+haO := na(haO[1]) ? (open + close) / 2 : (haO[1] + haC[1]) / 2
+haC := (open + high + low + close) / 4
+body  = haC - haO
+upRun = nz(ta.barssince(body <= 0), 999)
+dnRun = nz(ta.barssince(body >= 0), 999)
+bigEnough = math.abs(body) > atrF * ta.atr(14)
+if upRun == nRun and bigEnough and strategy.position_size <= 0
+strategy.entry("L", strategy.long)
+if dnRun == nRun and bigEnough and strategy.position_size >= 0
+strategy.entry("S", strategy.short)

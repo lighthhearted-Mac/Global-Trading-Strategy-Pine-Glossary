@@ -1,0 +1,21 @@
+//@version=5
+strategy("WaveTrend Oscillator Cross", overlay=false)
+chLen  = input.int(10, "Channel length")
+avgLen = input.int(21, "Average length")
+obLv   = input.float(53, "Overbought")
+osLv   = input.float(-53, "Oversold")
+ap  = hlc3
+esa = ta.ema(ap, chLen)
+d   = ta.ema(math.abs(ap - esa), chLen)
+ci  = (ap - esa) / (0.015 * math.max(d, syminfo.mintick))
+wt1 = ta.ema(ci, avgLen)
+wt2 = ta.sma(wt1, 4)
+if ta.crossover(wt1, wt2) and wt1 < osLv
+strategy.entry("L", strategy.long)
+if ta.crossunder(wt1, wt2) and wt1 > obLv
+strategy.entry("S", strategy.short)
+plot(wt1, "WT1", color=color.teal)
+plot(wt2, "WT2", color=color.red)
+hline(obLv)
+hline(osLv)
+hline(0)

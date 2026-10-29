@@ -1,0 +1,17 @@
+//@version=5
+strategy("Ilan-style RSI+CCI Martingale (RISK DEMO)", overlay=false, pyramiding=8)
+rsiL = input.int(14, "RSI length")
+cciL = input.int(14, "CCI length")
+buyLv = input.float(30, "RSI buy level")
+stepAtr = input.float(1.0, "Spacing (ATR)")
+sizeMult = input.float(1.4, "Lot multiplier")
+r = ta.rsi(close, rsiL)
+c = ta.cci(close, cciL)
+atr = ta.atr(14)
+if strategy.position_size == 0 and r < buyLv and c < -100
+strategy.entry("I1", strategy.long, qty=1)
+if strategy.position_size > 0 and close <= strategy.position_avg_price - stepAtr * atr and strategy.opentrades < 8
+strategy.entry("I" + str.tostring(strategy.opentrades + 1), strategy.long,
+qty=math.pow(sizeMult, strategy.opentrades))
+if strategy.position_size > 0 and close >= strategy.position_avg_price + 0.3 * atr
+strategy.close_all(comment="Basket TP")

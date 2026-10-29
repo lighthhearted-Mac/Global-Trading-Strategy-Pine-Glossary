@@ -1,0 +1,17 @@
+//@version=5
+strategy("Dual MA Cross + ATR Stop", overlay=true)
+fastLen = input.int(50, "Fast MA")
+slowLen = input.int(200, "Slow MA")
+atrMult = input.float(3.0, "Stop ATR multiple")
+fast = ta.ema(close, fastLen)
+slow = ta.ema(close, slowLen)
+if ta.crossover(fast, slow)
+strategy.entry("L", strategy.long)
+if ta.crossunder(fast, slow)
+strategy.entry("S", strategy.short)
+if strategy.position_size > 0
+strategy.exit("LX", from_entry="L", stop=close - atrMult * ta.atr(14))
+if strategy.position_size < 0
+strategy.exit("SX", from_entry="S", stop=close + atrMult * ta.atr(14))
+plot(fast, "Fast EMA", color=color.teal)
+plot(slow, "Slow EMA", color=color.orange)

@@ -1,0 +1,11 @@
+//@version=5
+indicator("WorldQuant Alpha #1 (single-symbol proxy)", overlay=false)
+ret = ta.roc(close, 1) / 100
+sd = ta.stdev(ret, 20)
+src = ret < 0 ? sd : close
+// Ts_ArgMax over 5 bars of src^2: highestbars returns negative offset
+argIdx = ta.highestbars(math.pow(src, 2), 5)
+rankProxy = -argIdx / 5.0
+alpha = rankProxy - 0.5
+plot(alpha, "Alpha #1 proxy", color=alpha > 0 ? color.teal : color.red)
+hline(0)

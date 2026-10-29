@@ -1,0 +1,28 @@
+//@version=5
+strategy("Supply-Demand Zone Retest", overlay=true)
+impulse  = input.float(1.5, "Impulse ATR multiple")
+baseBars = input.int(3, "Base bars")
+atr = ta.atr(14)
+baseFlat = math.abs(ta.highest(high, baseBars) - ta.lowest(low, baseBars)) < atr
+bullBase = baseFlat[1] and close - close[baseBars] > impulse * atr
+bearBase = baseFlat[1] and close[baseBars] - close > impulse * atr
+var float dzTop = na
+var float dzBot = na
+var float szTop = na
+var float szBot = na
+if bullBase
+dzTop := ta.highest(high, baseBars)[1]
+dzBot := ta.lowest(low, baseBars)[1]
+if bearBase
+szTop := ta.highest(high, baseBars)[1]
+szBot := ta.lowest(low, baseBars)[1]
+demandRetest = not na(dzBot) and low <= dzTop and close > dzBot and strategy.position_size <= 0
+supplyRetest = not na(szTop) and high >= szBot and close < szTop and strategy.position_size >= 0
+if demandRetest
+strategy.entry("L", strategy.long)
+if supplyRetest
+strategy.entry("S", strategy.short)
+plot(dzTop, "Demand top", color=color.teal, style=plot.style_linebr)
+plot(dzBot, "Demand bottom", color=color.teal, style=plot.style_linebr)
+plot(szTop, "Supply top", color=color.red, style=plot.style_linebr)
+plot(szBot, "Supply bottom", color=color.red, style=plot.style_linebr)

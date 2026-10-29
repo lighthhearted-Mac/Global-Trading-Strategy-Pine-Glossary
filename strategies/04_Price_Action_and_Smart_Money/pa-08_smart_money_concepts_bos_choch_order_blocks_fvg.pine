@@ -1,0 +1,32 @@
+//@version=5
+strategy("SMC: BOS + Order Block Retrace", overlay=true)
+swingLen = input.int(10, "Swing length")
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+var float lastHigh = na
+var float lastLow = na
+var int bias = 0
+var float obTop = na
+var float obBot = na
+if not na(ph)
+lastHigh := ph
+if not na(pl)
+lastLow := pl
+if not na(lastHigh) and close > lastHigh and nz(bias[1]) <= 0
+bias := 1
+obTop := lastHigh
+obBot := ta.lowest(low, swingLen)
+if not na(lastLow) and close < lastLow and nz(bias[1]) >= 0
+bias := -1
+obTop := ta.highest(high, swingLen)
+obBot := lastLow
+retraceLong  = bias == 1 and not na(obBot) and low <= obTop and close > obBot
+retraceShort = bias == -1 and not na(obTop) and high >= obBot and close < obTop
+if retraceLong
+strategy.entry("L", strategy.long)
+if retraceShort
+strategy.entry("S", strategy.short)
+plot(bias == 1 ? obTop : na, "Bull OB top", color=color.teal, style=plot.style_linebr)
+plot(bias == 1 ? obBot : na, "Bull OB bottom", color=color.teal, style=plot.style_linebr)
+plot(bias == -1 ? obTop : na, "Bear OB top", color=color.red, style=plot.style_linebr)
+plot(bias == -1 ? obBot : na, "Bear OB bottom", color=color.red, style=plot.style_linebr)

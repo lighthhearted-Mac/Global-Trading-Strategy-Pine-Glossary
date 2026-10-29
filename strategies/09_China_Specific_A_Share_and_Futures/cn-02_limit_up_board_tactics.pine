@@ -1,0 +1,13 @@
+//@version=5
+strategy("Limit-Up Board Continuation (打板, generalized)", overlay=true)
+limitPct = input.float(10.0, "Daily limit %")
+tol = input.float(0.002, "Price tolerance")
+lim = close[1] * (1 + limitPct / 100)
+limitUp = close >= lim * (1 - tol) and close == high
+firstBoard = limitUp and not limitUp[1]
+if firstBoard
+strategy.entry("L", strategy.long, comment="Next-open continuation")
+if strategy.position_size > 0 and not limitUp
+strategy.close("L", comment="No follow-through")
+if strategy.position_size > 0 and nz(ta.barssince(firstBoard)) > 3
+strategy.close("L", comment="Time stop")

@@ -1,0 +1,12 @@
+//@version=5
+indicator("Ehlers SuperSmoother", overlay=true)
+len = input.int(10, "Length")
+price = hl2
+a1 = math.exp(-1.414 * 3.14159 / len)
+b1 = 2.0 * a1 * math.cos(1.414 * 3.14159 / len)
+c2 = b1
+c3 = -a1 * a1
+c1 = 1.0 - c2 - c3
+var float ss = na
+ss := c1 * (price + nz(price[1])) / 2.0 + c2 * nz(ss[1]) + c3 * nz(ss[2])
+plot(ss, "SuperSmoother", color=color.teal)

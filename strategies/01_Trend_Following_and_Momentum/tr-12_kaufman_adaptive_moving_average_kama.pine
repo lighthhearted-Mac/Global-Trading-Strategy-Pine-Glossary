@@ -1,0 +1,16 @@
+//@version=5
+strategy("Kaufman Adaptive MA Trend", overlay=true)
+len   = input.int(10, "Efficiency window")
+fastE = input.int(2, "Fast smoothing")
+slowE = input.int(30, "Slow smoothing")
+chg = math.abs(close - close[len])
+vol = math.sum(math.abs(ta.change(close)), len)
+er  = chg / math.max(vol, syminfo.mintick)
+sc  = math.pow(er * (2.0 / (fastE + 1) - 2.0 / (slowE + 1)) + 2.0 / (slowE + 1), 2)
+var float kama = na
+kama := na(kama[1]) ? close : kama[1] + sc * (close - kama[1])
+if ta.crossover(close, kama)
+strategy.entry("L", strategy.long)
+if ta.crossunder(close, kama)
+strategy.entry("S", strategy.short)
+plot(kama, "KAMA", color=color.teal)

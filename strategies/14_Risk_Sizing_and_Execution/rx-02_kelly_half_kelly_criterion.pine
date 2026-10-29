@@ -1,0 +1,9 @@
+//@version=5
+indicator("Kelly Sizing Helper", overlay=false)
+winRate = input.float(55.0, "Win rate %")
+avgWin  = input.float(1.8, "Average win (R)")
+avgLoss = input.float(1.0, "Average loss (R)")
+kelly(p, b) => p - (1 - p) / b
+f = kelly(winRate / 100, avgWin / avgLoss)
+plot(f * 100, "Kelly %", color=f > 0 ? color.teal : color.red)
+hline(0)

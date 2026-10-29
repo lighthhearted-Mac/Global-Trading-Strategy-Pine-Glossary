@@ -1,0 +1,19 @@
+//@version=5
+strategy("Donchian 20-10 Breakout", overlay=true,
+default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+nIn  = input.int(20, "Entry channel")
+nOut = input.int(10, "Exit channel")
+hi   = ta.highest(high, nIn)[1]
+lo   = ta.lowest(low, nIn)[1]
+xHi  = ta.highest(high, nOut)[1]
+xLo  = ta.lowest(low, nOut)[1]
+if strategy.position_size == 0 and close > hi
+strategy.entry("L", strategy.long)
+if strategy.position_size > 0 and close < xLo
+strategy.close("L", comment="Exit channel")
+if strategy.position_size == 0 and close < lo
+strategy.entry("S", strategy.short)
+if strategy.position_size < 0 and close > xHi
+strategy.close("S", comment="Exit channel")
+plot(hi, "Entry High", color=color.teal)
+plot(lo, "Entry Low", color=color.red)

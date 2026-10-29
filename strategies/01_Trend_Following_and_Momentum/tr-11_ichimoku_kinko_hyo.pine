@@ -1,0 +1,19 @@
+//@version=5
+strategy("Ichimoku Kinko Hyo", overlay=true)
+donchian(len) => math.avg(ta.highest(high, len), ta.lowest(low, len))
+tenkan = donchian(9)
+kijun  = donchian(26)
+spanA  = math.avg(tenkan, kijun)
+spanB  = donchian(52)
+cloudHi = math.max(spanA[26], spanB[26])
+cloudLo = math.min(spanA[26], spanB[26])
+longCond  = close > kijun and close > cloudHi and tenkan > kijun
+shortCond = close < kijun and close < cloudLo and tenkan < kijun
+if longCond
+strategy.entry("L", strategy.long)
+if shortCond
+strategy.entry("S", strategy.short)
+plot(tenkan, "Tenkan", color=color.teal)
+plot(kijun, "Kijun", color=color.red)
+plot(spanA, "Span A", color=color.new(color.teal, 60), offset=26)
+plot(spanB, "Span B", color=color.new(color.red, 60), offset=26)

@@ -1,0 +1,15 @@
+//@version=5
+strategy("Engulfing with Trend Filter", overlay=true)
+bodyUp = close > open and close[1] < open[1] and close >= open[1] and open <= close[1]
+bodyDn = close < open and close[1] > open[1] and close <= open[1] and open >= close[1]
+upTrend = close > ta.ema(close, 50)
+dnTrend = close < ta.ema(close, 50)
+atr = ta.atr(14)
+if bodyUp and upTrend
+strategy.entry("L", strategy.long)
+if bodyDn and dnTrend
+strategy.entry("S", strategy.short)
+if strategy.position_size > 0 and close < strategy.position_avg_price - 1.5 * atr
+strategy.close("L", comment="Stop")
+if strategy.position_size < 0 and close > strategy.position_avg_price + 1.5 * atr
+strategy.close("S", comment="Stop")

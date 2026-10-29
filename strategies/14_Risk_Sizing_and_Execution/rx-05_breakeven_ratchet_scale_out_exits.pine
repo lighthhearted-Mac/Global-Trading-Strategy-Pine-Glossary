@@ -1,0 +1,17 @@
+//@version=5
+strategy("Breakeven Ratchet Exit Shell", overlay=true)
+rMult  = input.float(1.0, "BE at (R)")
+atrMult = input.float(2.0, "Initial stop ATR")
+atr = ta.atr(14)
+if strategy.position_size == 0
+strategy.entry("L", strategy.long)
+var float stopPx = na
+if strategy.position_size > 0
+if na(stopPx)
+stopPx := strategy.position_avg_price - atrMult * atr
+gainR = (high - strategy.position_avg_price) / (atrMult * atr)
+if gainR >= rMult
+stopPx := math.max(stopPx, strategy.position_avg_price)
+strategy.exit("LX", from_entry="L", stop=stopPx)
+if strategy.position_size == 0
+stopPx := na

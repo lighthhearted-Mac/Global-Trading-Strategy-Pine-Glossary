@@ -1,0 +1,12 @@
+//@version=5
+strategy("Parabolic SAR Flip", overlay=true)
+start = input.float(0.02, "Start")
+inc   = input.float(0.02, "Increment")
+maxv  = input.float(0.2, "Max")
+sar = ta.sar(start, inc, maxv)
+if close > sar and strategy.position_size <= 0
+strategy.entry("L", strategy.long)
+if close < sar and strategy.position_size >= 0
+strategy.entry("S", strategy.short)
+plot(sar, "SAR", style=plot.style_circles,
+color=strategy.position_size >= 0 ? color.teal : color.red)

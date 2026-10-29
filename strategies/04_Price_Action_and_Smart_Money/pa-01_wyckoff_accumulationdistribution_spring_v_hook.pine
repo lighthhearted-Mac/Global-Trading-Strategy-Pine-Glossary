@@ -1,0 +1,23 @@
+//@version=5
+strategy("Wyckoff Spring / Upthrust (V-Hook)", overlay=true)
+rangeLen = input.int(30, "Range lookback")
+depthMax = input.float(1.0, "Max sweep depth (ATR)")
+volMult  = input.float(1.5, "Volume multiple")
+rngHi = ta.highest(high, rangeLen)[1]
+rngLo = ta.lowest(low, rangeLen)[1]
+atr   = ta.atr(14)
+flat    = (rngHi - rngLo) / rngLo < 0.15
+swept   = low < rngLo and rngLo - low <= depthMax * atr and close > rngLo
+upthrust = flat and high > rngHi and high - rngHi <= depthMax * atr and close < rngHi
+volSpike = volume > volMult * ta.sma(volume, 20)
+spring = flat and swept and volSpike
+if spring
+strategy.entry("L", strategy.long)
+if upthrust and volSpike
+strategy.entry("S", strategy.short)
+if strategy.position_size > 0 and close < rngLo - 2 * atr
+strategy.close("L", comment="Failed spring")
+if strategy.position_size < 0 and close > rngHi + 2 * atr
+strategy.close("S", comment="Failed upthrust")
+plot(rngHi, "Range high", color=color.new(color.teal, 40))
+plot(rngLo, "Range low", color=color.new(color.red, 40))

@@ -1,0 +1,16 @@
+//@version=5
+strategy("Spot Grid Bot (Ladder)", overlay=true, pyramiding=30)
+gridCount = input.int(10, "Grid levels")
+stepPct   = input.float(1.0, "Grid step, %")
+qtyPct    = input.float(10.0, "Order size, % of equity")
+var float lastBuy = na
+qty() => (strategy.equity * qtyPct / 100) / close
+if strategy.position_size == 0
+strategy.entry("G0", strategy.long, qty=qty())
+strategy.exit("TP0", from_entry="G0", limit=close * (1 + stepPct / 100))
+lastBuy := close
+if strategy.position_size > 0 and not na(lastBuy) and close <= lastBuy * (1 - stepPct / 100) and strategy.opentrades < gridCount
+id = "G" + str.tostring(strategy.opentrades)
+strategy.entry(id, strategy.long, qty=qty())
+strategy.exit("TP" + str.tostring(strategy.opentrades), from_entry=id, limit=close * (1 + stepPct / 100))
+lastBuy := close

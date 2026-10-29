@@ -1,0 +1,28 @@
+//@version=5
+strategy("London Breakout (Asia Range)", overlay=true)
+asiaSess = input.session("0000-0700", "Asia range")
+tz       = input.string("UTC", "Timezone")
+inAsia  = not na(time(timeframe.period, asiaSess, tz))
+var float aHi = na
+var float aLo = na
+if inAsia
+aHi := na(aHi) ? high : math.max(aHi, high)
+aLo := na(aLo) ? low  : math.min(aLo, low)
+var bool tradedToday = false
+newDay = ta.change(time("D")) != 0
+if newDay
+tradedToday := false
+canTrade = not inAsia and not tradedToday and not na(aHi)
+if canTrade and close > aHi
+strategy.entry("L", strategy.long)
+tradedToday := true
+if canTrade and close < aLo
+strategy.entry("S", strategy.short)
+tradedToday := true
+rng = aHi - aLo
+if strategy.position_size > 0
+strategy.exit("LX", from_entry="L", stop=aLo, limit=aHi + rng)
+if strategy.position_size < 0
+strategy.exit("SX", from_entry="S", stop=aHi, limit=aLo - rng)
+plot(inAsia ? aHi : na, "Asia High", color=color.teal, style=plot.style_linebr)
+plot(inAsia ? aLo : na, "Asia Low", color=color.red, style=plot.style_linebr)

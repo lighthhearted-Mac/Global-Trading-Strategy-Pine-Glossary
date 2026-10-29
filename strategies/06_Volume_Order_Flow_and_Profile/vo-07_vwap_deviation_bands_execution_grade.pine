@@ -1,0 +1,11 @@
+//@version=5
+indicator("Session VWAP + Deviation Bands", overlay=true)
+b1 = input.float(1.0, "Band 1 (stdev)")
+b2 = input.float(2.0, "Band 2 (stdev)")
+v = ta.vwap(hlc3)
+dev = ta.stdev(close - v, 50)
+plot(v, "VWAP", color=color.orange)
+plot(v + b1 * dev, "+1", color=color.new(color.teal, 40))
+plot(v - b1 * dev, "-1", color=color.new(color.teal, 40))
+plot(v + b2 * dev, "+2", color=color.new(color.red, 40))
+plot(v - b2 * dev, "-2", color=color.new(color.red, 40))

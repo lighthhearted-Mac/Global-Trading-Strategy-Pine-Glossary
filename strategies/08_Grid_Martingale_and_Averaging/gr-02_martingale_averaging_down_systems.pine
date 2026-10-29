@@ -1,0 +1,12 @@
+//@version=5
+strategy("ATR Martingale Averager (RISK DEMO)", overlay=true, pyramiding=10)
+mult    = input.float(2.0, "Size multiplier")
+stepAtr = input.float(1.0, "Add every N ATR")
+atr = ta.atr(14)
+if strategy.position_size == 0
+strategy.entry("M1", strategy.long, qty=1)
+if strategy.position_size > 0 and close <= strategy.position_avg_price - stepAtr * atr
+strategy.entry("M" + str.tostring(strategy.opentrades + 1), strategy.long,
+qty=math.pow(mult, strategy.opentrades))
+if strategy.position_size > 0 and close >= strategy.position_avg_price + 0.25 * atr
+strategy.close_all(comment="Basket recovery")

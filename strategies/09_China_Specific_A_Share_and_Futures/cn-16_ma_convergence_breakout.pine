@@ -1,0 +1,15 @@
+//@version=5
+strategy("MA Convergence Breakout (均线粘合突破)", overlay=true)
+ma1 = ta.sma(close, 5)
+ma2 = ta.sma(close, 10)
+ma3 = ta.sma(close, 20)
+ma4 = ta.sma(close, 60)
+hiMa = math.max(ma1, math.max(ma2, math.max(ma3, ma4)))
+loMa = math.min(ma1, math.min(ma2, math.min(ma3, ma4)))
+spread = (hiMa - loMa) / close
+glued = spread < 0.03
+if glued and close > hiMa and volume > 1.5 * ta.sma(volume, 20)
+strategy.entry("L", strategy.long)
+atr = ta.atr(14)
+if strategy.position_size > 0 and close < strategy.position_avg_price - 2 * atr
+strategy.close("L", comment="Stop")

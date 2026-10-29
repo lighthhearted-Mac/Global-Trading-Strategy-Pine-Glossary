@@ -1,0 +1,26 @@
+//@version=5
+strategy("TTM Squeeze", overlay=false)
+lenBB = input.int(20, "BB length")
+multBB = input.float(2.0, "BB mult")
+lenKC = input.int(20, "KC length")
+multKC = input.float(1.5, "KC mult")
+basis = ta.sma(close, lenBB)
+dev   = multBB * ta.stdev(close, lenBB)
+bbU   = basis + dev
+bbL   = basis - dev
+ma    = ta.ema(close, lenKC)
+rng   = ta.atr(lenKC)
+kcU   = ma + multKC * rng
+kcL   = ma - multKC * rng
+squeezeOn = bbU < kcU and bbL > kcL
+mom = ta.linreg(close - math.avg(math.avg(ta.highest(high, lenKC),
+ta.lowest(low, lenKC)), ta.sma(close, lenKC)), lenKC, 0)
+fired = squeezeOn[1] and not squeezeOn
+if fired and mom > 0
+strategy.entry("L", strategy.long)
+if fired and mom < 0
+strategy.entry("S", strategy.short)
+plot(mom, "Momentum", style=plot.style_histogram,
+color=mom >= 0 ? color.teal : color.red)
+hline(0)
+bgcolor(squeezeOn ? color.new(color.orange, 80) : na)

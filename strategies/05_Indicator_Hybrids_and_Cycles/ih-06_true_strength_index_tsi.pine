@@ -1,0 +1,13 @@
+//@version=5
+indicator("True Strength Index", overlay=false)
+lenL = input.int(25, "Long length")
+lenS = input.int(13, "Short length")
+sigLen = input.int(13, "Signal length")
+m = ta.mom(close, 1)
+tsiVal = 100 * ta.ema(ta.ema(m, lenL), lenS) / ta.ema(ta.ema(math.abs(m), lenL), lenS)
+sig = ta.ema(tsiVal, sigLen)
+plot(tsiVal, "TSI", color=color.teal)
+plot(sig, "Signal", color=color.red)
+hline(0)
+hline(25)
+hline(-25)

@@ -1,0 +1,12 @@
+//@version=5
+strategy("Bollinger Band Reversion", overlay=true)
+len  = input.int(20, "Length")
+mult = input.float(2.0, "StdDev")
+basis = ta.sma(close, len)
+dev   = mult * ta.stdev(close, len)
+lower = basis - dev
+trendUp = close > ta.sma(close, 200)
+if trendUp and close < lower
+strategy.entry("L", strategy.long)
+if strategy.position_size > 0 and close >= basis
+strategy.close("L", comment="Mean reversion")

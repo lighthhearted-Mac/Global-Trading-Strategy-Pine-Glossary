@@ -1,0 +1,16 @@
+//@version=5
+indicator("VCP Contraction Scan", overlay=true)
+lookback = input.int(60, "Base lookback")
+stages   = input.int(3, "Contraction stages")
+seg = int(lookback / stages)
+depth(k) => (ta.highest(high, k) - ta.lowest(low, k)) / ta.lowest(low, k) * 100
+d1 = depth(seg)
+d2 = depth(seg * 2)
+d3 = depth(seg * 3)
+contracting = d1 < d2 and d2 < d3
+dryUp = ta.sma(volume, 10) < 0.6 * ta.sma(volume, 50)
+breakout = close > ta.highest(high, seg)[1] and volume > 1.5 * ta.sma(volume, 50)
+plotshape(contracting and dryUp, "Contraction + dry-up", shape.circle,
+location.belowbar, color=color.orange, size=size.tiny)
+plotshape(breakout and contracting[1], "Breakout", shape.triangleup,
+location.belowbar, color=color.teal, size=size.small)

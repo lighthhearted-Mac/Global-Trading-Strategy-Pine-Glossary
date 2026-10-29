@@ -1,0 +1,24 @@
+//@version=5
+strategy("RSI Regular Divergence", overlay=false)
+rsiLen = input.int(14, "RSI")
+lbL = input.int(5, "Pivot left")
+lbR = input.int(5, "Pivot right")
+rsi = ta.rsi(close, rsiLen)
+pl  = ta.pivotlow(rsi, lbL, lbR)
+var float lastPL = na
+var float prevPL = na
+var float lastPLPrice = na
+var float prevPLPrice = na
+if not na(pl)
+prevPL      := lastPL
+prevPLPrice := lastPLPrice
+lastPL      := pl
+lastPLPrice := low[lbR]
+bullDiv = not na(prevPL) and lastPL > prevPL and lastPLPrice < prevPLPrice
+if bullDiv and close > ta.sma(close, 200)
+strategy.entry("L", strategy.long)
+if strategy.position_size > 0 and ta.crossunder(rsi, 70)
+strategy.close("L", comment="RSI roll")
+plot(rsi, "RSI", color=color.teal)
+hline(30)
+hline(70)

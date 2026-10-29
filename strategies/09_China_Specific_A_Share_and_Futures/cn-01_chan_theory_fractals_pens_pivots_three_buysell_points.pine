@@ -1,0 +1,25 @@
+//@version=5
+strategy("Chanlun-style Pivot (Zhongshu) Breakout", overlay=true)
+segLen = input.int(10, "Segment window")
+atr = ta.atr(14)
+// Overlap of three consecutive segment ranges approximates the zhongshu
+hi1 = ta.highest(high, segLen)
+lo1 = ta.lowest(low, segLen)
+hi2 = ta.highest(high, segLen)[segLen]
+lo2 = ta.lowest(low, segLen)[segLen]
+hi3 = ta.highest(high, segLen)[2 * segLen]
+lo3 = ta.lowest(low, segLen)[2 * segLen]
+zg = math.min(hi1, math.min(hi2, hi3))
+zd = math.max(lo1, math.max(lo2, lo3))
+hasPivot = zg > zd
+var bool broke = false
+if hasPivot and close > zg
+broke := true
+thirdBuy  = broke and low > zg and close > open
+thirdSell = not hasPivot or close < zd
+if thirdBuy and strategy.position_size <= 0
+strategy.entry("L", strategy.long)
+if thirdSell and strategy.position_size > 0
+strategy.close("L", comment="Pivot invalidated")
+plot(zg, "ZG (pivot top)", color=color.teal)
+plot(zd, "ZD (pivot bottom)", color=color.red)

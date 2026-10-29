@@ -1,0 +1,18 @@
+//@version=5
+strategy("Ehlers Fisher Transform", overlay=false)
+len = input.int(9, "Length")
+hh  = ta.highest(high, len)
+ll  = ta.lowest(low, len)
+rng = math.max(hh - ll, syminfo.mintick)
+var float val = 0.0
+var float fish = 0.0
+val  := 0.33 * 2.0 * ((close - ll) / rng - 0.5) + 0.67 * nz(val[1])
+val  := math.max(math.min(val, 0.999), -0.999)
+fish := 0.5 * math.log((1 + val) / (1 - val)) + 0.5 * nz(fish[1])
+if ta.crossover(fish, nz(fish[1])) and fish < 0
+strategy.entry("L", strategy.long)
+if ta.crossunder(fish, nz(fish[1])) and fish > 0
+strategy.entry("S", strategy.short)
+plot(fish, "Fisher", color=color.teal)
+plot(nz(fish[1]), "Trigger", color=color.red)
+hline(0)
