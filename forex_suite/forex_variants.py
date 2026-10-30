@@ -170,55 +170,59 @@ class KimBotForexAgent:
         # Bullish Value-Zone Pullback + Macro Alignment
         if fast > slow and yield_slope >= self.config.kimbot_min_yield_slope:
             # Price dipped into Value Zone (between EMA 21 and 55) and RSI pulled back without breaking trend
-            if lo <= fast and c >= slow and (35.0 <= rsi <= 52.0):
+            if lo <= fast and c >= slow * 0.9995 and (35.0 <= rsi <= 55.0):
                 sl = slow - (self.config.kimbot_stop_loss_atr_mult * atr)
-                tp = c + (self.config.kimbot_take_profit_atr_mult * atr)
-                proposals.append(
-                    Proposal(
-                        id=f"PROP-KIMBOT-FX-BUY-{int(row.get('time_ts', 0)) if 'time_ts' in row else len(df)}",
-                        symbol=self.config.symbol,
-                        source=self.source,
-                        kind="trade_entry",
-                        confidence=0.86,
-                        rationale=f"KimBot_Forex Value Zone Pullback (EMA 21/55) with Yield Slope {yield_slope:+.3f} & RSI {rsi:.1f}",
-                        payload={
-                            "direction": "buy",
-                            "strategy": "kimbot_forex_value_pullback",
-                            "entry_price": c,
-                            "stop_loss": sl,
-                            "take_profit": tp,
-                            "yield_slope": yield_slope,
-                            "current_atr": atr,
-                            "regime": "ranging" if abs(fast - slow) / c < 0.005 else "trending_up"
-                        }
+                risk = c - sl
+                if risk > 0.0004:
+                    tp = c + (risk * 2.0)  # Institutional 2.0:1 R:R
+                    proposals.append(
+                        Proposal(
+                            id=f"PROP-KIMBOT-FX-BUY-{int(row.get('time_ts', 0)) if 'time_ts' in row else len(df)}",
+                            symbol=self.config.symbol,
+                            source=self.source,
+                            kind="trade_entry",
+                            confidence=0.86,
+                            rationale=f"KimBot_Forex Value Zone Pullback (EMA 21/55) with Yield Slope {yield_slope:+.3f} & RSI {rsi:.1f} (2.0R Target)",
+                            payload={
+                                "direction": "buy",
+                                "strategy": "kimbot_forex_value_pullback",
+                                "entry_price": c,
+                                "stop_loss": sl,
+                                "take_profit": tp,
+                                "yield_slope": yield_slope,
+                                "current_atr": atr,
+                                "regime": "trending_up"
+                            }
+                        )
                     )
-                )
 
         # Bearish Value-Zone Rally Fade + Macro Alignment
         elif fast < slow and yield_slope <= -self.config.kimbot_min_yield_slope:
-            if hi >= fast and c <= slow and (48.0 <= rsi <= 65.0):
+            if hi >= fast and c <= slow * 1.0005 and (45.0 <= rsi <= 65.0):
                 sl = slow + (self.config.kimbot_stop_loss_atr_mult * atr)
-                tp = c - (self.config.kimbot_take_profit_atr_mult * atr)
-                proposals.append(
-                    Proposal(
-                        id=f"PROP-KIMBOT-FX-SELL-{int(row.get('time_ts', 0)) if 'time_ts' in row else len(df)}",
-                        symbol=self.config.symbol,
-                        source=self.source,
-                        kind="trade_entry",
-                        confidence=0.86,
-                        rationale=f"KimBot_Forex Value Zone Rally Fade (EMA 21/55) with Yield Slope {yield_slope:+.3f} & RSI {rsi:.1f}",
-                        payload={
-                            "direction": "sell",
-                            "strategy": "kimbot_forex_value_pullback",
-                            "entry_price": c,
-                            "stop_loss": sl,
-                            "take_profit": tp,
-                            "yield_slope": yield_slope,
-                            "current_atr": atr,
-                            "regime": "ranging" if abs(fast - slow) / c < 0.005 else "trending_down"
-                        }
+                risk = sl - c
+                if risk > 0.0004:
+                    tp = c - (risk * 2.0)  # Institutional 2.0:1 R:R
+                    proposals.append(
+                        Proposal(
+                            id=f"PROP-KIMBOT-FX-SELL-{int(row.get('time_ts', 0)) if 'time_ts' in row else len(df)}",
+                            symbol=self.config.symbol,
+                            source=self.source,
+                            kind="trade_entry",
+                            confidence=0.86,
+                            rationale=f"KimBot_Forex Value Zone Rally Fade (EMA 21/55) with Yield Slope {yield_slope:+.3f} & RSI {rsi:.1f} (2.0R Target)",
+                            payload={
+                                "direction": "sell",
+                                "strategy": "kimbot_forex_value_pullback",
+                                "entry_price": c,
+                                "stop_loss": sl,
+                                "take_profit": tp,
+                                "yield_slope": yield_slope,
+                                "current_atr": atr,
+                                "regime": "trending_down"
+                            }
+                        )
                     )
-                )
 
         return proposals
 
@@ -310,6 +314,104 @@ class SMCForexAgent:
                             "gap_size_pips": gap_size / pip,
                             "target_rr": self.config.smc_target_rr_mult,
                             "regime": "trending_down"
+                        }
+                    )
+                )
+
+        return proposals
+
+
+
+class ChopForexAgent:
+    """
+    Forex-Adapted Range Mean Reversion Agent (Asian Session & Low-ADX Chop).
+    Specialized for Regime 2 (Range / Chop). Enforces positive R:R >= 1.4:1
+    targeting the middle Bollinger Band / 20 EMA.
+    """
+
+    def __init__(self, config: Optional[ForexVariantConfig] = None):
+        self.config = config or ForexVariantConfig()
+        self.source = "chop_forex_agent"
+
+    def generate_proposals(self, df: pd.DataFrame, current_context: Optional[Dict[str, Any]] = None) -> List[Proposal]:
+        proposals = []
+        if len(df) < 25:
+            return proposals
+
+        row = df.iloc[-1]
+        c = float(row["close"])
+        o = float(row["open"])
+        h = float(row["high"])
+        l = float(row["low"])
+
+        regime = current_context.get("regime", "ranging") if current_context else "ranging"
+        range_to_adr = float(current_context.get("range_to_adr", 0.50)) if current_context else 0.50
+
+        # Don't enter range chop if ADR is already exhausted (>= 85%)
+        if range_to_adr >= 0.85:
+            return proposals
+
+        atr = float(row.get("atr_14", (df["high"] - df["low"]).iloc[-14:].mean()))
+        bb_mid = float(df["close"].iloc[-20:].mean())
+        bb_std = float(df["close"].iloc[-20:].std())
+        bb_up = bb_mid + 2.0 * bb_std
+        bb_lo = bb_mid - 2.0 * bb_std
+
+        d = df["close"].diff()
+        gain = d.clip(lower=0).iloc[-14:].mean()
+        loss = (-d.clip(upper=0)).iloc[-14:].mean()
+        rsi = 100.0 - (100.0 / (1.0 + (gain / (loss + 1e-10))))
+
+        # Long bounce off lower band
+        if l <= bb_lo and rsi < 35.0 and c > o:
+            sl = l - (0.4 * atr)
+            tp = bb_mid
+            risk = c - sl
+            reward = tp - c
+            if risk >= 0.0005 and reward >= risk * 1.40:
+                proposals.append(
+                    Proposal(
+                        id=f"PROP-CHOP-FX-BUY-{int(row.get('time_ts', 0)) if 'time_ts' in row else len(df)}",
+                        symbol=self.config.symbol,
+                        source=self.source,
+                        kind="trade_entry",
+                        confidence=0.85,
+                        rationale=f"Chop_Forex Lower BB Reversal at {bb_lo:.5f} with RSI {rsi:.1f} (R:R {reward/risk:.2f}:1)",
+                        payload={
+                            "direction": "buy",
+                            "strategy": "range_mean_reversion",
+                            "entry_price": c,
+                            "stop_loss": sl,
+                            "take_profit": tp,
+                            "current_atr": atr,
+                            "regime": "ranging"
+                        }
+                    )
+                )
+
+        # Short rejection off upper band
+        elif h >= bb_up and rsi > 65.0 and c < o:
+            sl = h + (0.4 * atr)
+            tp = bb_mid
+            risk = sl - c
+            reward = c - tp
+            if risk >= 0.0005 and reward >= risk * 1.40:
+                proposals.append(
+                    Proposal(
+                        id=f"PROP-CHOP-FX-SELL-{int(row.get('time_ts', 0)) if 'time_ts' in row else len(df)}",
+                        symbol=self.config.symbol,
+                        source=self.source,
+                        kind="trade_entry",
+                        confidence=0.85,
+                        rationale=f"Chop_Forex Upper BB Rejection at {bb_up:.5f} with RSI {rsi:.1f} (R:R {reward/risk:.2f}:1)",
+                        payload={
+                            "direction": "sell",
+                            "strategy": "range_mean_reversion",
+                            "entry_price": c,
+                            "stop_loss": sl,
+                            "take_profit": tp,
+                            "current_atr": atr,
+                            "regime": "ranging"
                         }
                     )
                 )
