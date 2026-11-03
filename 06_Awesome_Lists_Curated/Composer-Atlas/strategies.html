@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/strategies">
+  <link rel="canonical" href="https://composeratlas.com/strategies">
+  <meta property="og:title" content="Featured Strategies, Fully Broken Down">
+  <meta property="og:description" content="A curated set of Composer.trade strategies with backtested performance metrics, risk profiles, and a full breakdown of the logic each one runs on.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="A curated set of Composer.trade strategies with backtested performance metrics, risk profiles, and a full breakdown of the logic each one runs on.">
+  <title>Strategies: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+      <div id="content">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="data/strategies.js"></script>
+  <script src="data/strategy_extras.js"></script>
+  <script src="data/glossary.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async function () {
+      const slug = new URLSearchParams(window.location.search).get('slug');
+
+      if (!slug) {
+        // ---- Listing view ----
+        // Sorted by longest backtest first, same as the homepage strategy grid.
+        const strategies = await loadStrategies();
+        const sorted = [...strategies].sort((a, b) => b.backtest_days - a.backtest_days);
+
+        // Tag filter. Tags already exist on every strategy and were previously
+        // read-only labels; these make them selectable. Multi-select is AND
+        // (a strategy must carry every selected tag), which is what makes
+        // combining a signal tag with an asset-class tag useful.
+        // Selections live in the ?tags= query param so a filtered view is
+        // linkable and survives a refresh or a back-navigation from a detail page.
+        const TAG_GROUPS = [
+          { label: 'Signal', tags: ['rsi', '200d-ma', 'momentum', 'macd', 'mean-reversion', 'vix-tiers'] },
+          { label: 'Risk metric', tags: ['sharpe-ratio', 'calmar-ratio', 'max-drawdown', 'standard-deviation'] },
+          { label: 'Asset class', tags: ['leveraged-etfs', 'inverse-etfs', 'managed-futures'] },
+          { label: 'Collection', tags: ['zoop', 'original'] },
+        ];
+
+        const tagCounts = {};
+        strategies.forEach(s => (s.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+
+        // Only offer tags that actually exist in the data, so the filter bar
+        // can never present a combination that returns nothing.
+        const groups = TAG_GROUPS
+          .map(g => ({ label: g.label, tags: g.tags.filter(t => tagCounts[t]) }))
+          .filter(g => g.tags.length);
+        // Anything tagged in the data but missing from the groups above still
+        // gets offered, so new tags never silently disappear from the filter.
+        const grouped = new Set(groups.flatMap(g => g.tags));
+        const ungrouped = Object.keys(tagCounts).filter(t => !grouped.has(t)).sort();
+        if (ungrouped.length) groups.push({ label: 'Other', tags: ungrouped });
+
+        const params = new URLSearchParams(window.location.search);
+        let active = (params.get('tags') || '').split(',').map(t => t.trim()).filter(t => tagCounts[t]);
+
+        function syncUrl() {
+          const p = new URLSearchParams(window.location.search);
+          if (active.length) p.set('tags', active.join(','));
+          else p.delete('tags');
+          const qs = p.toString();
+          history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+        }
+
+        function filterBarHtml() {
+          const groupsHtml = groups.map(g => `
+            <div class="tagfilter-group">
+              <span class="tagfilter-label">${g.label}</span>
+              <div class="tagfilter-tags">
+                ${g.tags.map(t => `
+                  <button type="button"
+                    class="tag ${tagClass(t)} tagfilter-tag${active.includes(t) ? ' active' : ''}"
+                    data-tag="${t}"
+                    aria-pressed="${active.includes(t)}">${tagLabel(t)} <span class="tagfilter-count">${tagCounts[t]}</span></button>
+                `).join('')}
+              </div>
+            </div>
+          `).join('');
+          return `
+            <div class="tagfilter">
+              <div class="tagfilter-head">
+                <span class="tagfilter-title">Filter by tag</span>
+                <button type="button" id="tagfilter-clear" class="tagfilter-clear"${active.length ? '' : ' hidden'}>Clear all</button>
+              </div>
+              ${groupsHtml}
+            </div>
+          `;
+        }
+
+        function visibleStrategies() {
+          if (!active.length) return sorted;
+          return sorted.filter(s => {
+            const t = s.tags || [];
+            return active.every(a => t.includes(a));
+          });
+        }
+
+        function render() {
+          const shown = visibleStrategies();
+          document.getElementById('content').innerHTML = `
+            <div style="max-width:600px;margin-bottom:40px">
+              <h1 style="color:var(--color-primary);margin-bottom:8px">Strategies</h1>
+              <p style="color:var(--color-secondary);font-size:1.0625rem">
+                Backtested systematic investment strategies for Composer.trade, with full
+                performance metrics and logic breakdowns. These are merely a set of featured,
+                highlighted strategies. If you'd like to explore thousands more symphonies,
+                check out the full
+                <a href="${u('/database.html')}" style="color:var(--color-green)">Database</a>.
+              </p>
+            </div>
+            ${filterBarHtml()}
+            <div class="section-header">
+              <h2 style="color:var(--color-primary)">All Strategies</h2>
+              <span class="section-count">${
+                active.length
+                  ? `${shown.length} of ${strategies.length} strategies`
+                  : `${strategies.length} strategies`
+              }</span>
+            </div>
+            ${shown.length
+              ? `<div class="grid-3">${shown.map(renderStrategyCard).join('')}</div>`
+              : `<div class="empty-state">
+                   <p class="empty-eyebrow">No matches</p>
+                   <h2 class="empty-title">No strategies carry all of those tags</h2>
+                   <p class="empty-desc text-secondary">Tags combine with AND, so each one narrows the list further. Try removing one.</p>
+                   <div class="empty-actions">
+                     <button type="button" id="tagfilter-reset" class="btn btn-green">Clear filters</button>
+                   </div>
+                 </div>`}
+          `;
+          wire();
+        }
+
+        function toggle(tag) {
+          active = active.includes(tag) ? active.filter(t => t !== tag) : active.concat(tag);
+          syncUrl();
+          render();
+        }
+
+        function wire() {
+          document.querySelectorAll('.tagfilter-tag').forEach(btn => {
+            btn.addEventListener('click', () => toggle(btn.dataset.tag));
+          });
+          ['tagfilter-clear', 'tagfilter-reset'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', () => { active = []; syncUrl(); render(); });
+          });
+        }
+
+        render();
+        return;
+      }
+
+      // ---- Detail view ----
+      // loadAllStrategies, not loadStrategies: a hidden strategy's own page
+      // still renders for anyone holding the link. It is unlisted, not deleted.
+      const [strategies, glossary, allExtras] = await Promise.all([
+        loadAllStrategies(), loadGlossary(), loadStrategyExtras(),
+      ]);
+      // Tokens resolved before anything renders, so no template below has to
+      // know they exist. See resolveStrategyTokens in js/app.js.
+      const raw = strategies.find(x => x.slug === slug);
+      const s = raw ? resolveStrategyTokens(raw) : raw;
+
+      if (!s) {
+        document.getElementById('content').innerHTML = `
+          <div class="empty-state">
+            <p class="empty-eyebrow">Not Found</p>
+            <h1 class="empty-title">Strategy not found</h1>
+            <p class="empty-desc text-secondary">No strategy with slug "${slug}".</p>
+            <div class="empty-actions">
+              <a href="${u('/strategies.html')}" class="btn btn-green">Browse Strategies</a>
+            </div>
+          </div>`;
+        return;
+      }
+
+      document.title = `${s.name}: Composer Atlas`;
+      document.querySelector('meta[name="description"]').setAttribute('content', s.description);
+      // each strategy is its own document: point canonical and og:url at its
+      // sitemap URL, not the bare listing
+      setPageUrl('https://composeratlas.com/strategies?slug=' + encodeURIComponent(s.slug));
+
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'Strategies', href: u('/strategies.html') },
+        { label: s.name },
+      ]);
+
+      const tags = (s.tags || []).map(renderTag).join('');
+
+      const aiSummary = s.ai_summary && s.ai_summary.length
+        ? `<section class="mb-10">
+            <div class="ai-summary">
+              <div class="ai-summary-header">
+                <span class="ai-summary-mark" aria-hidden="true">✦</span>
+                <h2 class="ai-summary-title">AI Summary</h2>
+              </div>
+              ${s.ai_summary.map(p => `<p class="ai-summary-p">${p}</p>`).join('')}
+            </div>
+          </section>`
+        : '';
+
+      const howItWorks = s.how_it_works && s.how_it_works.length
+        ? `<section class="mb-10">
+            <h2 style="color:var(--color-primary);margin-bottom:16px">How It Works</h2>
+            ${s.how_it_works.map(p => `<p style="color:var(--color-secondary);font-size:0.9375rem;line-height:1.75;margin-bottom:12px">${p}</p>`).join('')}
+          </section>`
+        : '';
+
+      // Item 11. A table with detail rows rather than a plain table: the median
+      // signal description is 259 characters and 75 of 91 run over 200, so a
+      // real fifth column would reintroduce exactly the phone overflow fixed in
+      // v1.69.0. The scannable fields sit on one row and the prose gets its own
+      // full-width row beneath, which collapses to a stack below 640px.
+      //
+      // `type` and `indicator` are absent on the hidden strategies, which still
+      // carry the pre-item-11 shape. Both degrade to a dash rather than to an
+      // empty cell, on the same reasoning as the item 10 categories: a stated
+      // absence is information, a blank is ambiguous.
+      const signals = s.signals && s.signals.length
+        ? `<section class="mb-10">
+            <h2 style="color:var(--color-primary);margin-bottom:16px">Signals &amp; Logic</h2>
+            <table class="signal-table">
+              <thead>
+                <tr><th>Signal</th><th>Type</th><th>Indicator</th><th>Tag</th></tr>
+              </thead>
+              <tbody>
+                ${s.signals.map(sig => `
+                  <tr class="signal-row">
+                    <td class="signal-name" data-label="Signal">${sig.name}</td>
+                    <td data-label="Type">${signalType(sig.type)}</td>
+                    <td data-label="Indicator">${signalIndicator(sig.indicator)}</td>
+                    <td data-label="Tag">${renderTag(sig.tag)}</td>
+                  </tr>
+                  <tr class="signal-detail">
+                    <td colspan="4">${mdInline(sig.description)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </section>`
+        : '';
+
+      // Item 10. The categories are derived from the 31 existing strings, not from
+      // the comparable-tool screenshot the roadmap cited. That screenshot's four
+      // (leverage, signal, hedge, concentration) are each real, but they account
+      // for about a third of what is actually written: the aggressiveness verdict
+      // opens 31 of 31 strings and the backtest window is discussed in 20 of 31,
+      // and neither had a bucket. Counts per category are in docs/PRD.md item 10.
+      //
+      // ORDER IS BY MEASURED FREQUENCY, not by severity. Ranking these by how
+      // dangerous they are would be a judgement the site does not have grounds to
+      // make, and the outlier panel's rule against turning arithmetic into a score
+      // applies just as well to prose.
+      const RISK_CATEGORIES = [
+        ['leverage', 'Leverage and decay',
+         'No leveraged or decaying instruments: this strategy holds only unleveraged assets.'],
+        ['backtest_limits', 'What the backtest cannot tell you',
+         'No window caveats recorded for this strategy.'],
+        ['signal', 'Signal and whipsaw',
+         'No signal-design risk recorded for this strategy.'],
+        ['hedge', 'Hedge',
+         'No hedge leg: this strategy has no inverse or volatility position to cushion a drawdown.'],
+        ['concentration', 'Concentration',
+         'No concentration risk recorded for this strategy.'],
+      ];
+
+      // Accepts both shapes on purpose. The rewrite ships one strategy at a time
+      // behind an owner sign-off, so an object and 30 strings coexist by design
+      // rather than by accident, and a string must keep rendering exactly as it
+      // did before this item existed.
+      function riskProfileHtml(rp) {
+        if (!rp) return '';
+        const body = typeof rp === 'string'
+          ? `<div class="risk-box">${rp}</div>`
+          : `${rp.verdict ? `<div class="risk-verdict">${rp.verdict}</div>` : ''}
+             <div class="risk-cats">
+               ${RISK_CATEGORIES.map(([key, label, absent]) => `
+                 <div class="risk-cat${rp[key] ? '' : ' is-absent'}">
+                   <span class="risk-cat-label">${label}</span>
+                   <p class="risk-cat-body">${rp[key] || absent}</p>
+                 </div>`).join('')}
+             </div>
+             ${rp.suitability ? `<p class="risk-suit">${rp.suitability}</p>` : ''}`;
+        return `<section class="mb-10">
+            <h2 style="color:var(--color-primary);margin-bottom:16px">Risk Profile</h2>
+            ${body}
+          </section>`;
+      }
+      const riskProfile = riskProfileHtml(s.risk_profile);
+
+      // ---- V1.20 items 4, 5 and 7: everything below reads the build-time join.
+      // `extras` is {} when data/strategy_extras.js failed to load, and every
+      // section is guarded, so the page degrades to exactly what it was before.
+      const extras = allExtras[s.slug] || {};
+
+      const pct1 = n => `${(n * 100).toFixed(1)}%`;
+
+      // UTC on both sides, or a browser west of Greenwich reads one day short.
+      function daysSince(iso) {
+        if (!iso) return null;
+        const [y, m, d] = iso.split('-').map(Number);
+        const now = new Date();
+        return Math.max(0, Math.round(
+          (Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+            - Date.UTC(y, m - 1, d)) / 86400000));
+      }
+
+      // Item 7. The keys of last_market_days_holdings are the ticker universe the
+      // logic can reach, not the current position, so this says "can hold". Saying
+      // "holds" would be wrong for 12 of the 14 affected strategies today. Verdicts
+      // are resolved at build time from data/k1.json, so a correction to the K-1
+      // database propagates here instead of going stale in a second place.
+      //
+      // No snapshot of today's position, as of v1.43.1. Through v1.43.0 this
+      // closed with "None of them are in the position as of the last market day,
+      // but the logic can route into any of them on any rebalance." Removed for a
+      // stronger reason than matching the Assets section: a K-1 is generated by
+      // holding the fund at ANY point in the tax year, so a strategy that routed
+      // into UVXY in March and is out of it today still produces one. The clause
+      // answered a question nobody asked, and it answered it as reassurance,
+      // inside a warning. What survives is the half that was load-bearing: the
+      // logic can route into these on any rebalance.
+      //
+      // `held` is still carried per ticker in data/strategy_extras.json and now
+      // has no consumer. Left in place: CARRY already holds fields no page
+      // renders, and it is a true fact about the join rather than dead markup.
+      function holdNotice(kind, items) {
+        if (!items || !items.length) return '';
+        const chips = items.map(h => `
+          <a class="hold-ticker" href="${u('/k1.html')}?t=${encodeURIComponent(h.ticker)}"
+             title="${h.name ? h.name.replace(/"/g, '&quot;') : h.ticker}">${h.ticker}</a>`).join('');
+
+        const heldLine = items.length === 1
+          ? `The logic can route into it on any rebalance, so this is a possibility to plan for rather than a position to check.`
+          : `The logic can route into any of them on any rebalance, so this is a possibility to plan for rather than a position to check.`;
+
+        if (kind === 'k1') {
+          return `
+            <div class="hold-notice k1">
+              <span class="hold-notice-title">This strategy can hold ${items.length === 1 ? 'a fund that issues' : 'funds that issue'} a Schedule K-1</span>
+              <div class="hold-tickers">${chips}</div>
+              <p>A K-1 arrives later than a 1099, often after the April filing deadline. It
+              complicates a return, and it can hand you taxable income in a year you sold
+              nothing. ${heldLine} Each ticker links to its full entry in the K-1 database.</p>
+            </div>`;
+        }
+        return `
+          <div class="hold-notice etn">
+            <span class="hold-notice-title">This strategy can hold ${items.length === 1 ? 'an exchange-traded note' : 'exchange-traded notes'}, not just funds</span>
+            <div class="hold-tickers">${chips}</div>
+            <p>An ETN is senior unsecured debt of the issuing bank rather than a basket of
+            assets, so a holder carries that bank's credit risk with nothing held on their
+            behalf, and the issuer can call or delist it. ${heldLine}</p>
+          </div>`;
+      }
+
+      // Item 13. The two opposed columns are the whole point of the format: it does
+      // not let an author describe a strategy without naming what breaks it. Rendered
+      // only when the content exists, which is 1 of 31 strategies today.
+      const tl = s.tldr;
+      const tldrHtml = tl && tl.thesis
+        ? `<section class="mb-10">
+             <div class="tldr">
+               <div class="tldr-thesis">
+                 <span class="tldr-thesis-label">Core thesis</span>
+                 <p>${mdInline(tl.thesis)}</p>
+               </div>
+               <div class="tldr-cols">
+                 <div class="tldr-col good">
+                   <span class="tldr-col-label">Works well in</span>
+                   <ul class="tldr-list">${(tl.works_well_in || []).map(x => `<li>${mdInline(x)}</li>`).join('')}</ul>
+                 </div>
+                 <div class="tldr-col bad">
+                   <span class="tldr-col-label">Struggles in</span>
+                   <ul class="tldr-list">${(tl.struggles_in || []).map(x => `<li>${mdInline(x)}</li>`).join('')}</ul>
+                 </div>
+               </div>
+             </div>
+           </section>`
+        : '';
+
+      // Item 14. Two columns because the split is the content: a belief about the
+      // world fails differently from a belief about the instrument, and separating
+      // them is what stops the section becoming a list of caveats.
+      const asm = s.assumptions;
+      function assumpCol(label, items) {
+        return `<div class="assump-col">
+                  <span class="assump-col-label">${label}</span>
+                  <ul class="assump-list">${(items || []).map(x => `<li>${mdInline(x)}</li>`).join('')}</ul>
+                </div>`;
+      }
+      const assumpHtml = asm && ((asm.market || []).length || (asm.structural || []).length)
+        ? `<section class="mb-10">
+             <h2 style="color:var(--color-primary);margin-bottom:16px">Underlying Assumptions</h2>
+             <div class="assump-cols">
+               ${(asm.market || []).length ? assumpCol('Market and macro beliefs', asm.market) : ''}
+               ${(asm.structural || []).length ? assumpCol('Technical and structural', asm.structural) : ''}
+             </div>
+           </section>`
+        : '';
+
+      // Item 15. The example column is what makes the table falsifiable rather than a
+      // set of adjectives, so it is never dropped for space: the table scrolls inside
+      // its own wrapper instead. The verdict colour is read off the first word of the
+      // authored string, so the author writes a judgement and not a code.
+      // Four types, not the three the roadmap proposed. 11 of the 91 signals
+      // describe a holdings set rather than a condition ("Long Pool: TARK/TECL/
+      // UPRO/..."), and filing those under Selection would call a static fund
+      // list a selection rule.
+      function signalType(v) {
+        const t = String(v || '').trim();
+        if (!t) return '<span class="signal-none">not categorised</span>';
+        return `<span class="signal-type type-${t.toLowerCase()}">${t}</span>`;
+      }
+
+      // Every label here was verified against the strategy's own symphony tree
+      // before it was written, so this renders a fact about the tree rather
+      // than a restatement of the prose beside it. An empty list is the honest
+      // answer for a Composition row: there is no indicator to name.
+      function signalIndicator(v) {
+        const list = Array.isArray(v) ? v.filter(Boolean) : (v ? [v] : []);
+        if (!list.length) return '<span class="signal-none">none</span>';
+        return list.map(i => `<code class="signal-ind">${i}</code>`).join(' ');
+      }
+
+      function regimeClass(v) {
+        const w = String(v || '').trim().toLowerCase();
+        if (w.startsWith('strong') || w.startsWith('good')) return 'good';
+        if (w.startsWith('poor') || w.startsWith('bad') || w.startsWith('weak')) return 'bad';
+        return 'mixed';
+      }
+      const regimes = s.regimes || [];
+      const regimeHtml = regimes.length
+        ? `<section class="mb-10">
+             <h2 style="color:var(--color-primary);margin-bottom:16px">Market Regime Analysis</h2>
+             <div class="regime-wrap">
+               <table class="regime-table">
+                 <thead><tr>
+                   <th>Regime</th><th>Expected</th><th>Why</th><th>Example period</th>
+                 </tr></thead>
+                 <tbody>
+                   ${regimes.map(r => `<tr>
+                     <td class="regime-name">${mdInline(r.regime)}</td>
+                     <td class="regime-exp ${regimeClass(r.expected)}">${mdInline(r.expected)}</td>
+                     <td class="regime-why">${mdInline(r.why)}</td>
+                     <td class="regime-eg">${mdInline(r.example)}</td>
+                   </tr>`).join('')}
+                 </tbody>
+               </table>
+             </div>
+             ${s.regime_note ? `<p class="regime-note">${mdInline(s.regime_note)}</p>` : ''}
+           </section>`
+        : '';
+
+      // Item 8. A visitor should know the age of a number before reading it, not
+      // after. There are genuinely two ages on this page and the chips say so rather
+      // than averaging them into one reassuring date: the headline and sidebar
+      // metrics come from data/strategies.json and carry its `last_updated`, while
+      // the deeper grid, the outlier panel and the holdings notices come from the
+      // build-time join and carry `database.json`'s `refresh_date`. Today those
+      // differ on all 31 strategies. The dot turns yellow past 14 days, which is long
+      // enough that the nightly refresh has stopped rather than merely slipped.
+      function provChip(label, iso) {
+        const d = daysSince(iso);
+        if (d === null) return '';
+        const ago = d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`;
+        return `<span class="prov-chip${d > 14 ? ' stale' : ''}">
+                  <span class="prov-dot" aria-hidden="true"></span>
+                  ${label} <strong>${formatDate(iso)}</strong> ${ago}
+                </span>`;
+      }
+      const refreshed = extras.refresh_date;
+      const provChips = (!refreshed || s.last_updated === refreshed)
+        ? provChip('Data refreshed', s.last_updated)
+        : provChip('Headline metrics', s.last_updated) + provChip('Database fields', refreshed);
+      const provHtml = provChips.trim() ? `<div class="prov-row">${provChips}</div>` : '';
+
+      // Item 2. Four tiles above the fold. The metrics table is sidebar-only on
+      // desktop and sits below every prose section on mobile, so until now the first
+      // thing a phone visitor saw was three paragraphs and no numbers.
+      function heroTile(label, value, cls, note) {
+        return `<div class="hero-metric">
+                  <span class="hero-metric-label">${metricLabel(label)}</span>
+                  <span class="hero-metric-value ${cls || 'text-primary'}">${value}</span>
+                  <span class="hero-metric-sub">${note}</span>
+                </div>`;
+      }
+      const heroHtml = `
+        <div class="hero-metrics">
+          ${heroTile('Annualized Return', formatPct(s.annualized_rate_of_return),
+                     colorClass(s.annualized_rate_of_return), 'compounded, whole backtest')}
+          ${heroTile('Max Drawdown', formatPct(s.max_drawdown),
+                     colorClass(s.max_drawdown), 'worst peak to trough')}
+          ${heroTile('Sharpe Ratio', formatRatio(s.sharpe_ratio),
+                     colorClass(s.sharpe_ratio), 'return per unit of volatility')}
+          ${heroTile('Backtest Period', `~${Math.round(s.backtest_days / 252)} yrs`,
+                     'text-primary', `${s.backtest_days.toLocaleString('en-US')} trading days`)}
+        </div>`;
+
+      // Item 3. Seven values that exist in database.json and were shown nowhere. Each
+      // label links to the glossary, which is why item 12 is not optional: a page that
+      // says "Kurtosis 150.84" and offers no way to look the word up has added jargon
+      // rather than understanding. `total_costs` is carried by the join but
+      // deliberately not shown; see the note under the grid.
+      function tile(label, value, note) {
+        return `<div class="metric-tile">
+                  <span class="metric-tile-label">${metricLabel(label)}</span>
+                  <span class="metric-tile-value">${value}</span>
+                  <span class="metric-tile-sub">${note}</span>
+                </div>`;
+      }
+      const num = k => (typeof extras[k] === 'number' ? extras[k] : null);
+      const deeperTiles = [
+        num('sortino_ratio') !== null &&
+          tile('Sortino Ratio', formatRatio(num('sortino_ratio')),
+               'Sharpe, but only downside moves count as risk'),
+        num('win_rate') !== null &&
+          tile('Win Rate', pct1(num('win_rate')),
+               'share of days that closed positive, which alone says nothing about size'),
+        num('tail_ratio') !== null &&
+          tile('Tail Ratio', formatRatio(num('tail_ratio')),
+               'best 5% of days measured against the worst 5%'),
+        num('skewness') !== null &&
+          tile('Skewness', formatRatio(num('skewness')),
+               'positive means the rare large moves lean upward'),
+        num('kurtosis') !== null &&
+          tile('Kurtosis', formatRatio(num('kurtosis')),
+               'how much comes from extreme days; 3 is a normal distribution'),
+        num('herfindahl_index') !== null &&
+          tile('Herfindahl Index', formatRatio(num('herfindahl_index')),
+               'concentration, where 1.00 is one holding at a time'),
+        num('annualized_turnover') !== null &&
+          tile('Annualized Turnover', formatRatio(num('annualized_turnover')),
+               'times a year the whole position is replaced'),
+      ].filter(Boolean);
+      const deeperHtml = deeperTiles.length
+        ? `<section class="mb-10">
+             <h2 style="color:var(--color-primary);margin-bottom:16px">Deeper Metrics</h2>
+             <div class="metric-grid">${deeperTiles.join('')}</div>
+             <p class="metric-grid-note">These are reported with the backtest statistics, so they
+             describe the backtest rather than the current position. The Herfindahl figure in
+             particular disagrees with today's holdings on several strategies and is not derived
+             from them. Total trading costs are stored too but are not shown: they are cumulative
+             dollars on an unstated notional, and no other field on this site supplies a
+             denominator that would make them comparable between one strategy and another.</p>
+           </section>`
+        : '';
+
+      // Item 6, as rebuilt in v1.42.0 and approved library-wide in v1.43.0.
+      //
+      // The keys of last_market_days_holdings are the reachable universe and its
+      // values are the last market day's position. This section renders the keys
+      // and deliberately discards the values.
+      //
+      // It did not always. Through v1.41.x it led with "1 of 6 tickers held as of
+      // the last market day", an allocation bar per holding and a percentage
+      // beside it. Every one of those numbers was accurate and the section was
+      // still wrong to lead with them: what a strategy CAN hold is a durable fact
+      // about its logic, while what it holds today is one rebalance old and
+      // invites a reader to treat a position as a recommendation, which is the
+      // one thing this site does not do.
+      //
+      // What survives is the universe and its tax character, because that is the
+      // part that does not change between rebalances and the part a reader cannot
+      // look up quickly anywhere else.
+      function assetsSection() {
+        const holdings = extras.holdings || {};
+        const universe = Object.keys(holdings).sort();
+        if (!universe.length) return '';
+        const since = extras.holdings_inception || {};
+        const k1Set = new Set((extras.k1_holdings || []).map(h => h.ticker));
+        const etnSet = new Set((extras.etn_holdings || []).map(h => h.ticker));
+
+        const k1n = universe.filter(t => k1Set.has(t)).length;
+        const etnn = universe.filter(t => etnSet.has(t)).length;
+        const taxNote = [
+          k1n ? `${k1n} issue${k1n === 1 ? 's' : ''} a K-1` : '',
+          etnn ? `${etnn} ${etnn === 1 ? 'is an ETN' : 'are ETNs'}` : '',
+        ].filter(Boolean).join(', ');
+
+        // Chips, the same `.hold-ticker` used by the K-1 and ETN notices below,
+        // so every ticker list on the page reads as the same kind of thing.
+        //
+        // Nothing per-ticker survives in the row itself, and that is deliberate.
+        // Per-row K-1 and ETN badges were tried and removed: the notices directly
+        // below already name every affected ticker AND explain what the treatment
+        // costs, so a three-letter badge restated the fact worse. First-traded
+        // dates were tried and removed for the same reason: they existed to bound
+        // the backtest, and the Backtest window card does that properly by naming
+        // the binding holding and its date. The date stays on the chip's title.
+        const chips = universe.map(t => `
+          <a class="hold-ticker" href="${u('/k1.html')}?t=${encodeURIComponent(t)}"
+             title="${since[t] ? 'first traded ' + since[t] : t}">${t}</a>`).join('');
+
+        return `
+          <section class="mb-10">
+            <h2 style="color:var(--color-primary);margin-bottom:16px">Assets</h2>
+            <div class="asset-head">
+              <span class="asset-head-n">${universe.length}</span>
+              <span class="asset-head-l">${universe.length === 1 ? 'ticker' : 'tickers'} this
+                strategy can hold${taxNote ? ', of which ' + taxNote : ''}</span>
+            </div>
+            <div class="hold-tickers">${chips}</div>
+            <p class="metric-grid-note"><strong>This is the full range of exposure the logic can
+            route into, not a portfolio.</strong> The strategy holds a subset of these at any
+            moment and can move between them on any rebalance, so read the list as what it is
+            allowed to own rather than as what it owns. Every ticker links to its K-1 entry, and
+            the Backtest window card above names the holding that bounds how far back the
+            backtest can reach.</p>
+          </section>`;
+      }
+      const assetsHtml = assetsSection();
+
+      const k1Html = holdNotice('k1', extras.k1_holdings);
+      const etnHtml = holdNotice('etn', extras.etn_holdings);
+      const holdingsHtml = (k1Html || etnHtml)
+        ? `<section class="mb-10">${k1Html}${etnHtml}</section>`
+        : '';
+
+      // Item 4, as rebuilt in v1.42.1 under PRD item 4a and approved library-wide
+      // in v1.43.0.
+      //
+      // Through v1.42.0 this card printed `top_five_percent_day_contribution`
+      // raw and warned, above 100%, that "the other 95% of days lost money on
+      // net: remove those days and this strategy is a net loser". Arithmetically
+      // true, and materially misleading, because the denominator is NET return:
+      // a small residual under a much larger gross. Plain buy-and-hold SPY scores
+      // 202% on the same measure and TLT 729%. The threshold flagged 28 of 36
+      // strategies, nearly all of which are LESS reliant on their best days than
+      // the index is.
+      //
+      // The fix is the anchor, not the arithmetic. The card prints the strategy
+      // against SPY over the SAME window, so 46% reads as "a little under half as
+      // reliant as the index" instead of a bare 87% a reader cannot place. Both
+      // raw figures stay on the card, so nobody has to take the ratio on trust.
+      //
+      // No warn colour. The strategies near parity sit inside the gap between
+      // Composer's formula and ours, so a hard line at exactly 100% would be new
+      // false precision in place of old.
+      //
+      // The honest end state needs per-strategy daily returns (V1.20 item 16):
+      // "drop the 10 best days and 34% a year becomes 12%" has no small
+      // denominator to go unstable on it, needs no benchmark, and would let both
+      // sides be computed with one formula. This is the best available without
+      // that data, not the destination.
+      const top5 = extras.top_five_percent_day_contribution;
+      const spyBase = extras.spy_best_day_baseline;
+      const pct0 = n => `${Math.round(n * 100)}%`;
+
+      let outlierCard = '';
+      if (typeof top5 === 'number' && spyBase) {
+        const spy5 = spyBase.top_five_percent_day_contribution;
+        const rel = top5 / spy5;
+        const days = spyBase.days.toLocaleString('en-US');
+        const verdict = rel > 1
+          ? `<strong>about ${pct0(rel - 1)} harder</strong> than simply holding SPY did over
+             the same period, so more of its headline return sits in a handful of sessions
+             than the index needed`
+          : `<strong>${pct0(rel)} as much</strong> as simply holding SPY did over the same
+             period, so its return is spread across ordinary days more evenly than the
+             index's was`;
+        outlierCard = `
+          <div class="rc-card">
+            <span class="rc-label">Reliance on its best days</span>
+            <span class="rc-value">${pct0(rel)}</span>
+            <span class="rc-sub">as reliant on its best days as the S&amp;P 500</span>
+            <p class="rc-body">Strip out the best 5% of trading days and every backtest looks
+            worse, the index included. This one leans on those days ${verdict}.</p>
+            <p class="rc-fine">This backtest ${pct0(top5)}, SPY ${pct0(spy5)}, both measured
+            over the same ${days} days.</p>
+          </div>`;
+      } else if (typeof top5 === 'number') {
+        // No baseline. Three strategies backtest roughly 27 years against the 16
+        // years of SPY closes in data/prices.json, so there is no honest same
+        // window comparison to draw.
+        //
+        // These deliberately do NOT fall back to the pre-pilot card. That card's
+        // threshold is the thing item 4a exists to remove, and a page with no
+        // benchmark is exactly where a reader is least equipped to discount it.
+        // So the figure is shown with its own limitation stated instead.
+        outlierCard = `
+          <div class="rc-card">
+            <span class="rc-label">Reliance on its best days</span>
+            <span class="rc-value">${pct0(top5)}</span>
+            <span class="rc-sub">of total return, from the best 5% of days</span>
+            <p class="rc-body">The best 5% of trading days in this backtest produced
+            <strong>${pct0(top5)}</strong> of its total return. <strong>On its own that number
+            says less than it looks like it does</strong>: it is measured against net return,
+            which is a small residual of much larger gains and losses, so it runs high for
+            anything volatile. Plain buy-and-hold SPY scores about 200% on the same measure.</p>
+            <p class="rc-fine">No like-for-like comparison on this page: this backtest reaches
+            further back than the price history the site stores, so SPY cannot be measured over
+            the same window.</p>
+          </div>`;
+      }
+
+      // Item 5. oos_date records the last logic edit, so days-since is genuine
+      // out-of-sample time. Worded as a measurement: unedited logic is real evidence,
+      // and it is also what an abandoned strategy looks like. Both are said.
+      const oos = extras.oos_date;
+      const oosDays = daysSince(oos);
+      const oosCard = `
+        <div class="rc-card">
+          <span class="rc-label">Out of sample</span>
+          <span class="rc-value">${oos ? oosDays.toLocaleString('en-US') + ' days' : 'Not recorded'}</span>
+          <span class="rc-sub">${oos ? `since the last logic edit, ${oos}` : 'no logic-edit date for this symphony'}</span>
+          <p class="rc-body">${oos
+            ? `The logic has not been edited since <strong>${oos}</strong>, so every day of
+               behaviour after that date is genuinely out of sample: it was not available to
+               be fitted to. <strong>That is a measurement, not a verdict.</strong> Logic also
+               sits untouched when nobody is maintaining it, and a long unedited stretch says
+               nothing about whether the strategy still suits the market it is trading now.`
+            : `The date of the last logic edit is not recorded for this symphony, so the
+               out-of-sample period cannot be stated. Treat the whole backtest as in-sample
+               until it is.`}</p>
+        </div>`;
+
+      // Item 9. The window's length, and whether the data forced it.
+      //
+      // A strategy cannot be backtested through a period in which one of its
+      // holdings did not trade, so the latest inception date among its holdings
+      // is a hard floor on the window. That floor is a real bound: across the 31
+      // featured strategies not one backtest starts before it.
+      //
+      // It is NOT the cause of the window's length, and this card refuses to say
+      // it is. Not one of the 31 starts AT its floor either. 18 begin within a
+      // year of it, where the limiting holding genuinely explains the window; the
+      // other 13 begin well after, up to 5.6 years late. The roadmap specified the
+      // single sentence "14.8 years, limited by UVXY" for every strategy, which
+      // would have asserted a false cause on 13 of 31, so the copy switches on the
+      // measured headroom instead.
+      //
+      // Dates come from data/ticker_inception.json (Yahoo's firstTradeDate), not
+      // from prices.json: that file starts at 2010-01-04, so 48 of its 72 tickers
+      // report the file's own start date as their inception and it cannot tell
+      // 1993 from 2010.
+      const floor = extras.backtest_floor;
+      const floorComplete = floor && floor.date && floor.dated === floor.total;
+      let windowCard = '';
+      if (floorComplete && typeof s.backtest_days === 'number') {
+        const yrs = s.backtest_days / 252;
+        // Measured in the browser like the out-of-sample panel, so the headroom
+        // does not go stale a day after the build.
+        const maxYrs = daysSince(floor.date) / 365.25;
+        const headroom = maxYrs - yrs;
+        const names = floor.tickers.join(' and ');
+        const limited = headroom <= 1;
+        windowCard = `
+          <div class="rc-card">
+            <span class="rc-label">Backtest window</span>
+            <span class="rc-value">${yrs.toFixed(1)} yrs</span>
+            <span class="rc-sub">${s.backtest_days.toLocaleString('en-US')} trading days,
+              earliest possible start ${floor.date}</span>
+            <p class="rc-body">${limited
+              ? `This window is about as long as it could be. <strong>${names}</strong>
+                 did not exist before <strong>${floor.date}</strong>, and a backtest cannot run
+                 through a period in which a holding was not trading, so no one could have
+                 tested this logic over much more than <strong>${maxYrs.toFixed(1)} years</strong>.
+                 The length is a fact about the holdings, not a choice.`
+              : `<strong>The data allowed a longer test than was run.</strong> The newest
+                 holding, <strong>${names}</strong>, has existed since
+                 <strong>${floor.date}</strong>, so up to
+                 <strong>${maxYrs.toFixed(1)} years</strong> were available, and this backtest
+                 covers ${yrs.toFixed(1)}. The missing ${headroom.toFixed(1)} years is a
+                 <strong>choice of start date</strong> rather than a limit of the data.
+                 Start dates are one of the easiest things to fit a result to, so it is worth
+                 knowing when one was picked.`}
+              A short window is not the same as a bad strategy, and a long one is not
+              evidence: it only means there was more history to be wrong about.</p>
+          </div>`;
+      }
+
+      const beyondHtml = (outlierCard || windowCard)
+        ? `<section class="mb-10">
+             <h2 style="color:var(--color-primary);margin-bottom:16px">Beyond the Backtest</h2>
+             <div class="rc-grid">${outlierCard}${oosCard}${windowCard}</div>
+           </section>`
+        : '';
+
+      const others = strategies.filter(x => x.slug !== s.slug).slice(0, 10);
+      const metricsHtml = renderMetricsTable(s);
+
+      document.getElementById('content').innerHTML = `
+        <div class="grid-2">
+          <div class="detail-main">
+            <div class="mb-8">
+              ${provHtml}
+              ${tags ? `<div class="card-tags" style="margin-bottom:12px">${tags}</div>` : ''}
+              <h1 style="color:var(--color-primary);font-size:clamp(1.5rem,3vw,2rem);margin-bottom:12px">${s.name}</h1>
+              ${s.hidden ? `
+                <div class="unlisted-notice">
+                  <strong>This page is unlisted and is not being maintained.</strong>
+                  It does not appear in the strategy library, the tag filters or the sitemap, and it
+                  is excluded from the section and wording updates the maintained strategies receive.
+                  The metrics below are still refreshed on the normal schedule, so the numbers are
+                  current even though the writing around them is not. The link to Composer works.
+                </div>` : ''}
+              <p style="color:var(--color-secondary);font-size:1rem;line-height:1.7;margin-bottom:24px">${s.description}</p>
+              ${heroHtml}
+            </div>
+            <div class="mb-10">
+              <a href="${s.symphony_url}" target="_blank" rel="noopener noreferrer"
+                class="btn btn-green btn-lg">Open in Composer ↗</a>
+            </div>
+            ${aiSummary}
+            ${tldrHtml}
+            ${howItWorks}
+            ${signals}
+            ${regimeHtml}
+            ${riskProfile}
+            ${assetsHtml}
+            ${holdingsHtml}
+            ${assumpHtml}
+            ${deeperHtml}
+            ${beyondHtml}
+            <div class="detail-mobile-metrics">
+              <h2 style="color:var(--color-primary);font-size:1.125rem;margin-bottom:16px">Performance Metrics</h2>
+              ${metricsHtml}
+            </div>
+          </div>
+          <div class="detail-sidebar">
+            <div class="detail-sidebar-sticky">
+              <div class="detail-desktop-metrics">
+                <h2 style="color:var(--color-primary);font-size:1rem;font-weight:600;margin-bottom:16px">Performance Metrics</h2>
+                ${metricsHtml}
+              </div>
+              <div style="margin-top:32px">
+                <h2 style="color:var(--color-primary);font-size:1rem;font-weight:600;margin-bottom:8px">Other Strategies</h2>
+                <div class="strategy-list-compact">
+                  ${others.map(renderStrategyListItem).join('')}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const style = document.createElement('style');
+      style.textContent = `
+        .detail-mobile-metrics { display: block; margin-top: 40px; }
+        .detail-desktop-metrics { display: none; }
+        @media (min-width: 1024px) {
+          .detail-mobile-metrics { display: none; }
+          .detail-desktop-metrics { display: block; }
+        }
+      `;
+      document.head.appendChild(style);
+    })().catch(err => {
+      document.getElementById('content').innerHTML = `
+        <div class="error-state">
+          <h2>Failed to load strategy</h2>
+          <p>${err.message}</p>
+          <a href="${u('/strategies.html')}" class="btn btn-outline" style="margin-top:16px">Back to Strategies</a>
+        </div>`;
+    });
+  </script>
+</body>
+</html>

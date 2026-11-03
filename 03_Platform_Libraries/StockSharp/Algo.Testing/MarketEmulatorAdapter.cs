@@ -1,0 +1,69 @@
+namespace StockSharp.Algo.Testing;
+
+/// <summary>
+/// Adapter wrapping <see cref="IMarketEmulator"/> to provide <see cref="IMessageAdapter"/> interface.
+/// </summary>
+public class MarketEmulatorAdapter : MessageAdapter
+{
+	/// <summary>
+	/// Initializes a new instance.
+	/// </summary>
+	/// <param name="emulator">The market emulator.</param>
+	/// <param name="transactionIdGenerator">Transaction id generator.</param>
+	public MarketEmulatorAdapter(IMarketEmulator emulator, IdGenerator transactionIdGenerator)
+		: base(transactionIdGenerator)
+	{
+		Emulator = emulator ?? throw new ArgumentNullException(nameof(emulator));
+		emulator.NewOutMessageAsync += OnEmulatorNewOutMessage;
+
+		PossibleSupportedMessages = [.. emulator.PossibleSupportedMessages];
+	}
+
+	/// <summary>
+	/// The market emulator.
+	/// </summary>
+	public IMarketEmulator Emulator { get; }
+
+	/// <inheritdoc />
+	public override bool IsSupportTransactionLog => false;
+
+	/// <inheritdoc />
+	public override bool IsSupportExecutionsPnL => true;
+
+	/// <inheritdoc />
+	public override bool IsAutoReplyOnTransactonalUnsubscription => true;
+
+	/// <inheritdoc />
+	public override DateTime CurrentTime => Emulator.CurrentTime;
+
+	/// <inheritdoc />
+	protected override async ValueTask OnSendInMessageAsync(Message message, CancellationToken cancellationToken)
+	{
+		// EmulationState(Stopping) is sent through the channel queue as a drain marker.
+		// By the time it arrives here, all prior queued messages (candles etc.) have been processed.
+		var isStopping = message.Type == MessageTypes.EmulationState
+			&& ((EmulationStateMessage)message).State == ChannelStates.Stopping;
+
+		// The emulator gets the marker too: a bar it still holds when the run is told to stop is handed over on it.
+		await Emulator.SendInMessageAsync(message, cancellationToken);
+
+		// The emulator produces no output for the marker itself, so the echo is what puts it back
+		// on the stream - after whatever the line above has just handed over.
+		if (isStopping)
+			await SendOutMessageAsync(message, cancellationToken);
+	}
+
+	private ValueTask OnEmulatorNewOutMessage(Message message, CancellationToken cancellationToken)
+		=> SendOutMessageAsync(message, cancellationToken);
+
+	/// <inheritdoc />
+	public override ValueTask<IMessageAdapter> CloneAsync(CancellationToken cancellationToken)
+		=> throw new NotSupportedException();
+
+	/// <inheritdoc />
+	protected override void DisposeManaged()
+	{
+		Emulator.NewOutMessageAsync -= OnEmulatorNewOutMessage;
+		base.DisposeManaged();
+	}
+}

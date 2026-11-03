@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Dark is the default and stays the default when nothing is stored. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Text only by policy: no og:image, so
+       twitter:card is "summary". No drifting numbers in these descriptions. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/rsi-backtest-advanced">
+  <link rel="canonical" href="https://composeratlas.com/rsi-backtest-advanced">
+  <meta property="og:title" content="Advanced RSI Backtester for Composer Signals">
+  <meta property="og:description" content="The full RSI backtest: a plain-English verdict, Sharpe and worst drop for every level, growth against buy and hold, level-nudge tables and year-by-year results.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="The full RSI backtest: a plain-English verdict, Sharpe and worst drop for every level, growth against buy and hold, level-nudge tables and year-by-year results.">
+  <title>Advanced RSI Backtester: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .rb-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .rb-panel h2 { color: var(--color-primary); font-size: 1rem; font-weight: 600; margin: 0 0 4px; }
+    .rb-sub { font-size: 0.8125rem; color: var(--color-secondary); margin: 0 0 14px; line-height: 1.6; }
+
+    .rb-params { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
+    .rb-field label { display: block; font-size: 0.75rem; color: var(--color-disabled); margin-bottom: 6px; }
+    .rb-field input, .rb-field select {
+      width: 100%; box-sizing: border-box; background: var(--color-bg); color: var(--color-primary);
+      border: 1px solid var(--color-border-strong); border-radius: 8px; padding: 8px 10px;
+      font-family: var(--font-mono); font-size: 0.8125rem;
+    }
+    .rb-field input:focus, .rb-field select:focus { outline: 2px solid var(--color-blue); outline-offset: -1px; }
+
+    .rb-logic { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .rb-logic code { font-family: var(--font-mono); font-size: 0.8125rem; color: var(--color-primary); background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 12px; white-space: pre-wrap; flex: 1 1 320px; }
+    .rb-copied { font-size: 0.75rem; color: var(--color-green); min-width: 4em; }
+
+    .rb-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .rb-tile { background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 12px 14px; }
+    .rb-tile b { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; color: var(--color-primary); }
+    .rb-tile span { font-size: 0.75rem; color: var(--color-disabled); }
+
+    .rb-charthead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .rb-seg { display: inline-flex; border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+    .rb-seg button { background: transparent; border: 0; color: var(--color-secondary); font-family: var(--font-mono); font-size: 0.75rem; padding: 5px 10px; cursor: pointer; }
+    .rb-seg button + button { border-left: 1px solid var(--color-border); }
+    .rb-seg button.is-on { background: var(--color-surface-raised); color: var(--color-primary); }
+    .rb-chart { position: relative; }
+    .rb-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+    .rb-chart text { fill: var(--color-disabled); font-size: 11px; font-family: var(--font-mono); }
+    .rb-tip { position: absolute; pointer-events: none; background: var(--color-surface-raised); border: 1px solid var(--color-border-strong); color: var(--color-primary); border-radius: 6px; padding: 6px 9px; font-family: var(--font-mono); font-size: 0.75rem; white-space: nowrap; display: none; z-index: 3; }
+    .rb-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.75rem; color: var(--color-secondary); margin-top: 6px; }
+    .rb-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+
+    .rb-table td, .rb-table th { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .rb-table td:first-child, .rb-table th:first-child { text-align: left; }
+    .rb-table tbody tr { cursor: pointer; }
+    .rb-table tr.is-sel td { font-weight: 700; color: var(--color-primary); }
+    .rb-table tr.is-base td { color: var(--color-disabled); font-style: italic; cursor: default; }
+    .rb-neg { color: var(--color-red); }
+    .rb-pos { color: var(--color-green); }
+
+    .rb-honesty { border: 1px solid var(--color-border); border-radius: 8px; padding: 12px 14px; font-size: 0.875rem; line-height: 1.6; color: var(--color-secondary); }
+    .rb-honesty.is-warn { border-color: var(--color-yellow); }
+    .rb-honesty ul { margin: 6px 0 0; padding-left: 18px; }
+    .rb-honesty li { margin: 4px 0; }
+    .rb-honesty strong { color: var(--color-primary); }
+    .rb-mode { margin-bottom: 16px; }
+    .rb-mode button { font-size: 0.875rem; padding: 8px 16px; }
+    .rc-row { background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+    .rc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-secondary); }
+    .rc-x { background: transparent; border: 1px solid var(--color-border); color: var(--color-secondary); border-radius: 6px; width: 26px; height: 24px; margin-left: 6px; cursor: pointer; }
+    .rc-x:hover { color: var(--color-primary); border-color: var(--color-border-strong); }
+    .rc-wide { grid-column: span 2; }
+    .rc-bad { color: var(--color-red); font-size: 0.75rem; margin-top: 4px; }
+    .rb-table.rc-static tbody tr { cursor: default; }
+    @media (max-width: 520px) { .rc-wide { grid-column: auto; } }
+    .rb-modebar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .rb-modebar .rb-mode { margin-bottom: 0; }
+    .rb-modehint { font-size: 0.8125rem; color: var(--color-secondary); }
+    .rb-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 16px; font-size: 0.8125rem; color: var(--color-secondary); }
+    .rb-chip { background: var(--color-bg); border: 1px solid var(--color-border-strong); color: var(--color-primary); border-radius: 999px; padding: 5px 12px; font-size: 0.8125rem; cursor: pointer; }
+    .rb-chip:hover { border-color: var(--color-blue); }
+    .rb-sentence { font-size: 1.0625rem; line-height: 2.5; color: var(--color-primary); margin: 0 0 4px; }
+    .rb-sentence select, .rb-sentence input {
+      background: var(--color-bg); color: var(--color-primary); border: 1px solid var(--color-border-strong);
+      border-radius: 8px; padding: 4px 8px; margin: 0 2px; font-family: var(--font-mono); font-size: 0.9375rem;
+    }
+    .rb-sentence input { width: 4.2em; }
+    .rb-sentence select#rb-win, .rb-sentence select#rb-lvl { min-width: 4.6em; }
+    .rb-sentence select:focus, .rb-sentence input:focus { outline: 2px solid var(--color-blue); outline-offset: -1px; }
+    .rb-slider { display: flex; align-items: center; gap: 12px; max-width: 520px; margin: 4px 0 6px; }
+    .rb-slider label { font-size: 0.75rem; color: var(--color-disabled); white-space: nowrap; }
+    .rb-slider input { flex: 1; accent-color: var(--color-yellow); }
+    .rb-names { font-size: 0.75rem; color: var(--color-disabled); margin: 6px 0 10px; }
+    .rb-names b { color: var(--color-secondary); font-family: var(--font-mono); }
+    .rb-help { font-size: 0.8125rem; color: var(--color-secondary); line-height: 1.6; margin: 6px 0 4px; }
+    .rb-help summary { cursor: pointer; color: var(--color-blue); }
+    .rb-help p { margin: 8px 0 0; max-width: 760px; }
+    .rb-help strong { color: var(--color-primary); }
+    .rb-verdict { display: flex; gap: 14px; align-items: baseline; background: var(--color-bg); border: 1px solid var(--color-border); border-left: 4px solid var(--vc); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+    .rb-badge { color: var(--vc); font-weight: 700; font-size: 1.0625rem; white-space: nowrap; }
+    .rb-verdict p { margin: 0; color: var(--color-secondary); line-height: 1.6; font-size: 0.9375rem; }
+    .rb-verdict strong { color: var(--color-primary); }
+    @media (max-width: 520px) { .rb-verdict { flex-direction: column; gap: 4px; } }
+    .rb-h3 { font-size: 0.75rem; color: var(--color-disabled); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin: 16px 0 8px; }
+    .rb-tiles-sm .rb-tile b { font-size: 1rem; }
+    .rb-more summary { cursor: pointer; color: var(--color-primary); font-weight: 600; font-size: 1rem; }
+    .rb-table thead th { cursor: pointer; user-select: none; }
+    .rb-table .rb-gstart { border-left: 1px solid var(--color-border-strong); }
+    .rb-swaplink { margin-left: auto; font-size: 0.875rem; color: var(--color-blue); }
+    .rb-note { font-size: 0.75rem; color: var(--color-disabled); margin-top: 8px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+
+      <div style="max-width:680px;margin-bottom:28px">
+        <h1 style="color:var(--color-primary);margin-bottom:8px">RSI Backtester: advanced</h1>
+        <p style="color:var(--color-secondary);font-size:1.0625rem">
+          Test a Composer RSI rule before you build it. Pick a ticker, a level and a fund to buy, and see what it would have earned and whether your level is a lucky number.
+        </p>
+        <div id="rb-refreshed" style="margin-top:12px"></div>
+      </div>
+
+      <div class="rb-modebar"><div class="rb-seg rb-mode" id="rb-mode"><button type="button" data-m="single">One rule</button><button type="button" data-m="cascade">Several rules (cascade)</button></div><span class="rb-modehint" id="rb-modehint"></span><a class="rb-swaplink" id="rb-swap" href="rsi-backtest.html">&larr; Simple view</a></div>
+
+      <div id="rb-root"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="data/prices.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (function () {
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'RSI Signals', href: u('/rsi.html') },
+        { label: 'RSI Backtester', href: u('/rsi-backtest.html') },
+        { label: 'Advanced' },
+      ]);
+
+      // ---------- data ----------
+      let P, DATES, N;
+      const rsiCache = new Map();
+
+      async function loadPrices() {
+        if (window.PRICES_DATA) return window.PRICES_DATA;
+        const res = await fetch(`${BASE}/data/prices.json`);
+        if (!res.ok) throw new Error('Failed to load prices.json');
+        return res.json();
+      }
+
+      // Wilder RSI, seeded per ticker from its first price: the first p changes
+      // are averaged, then each day is (prev * (p - 1) + today) / p. A missing
+      // bar after listing outputs NaN and carries the state forward. This is
+      // the formula the 2026-10 research matched to Composer's backtester.
+      function rsiOf(sym, p) {
+        const key = sym + ':' + p;
+        if (rsiCache.has(key)) return rsiCache.get(key);
+        const c = P.tickers[sym].closes;
+        const out = new Float64Array(N).fill(NaN);
+        let prev = null, k = 0, ag = 0, al = 0;
+        for (let i = 0; i < N; i++) {
+          const x = c[i];
+          if (x == null) continue;
+          if (prev != null) {
+            const d = x - prev, g = d > 0 ? d : 0, l = d < 0 ? -d : 0;
+            k++;
+            if (k <= p) { ag += g / p; al += l / p; }
+            else { ag = (ag * (p - 1) + g) / p; al = (al * (p - 1) + l) / p; }
+            if (k >= p) out[i] = al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+          }
+          prev = x;
+        }
+        rsiCache.set(key, out);
+        return out;
+      }
+
+      // ---------- state ----------
+      const DEF = { sig: 'QQQ', buy: 'TQQQ', dir: 'lt', lvl: 30, win: 10, els: 'BIL', range: 'ytd' };
+      const S = Object.assign({}, DEF);
+
+      function readUrl() {
+        const q = new URLSearchParams(location.search);
+        const t = s => (s && P.tickers[s.toUpperCase()] ? s.toUpperCase() : null);
+        S.sig = t(q.get('sig')) || DEF.sig;
+        S.buy = t(q.get('buy')) || DEF.buy;
+        S.dir = q.get('dir') === 'gt' ? 'gt' : 'lt';
+        const l = parseFloat(q.get('lvl')); S.lvl = isFinite(l) && l > 0 && l < 100 ? l : (S.dir === 'gt' ? 79 : DEF.lvl);
+        const w = parseInt(q.get('win'), 10); S.win = w >= 2 && w <= 252 ? w : DEF.win;
+        const e = q.get('else'); S.els = e === 'cash' ? 'cash' : (t(e) || DEF.els);
+        S.range = ['ytd', '1y', '3y', '5y', 'all'].includes(q.get('range')) ? q.get('range') : DEF.range;
+      }
+      function writeUrl() {
+        const q = new URLSearchParams();
+        for (const k of ['sig', 'buy', 'dir', 'lvl', 'win']) if (S[k] !== DEF[k]) q.set(k, S[k]);
+        if (S.els !== DEF.els) q.set('else', S.els);
+        if (S.range !== DEF.range) q.set('range', S.range);
+        const qs = q.toString();
+        if (window.history && history.replaceState) history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+      }
+
+      // Dropdown choices for the RSI level; the window is typed (2 to 252, as in Composer)
+      const clampWin = v => Math.min(252, Math.max(2, Math.round(v)));
+      const lvlOptions = sel => Array.from({ length: 99 }, (_, k) => k + 1)
+        .map(l => `<option value="${l}"${l === +sel ? ' selected' : ''}>${l}</option>`).join('');
+
+      // ---------- formatting ----------
+      const MINUS = '−';
+      function pct(v, dp) {
+        if (v == null || !isFinite(v)) return '—';
+        const a = Math.abs(v * 100);
+        const d = dp != null ? dp : (a >= 100 ? 0 : 1);
+        return (v < 0 ? MINUS : '+') + a.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) + '%';
+      }
+      const signed = (v, dp) => `<span class="${v < 0 ? 'rb-neg' : ''}">${pct(v, dp)}</span>`;
+      const fmtDate = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+      // ---------- engine ----------
+      // Sample: every day i with a settled signal RSI and a next-day price for
+      // the fund (and for the "otherwise" fund when one is held).
+      function buildSample() {
+        const r = rsiOf(S.sig, S.win);
+        const b = P.tickers[S.buy].closes;
+        const e = S.els === 'cash' ? null : P.tickers[S.els].closes;
+        const idx = [];
+        for (let i = 0; i < N - 1; i++) {
+          if (!isFinite(r[i]) || b[i] == null || b[i + 1] == null) continue;
+          if (e && (e[i] == null || e[i + 1] == null)) continue;
+          idx.push(i);
+        }
+        const buyRet = idx.map(i => b[i + 1] / b[i] - 1);
+        const elseRet = idx.map(i => (e ? e[i + 1] / e[i] - 1 : 0));
+        const rv = idx.map(i => r[i]);
+        return { idx, buyRet, elseRet, rv, r, b };
+      }
+      const fires = (v, lvl) => (S.dir === 'lt' ? v < lvl : v > lvl);
+
+      function heldStats(sm, lvl, lo, hi) {
+        lo = lo || 0; hi = hi == null ? sm.idx.length : hi;
+        let n = 0, sum = 0, up = 0, worst = Infinity, best = -Infinity, lg = 0, eq = 1, pk = 1, dd = 0;
+        const rets = [];
+        for (let j = lo; j < hi; j++) {
+          if (!fires(sm.rv[j], lvl)) continue;
+          const x = sm.buyRet[j];
+          n++; sum += x; if (x > 0) up++; if (x < worst) worst = x; if (x > best) best = x;
+          lg += Math.log1p(x); eq *= 1 + x; if (eq > pk) pk = eq; dd = Math.min(dd, eq / pk - 1);
+          rets.push(x);
+        }
+        return { n, avg: n ? sum / n : NaN, up: n ? up / n : NaN, worst: n ? worst : NaN, best: n ? best : NaN, lg, comp: n ? Math.exp(lg) - 1 : NaN, dd, rets };
+      }
+
+      function crossings(sm, lvl) {
+        const H = [1, 5, 10, 20], out = { n: 0, f: { 1: [], 5: [], 10: [], 20: [] } };
+        const b = sm.b;
+        for (let j = 1; j < sm.idx.length; j++) {
+          if (!fires(sm.rv[j], lvl) || fires(sm.rv[j - 1], lvl)) continue;
+          if (sm.idx[j] - sm.idx[j - 1] !== 1) continue; // gap: not a clean crossing
+          out.n++;
+          const i = sm.idx[j];
+          for (const h of H) if (i + h < N && b[i + h] != null) out.f[h].push(b[i + h] / b[i] - 1);
+        }
+        return out;
+      }
+
+      // Volatility and Sharpe from running sums of daily returns. No
+      // risk-free rate is subtracted.
+      function ratios(s, s2, n) {
+        const m = s / n, sd = Math.sqrt(Math.max(0, s2 / n - m * m)), k = Math.sqrt(252);
+        return { vol: sd * k, sharpe: sd ? m / sd * k : NaN };
+      }
+      const ratioTxt = v => (isFinite(v) ? v.toFixed(2) : '\u2014');
+      const ratioCell = v => `<td class="${v < 0 ? 'rb-neg' : ''}">${ratioTxt(v)}</td>`;
+
+      function fullRule(sm, lvl) {
+        let eq = 1, pk = 1, dd = 0, bh = 1, bpk = 1, bdd = 0, el = 1;
+        let s = 0, s2 = 0, bs = 0, bs2 = 0;
+        const curve = [];
+        for (let j = 0; j < sm.idx.length; j++) {
+          const x = fires(sm.rv[j], lvl) ? sm.buyRet[j] : sm.elseRet[j];
+          eq *= 1 + x; pk = Math.max(pk, eq); dd = Math.min(dd, eq / pk - 1);
+          const y = sm.buyRet[j];
+          s += x; s2 += x * x;
+          bs += y; bs2 += y * y;
+          bh *= 1 + sm.buyRet[j]; bpk = Math.max(bpk, bh); bdd = Math.min(bdd, bh / bpk - 1);
+          el *= 1 + sm.elseRet[j];
+          curve.push([sm.idx[j] + 1, eq, bh, el]);
+        }
+        const yrs = sm.idx.length / 252;
+        const n = sm.idx.length, cagr = Math.pow(eq, 1 / yrs) - 1, bhCagr = Math.pow(bh, 1 / yrs) - 1;
+        return {
+          total: eq - 1, cagr, dd, bhTotal: bh - 1, bhCagr, bhDd: bdd, elTotal: el - 1, curve, yrs,
+          ...ratios(s, s2, n), bh: ratios(bs, bs2, n),
+        };
+      }
+
+      function sweepLevels() {
+        const L = [];
+        if (S.dir === 'lt') for (let v = 15; v <= 45; v++) L.push(v);
+        else for (let v = 55; v <= 95; v++) L.push(v);
+        if (!L.includes(S.lvl)) { L.push(S.lvl); L.sort((a, b) => (S.dir === 'lt' ? b - a : a - b)); }
+        else L.sort((a, b) => (S.dir === 'lt' ? b - a : a - b));
+        return L;
+      }
+
+      // ---------- charts ----------
+      function svgEl(tag, attrs) {
+        const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        for (const k in attrs) e.setAttribute(k, attrs[k]);
+        return e;
+      }
+
+      function rangeStart() {
+        const last = new Date(DATES[N - 1] + 'T12:00:00');
+        let from;
+        if (S.range === 'ytd') from = new Date(last.getFullYear(), 0, 1);
+        else if (S.range === 'all') return 0;
+        else { const y = { '1y': 1, '3y': 3, '5y': 5 }[S.range]; from = new Date(last); from.setFullYear(last.getFullYear() - y); }
+        const iso = from.toISOString().slice(0, 10);
+        let i = 0; while (i < N && DATES[i] < iso) i++;
+        return i;
+      }
+
+      function axisLabels(svg, i0, i1, x, H) {
+        const span = (new Date(DATES[i1]) - new Date(DATES[i0])) / 864e5;
+        const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        let prev = null, lastX = -99;
+        for (let i = i0; i <= i1; i++) {
+          const d = DATES[i], key = span > 800 ? d.slice(0, 4) : d.slice(0, 7);
+          if (key === prev) continue;
+          prev = key;
+          const xx = x(i);
+          if (xx - lastX < 38) continue;
+          lastX = xx;
+          const t = svgEl('text', { x: xx, y: H - 6 });
+          t.textContent = span > 800 ? d.slice(0, 4) : M[+d.slice(5, 7) - 1] + (span > 400 ? ' ' + d.slice(2, 4) : '');
+          svg.appendChild(t);
+        }
+      }
+
+      function hover(wrap, svg, W, L, R, i0, i1, x, render) {
+        const tip = wrap.querySelector('.rb-tip');
+        const vl = svgEl('line', { y1: 8, y2: 0, stroke: 'var(--color-border-strong)', 'stroke-width': 1, style: 'display:none' });
+        svg.appendChild(vl);
+        svg.addEventListener('pointermove', ev => {
+          const rc = svg.getBoundingClientRect();
+          const px = (ev.clientX - rc.left) * W / rc.width;
+          const i = Math.max(i0, Math.min(i1, Math.round(i0 + (px - L) * (i1 - i0) / (W - L - R))));
+          const html = render(i);
+          if (!html) return;
+          vl.setAttribute('x1', x(i)); vl.setAttribute('x2', x(i)); vl.setAttribute('y2', svg.viewBox.baseVal.height - 24); vl.style.display = '';
+          tip.innerHTML = html; tip.style.display = 'block';
+          const wr = wrap.getBoundingClientRect();
+          let left = ev.clientX - wr.left + 12;
+          if (left + tip.offsetWidth > wr.width) left = ev.clientX - wr.left - tip.offsetWidth - 12;
+          tip.style.left = Math.max(0, left) + 'px';
+          tip.style.top = Math.max(0, ev.clientY - wr.top - 40) + 'px';
+        });
+        svg.addEventListener('pointerleave', () => { tip.style.display = 'none'; vl.style.display = 'none'; });
+      }
+
+      function drawRsi(sm) {
+        const wrap = document.getElementById('rb-rsi-chart');
+        const W = 900, H = 300, L = 34, R = 10, T = 8, B = 24;
+        const first = sm.idx.length ? sm.idx[0] : 0;
+        const i0 = Math.max(rangeStart(), first), i1 = N - 1;
+        const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `${S.win}-day RSI of ${S.sig} with the ${S.lvl} level` });
+        const x = i => L + (i - i0) * (W - L - R) / Math.max(1, i1 - i0);
+        const y = v => T + (100 - v) * (H - T - B) / 100;
+        const r = sm.r;
+        // shaded signal days
+        let runStart = null;
+        for (let i = i0; i <= i1 + 1; i++) {
+          const on = i <= i1 && isFinite(r[i]) && fires(r[i], S.lvl);
+          if (on && runStart == null) runStart = i;
+          if (!on && runStart != null) {
+            const x0 = x(runStart) - 1, x1 = x(i - 1) + 1;
+            svg.appendChild(svgEl('rect', { x: x0, y: T, width: Math.max(1.5, x1 - x0), height: H - T - B, fill: 'var(--color-green)', opacity: 0.13 }));
+            runStart = null;
+          }
+        }
+        for (const v of [0, 30, 50, 70, 100]) {
+          svg.appendChild(svgEl('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: 'var(--color-border)', 'stroke-width': 1 }));
+          const t = svgEl('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = v; svg.appendChild(t);
+        }
+        svg.appendChild(svgEl('line', { x1: L, x2: W - R, y1: y(S.lvl), y2: y(S.lvl), stroke: 'var(--color-yellow)', 'stroke-width': 1.5, 'stroke-dasharray': '5 4' }));
+        const lt = svgEl('text', { x: W - R, y: y(S.lvl) - 5, 'text-anchor': 'end', style: 'fill:var(--color-yellow)' }); lt.textContent = 'level ' + S.lvl; svg.appendChild(lt);
+        let d = '', pen = false;
+        for (let i = i0; i <= i1; i++) {
+          if (!isFinite(r[i])) { pen = false; continue; }
+          d += (pen ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(r[i]).toFixed(1); pen = true;
+        }
+        svg.appendChild(svgEl('path', { d, fill: 'none', stroke: 'var(--color-blue)', 'stroke-width': 1.5, 'stroke-linejoin': 'round' }));
+        axisLabels(svg, i0, i1, x, H);
+        wrap.innerHTML = '<div class="rb-tip"></div>';
+        wrap.appendChild(svg);
+        hover(wrap, svg, W, L, R, i0, i1, x, i => isFinite(r[i])
+          ? `${fmtDate(DATES[i])} &nbsp;RSI ${r[i].toFixed(1)}${fires(r[i], S.lvl) ? ' &nbsp;<span style="color:var(--color-green)">signal</span>' : ''}` : null);
+      }
+
+      function drawEquity(fr, nm) {
+        const wrap = document.getElementById('rb-eq-chart');
+        const W = 900, H = 300, L = 54, R = 10, T = 8, B = 24;
+        const c = fr.curve;
+        if (!c.length) { wrap.innerHTML = ''; return; }
+        const i0 = c[0][0], i1 = c[c.length - 1][0];
+        let lo = Infinity, hi = -Infinity;
+        for (const p of c) for (let k = 1; k < 4; k++) { lo = Math.min(lo, p[k]); hi = Math.max(hi, p[k]); }
+        lo = Math.log10(Math.min(lo, 1)); hi = Math.log10(Math.max(hi, 1));
+        const pad = (hi - lo) * 0.05 || 0.1; lo -= pad; hi += pad;
+        const x = i => L + (i - i0) * (W - L - R) / Math.max(1, i1 - i0);
+        const y = v => T + (hi - Math.log10(v)) * (H - T - B) / (hi - lo);
+        const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Growth of $1, log scale' });
+        const step = hi - lo > 3 ? 1 : (hi - lo > 1.2 ? 0.5 : 0.25);
+        for (let e = Math.ceil(lo / step) * step; e <= hi; e += step) {
+          const v = Math.pow(10, e);
+          svg.appendChild(svgEl('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: 'var(--color-border)', 'stroke-width': 1 }));
+          const t = svgEl('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end' });
+          t.textContent = '$' + (v >= 1000 ? (v / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 }) + 'k' : v.toLocaleString('en-US', { maximumFractionDigits: 2 }));
+          svg.appendChild(t);
+        }
+        const series = [[3, 'var(--color-disabled)', 1.25], [2, 'var(--color-blue)', 1.5], [1, 'var(--color-green)', 2]];
+        for (const [k, col, w] of series) {
+          if (k === 3 && !nm.e) continue;
+          const d = c.map((p, j) => (j ? 'L' : 'M') + x(p[0]).toFixed(1) + ' ' + y(p[k]).toFixed(1)).join('');
+          svg.appendChild(svgEl('path', { d, fill: 'none', stroke: col, 'stroke-width': w, 'stroke-linejoin': 'round' }));
+        }
+        axisLabels(svg, i0, i1, x, H);
+        wrap.innerHTML = '<div class="rb-tip"></div>';
+        wrap.appendChild(svg);
+        const byI = new Map(c.map(p => [p[0], p]));
+        hover(wrap, svg, W, L, R, i0, i1, x, i => {
+          const p = byI.get(i); if (!p) return null;
+          const m = v => '$' + v.toLocaleString('en-US', { maximumFractionDigits: v >= 100 ? 0 : 2 });
+          return `${fmtDate(DATES[i])} &nbsp;${nm.rule || 'rule'} ${m(p[1])} &nbsp;${escapeHtml(nm.b)} ${m(p[2])}${nm.e ? ' &nbsp;' + escapeHtml(nm.e) + ' ' + m(p[3]) : ''}`;
+        });
+      }
+
+      // ---------- render ----------
+      function tickerOptions(sel, short) {
+        const groups = {};
+        for (const [sym, t] of Object.entries(P.tickers)) (groups[t.group || 'Other'] = groups[t.group || 'Other'] || []).push(sym);
+        return Object.keys(groups).map(g =>
+          `<optgroup label="${escapeHtml(g)}">` + groups[g].sort().map(s =>
+            `<option value="${s}"${s === sel ? ' selected' : ''}>${short ? s : s + ' \u00b7 ' + escapeHtml(P.tickers[s].name)}</option>`).join('') + '</optgroup>'
+        ).join('');
+      }
+
+      const PRESETS = [
+        { label: 'QQQ dips, buy TQQQ', sig: 'QQQ', dir: 'lt', lvl: 30, buy: 'TQQQ' },
+        { label: 'SMH dips, buy SOXL', sig: 'SMH', dir: 'lt', lvl: 32, buy: 'SOXL' },
+        { label: 'SPY dips, buy SPXL', sig: 'SPY', dir: 'lt', lvl: 29, buy: 'SPXL' },
+        { label: 'QQQ overheats, buy UVXY', sig: 'QQQ', dir: 'gt', lvl: 80, buy: 'UVXY' },
+      ];
+      const money = v => '$' + Math.round(v).toLocaleString('en-US');
+      const verdictBox = (label, col, text) =>
+        `<div class="rb-verdict" style="--vc:var(${col})"><span class="rb-badge">${label}</span><p>${text}</p></div>`;
+      const copyLink = () => {
+        const done = ok => { const c = document.getElementById('rb-copied'); c.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(() => (c.textContent = ''), 1800); };
+        if (navigator.clipboard) navigator.clipboard.writeText(location.href).then(() => done(true), () => done(false)); else done(false);
+      };
+      const RSI_HELP = `<details class="rb-help"><summary>What is RSI, and how is this tested?</summary>
+        <p><strong>RSI</strong> (relative strength index) scores how hard a price has moved over the last few days, from 0 to 100. A low reading, under about 30, means it has fallen fast (oversold). A high reading, over about 70 to 80, means it has risen fast (overbought). Composer strategies often buy a leveraged fund when RSI is low, betting on a bounce, or buy a hedge when it is high.</p>
+        <p><strong>The test:</strong> at every close in the price history, the page checks the rule. If it is true, it buys the fund and sells at the next close; if not, it holds the fallback. The result is what following the rule exactly would have earned, before costs.</p></details>`;
+
+      function shell() {
+        document.getElementById('rb-root').innerHTML = `
+          <div class="rb-panel">
+            <h2>1. Build your rule</h2>
+            <div class="rb-chips"><span>Start from an example:</span>${PRESETS.map((p, k) => `<button type="button" class="rb-chip" data-p="${k}">${p.label}</button>`).join('')}</div>
+            <p class="rb-sentence">
+              When <select id="rb-sig" aria-label="Signal ticker">${tickerOptions(S.sig, true)}</select>'s
+              <input id="rb-win" type="number" min="2" max="252" step="1" value="${S.win}" aria-label="RSI window in days, 2 to 252" title="2 to 252 days">-day RSI
+              <select id="rb-dir" aria-label="Condition"><option value="lt"${S.dir === 'lt' ? ' selected' : ''}>drops below</option><option value="gt"${S.dir === 'gt' ? ' selected' : ''}>rises above</option></select>
+              <select id="rb-lvl" aria-label="RSI level">${lvlOptions(S.lvl)}</select>,
+              buy <select id="rb-buy" aria-label="Fund to buy">${tickerOptions(S.buy, true)}</select> for the next day.
+              Otherwise hold <select id="rb-els" aria-label="Fund held otherwise"><option value="cash"${S.els === 'cash' ? ' selected' : ''}>cash</option>${tickerOptions(S.els, true)}</select>.
+            </p>
+            <div class="rb-slider"><label for="rb-lvl-range">Drag to try other levels</label><input id="rb-lvl-range" type="range" min="5" max="95" step="1" value="${S.lvl}"></div>
+            <p class="rb-names" id="rb-names"></p>
+            ${RSI_HELP}
+            <div class="rb-logic"><code id="rb-code"></code><button class="btn btn-outline btn-sm" id="rb-copy-link" type="button">Copy link</button><span class="rb-copied" id="rb-copied"></span></div>
+          </div>
+
+          <div class="rb-panel">
+            <h2>2. What it would have done</h2>
+            <p class="rb-sub" id="rb-res-sub"></p>
+            <div id="rb-verdict"></div>
+            <div class="rb-tiles" id="rb-tiles"></div>
+            <h3 class="rb-h3">Risk, whole rule</h3><div class="rb-tiles rb-tiles-sm" id="rb-tiles3"></div>
+            <div id="rb-tiles2-wrap"><h3 class="rb-h3">On signal days only</h3><div class="rb-tiles rb-tiles-sm" id="rb-tiles2"></div></div>
+          </div>
+
+          <div class="rb-panel">
+            <div class="rb-charthead">
+              <h2 id="rb-rsi-title">RSI</h2>
+              <div class="rb-seg" id="rb-range">${['ytd', '1y', '3y', '5y', 'all'].map(k => `<button type="button" data-r="${k}"${S.range === k ? ' class="is-on"' : ''}>${k === 'ytd' ? 'YTD' : k.toUpperCase()}</button>`).join('')}</div>
+            </div>
+            <p class="rb-sub">Green bands are the days the rule was true, so the fund was held the following day.</p>
+            <div class="rb-chart" id="rb-rsi-chart"></div>
+            <div class="rb-legend"><span><i style="background:var(--color-blue)"></i>RSI</span><span><i style="background:var(--color-yellow)"></i>Your level</span><span><i style="background:var(--color-green);opacity:.4;height:10px"></i>Rule true</span></div>
+          </div>
+
+          <div class="rb-panel">
+            <h2>Growth of $1 (log scale)</h2>
+            <p class="rb-sub" id="rb-eq-sub"></p>
+            <div class="rb-chart" id="rb-eq-chart"></div>
+            <div class="rb-legend" id="rb-eq-legend"></div>
+          </div>
+
+          <div class="rb-panel">
+            <h2>3. Is your level a lucky number?</h2>
+            <div id="rb-honesty" class="rb-honesty" style="margin:10px 0 16px"></div>
+            <p class="rb-sub">Each row is the same rule at a different level. Look for a run of similar numbers around yours: a level that beats its neighbours by a lot is probably luck. The columns up to <em>Second half</em> count signal days only; from <em>Per year</em> on they score the whole rule, fallback included. <strong>Click a row</strong> to use that level, or a header to sort.</p>
+            <div class="db-table-wrap"><table class="db-table rb-table" id="rb-sweep"></table></div>
+          </div>
+
+          <details class="rb-panel rb-more">
+            <summary>More detail: what happened after the first signal</summary>
+            <p class="rb-sub" style="margin-top:12px">What the fund did over the following days, counting only the first day of each run, against any day at all.</p>
+            <div class="db-table-wrap"><table class="db-table rb-table" id="rb-cross"></table></div>
+          </details>
+          <p class="rb-note">Assumptions: buy at the signal day's close and sell at a later close; no costs, slippage or taxes; dividend-adjusted daily prices, refreshed weekly. Sharpe uses daily returns with no risk-free rate subtracted. This method matched a Composer backtest of the same rules within about 2 points a year. Past results do not predict future returns.</p>`;
+
+        const on = (id, ev, fn) => document.getElementById(id).addEventListener(ev, fn);
+        on('rb-sig', 'change', e => { S.sig = e.target.value; update(); });
+        on('rb-buy', 'change', e => { S.buy = e.target.value; update(); });
+        on('rb-els', 'change', e => { S.els = e.target.value; update(); });
+        on('rb-dir', 'change', e => {
+          S.dir = e.target.value;
+          if (S.dir === 'gt' && S.lvl < 50) S.lvl = 79;
+          if (S.dir === 'lt' && S.lvl > 50) S.lvl = 30;
+          update();
+        });
+        on('rb-lvl', 'change', e => { const v = parseFloat(e.target.value); if (v > 0 && v < 100) { S.lvl = v; update(); } });
+        on('rb-lvl-range', 'input', e => { S.lvl = parseFloat(e.target.value); update(); });
+        on('rb-win', 'change', e => { const v = parseFloat(e.target.value); if (!isFinite(v)) { e.target.value = S.win; return; } S.win = clampWin(v); e.target.value = S.win; update(); });
+        document.querySelector('.rb-chips').addEventListener('click', e => {
+          const b = e.target.closest('[data-p]'); if (!b) return;
+          Object.assign(S, PRESETS[+b.dataset.p], { win: 10, els: 'BIL' }); delete S.label;
+          shell(); update();
+        });
+        document.getElementById('rb-range').addEventListener('click', e => {
+          const b = e.target.closest('button'); if (!b) return;
+          S.range = b.dataset.r;
+          document.querySelectorAll('#rb-range button').forEach(x => x.classList.toggle('is-on', x === b));
+          writeUrl(); drawRsi(buildSample());
+        });
+        on('rb-copy-link', 'click', copyLink);
+        on('rb-sweep', 'click', e => {
+          const tr = e.target.closest('tr[data-l]'); if (!tr) return;
+          S.lvl = parseFloat(tr.dataset.l); update();
+        });
+      }
+
+      function update() {
+        writeUrl();
+        const sym = s => escapeHtml(s);
+        const cmp = S.dir === 'lt' ? '<' : '>';
+        const elsName = S.els === 'cash' ? 'cash' : S.els;
+        document.getElementById('rb-code').textContent = `IF ${S.win}d RSI of ${S.sig} ${cmp} ${S.lvl}  ->  ${S.buy}\nELSE  ->  ${elsName}`;
+        document.getElementById('rb-lvl').value = S.lvl;
+        document.getElementById('rb-lvl-range').value = S.lvl;
+        document.getElementById('rb-dir').value = S.dir;
+        document.getElementById('rb-names').innerHTML = [...new Set([S.sig, S.buy].concat(S.els === 'cash' ? [] : [S.els]))]
+          .map(s => `<b>${sym(s)}</b> ${sym(P.tickers[s].name)}`).join(' &middot; ');
+
+        const sm = buildSample();
+        if (sm.idx.length < 60) {
+          document.getElementById('rb-verdict').innerHTML = verdictBox('No data', '--color-disabled', 'These tickers do not share enough price history to test.');
+          document.getElementById('rb-tiles').innerHTML = '';
+          return;
+        }
+        const from = DATES[sm.idx[0]], to = DATES[sm.idx[sm.idx.length - 1] + 1];
+        const yrs = sm.idx.length / 252;
+        const hs = heldStats(sm, S.lvl);
+        const fr = fullRule(sm, S.lvl);
+
+        // level sweep, used by the table and by the trust checks
+        const levels = sweepLevels();
+        const H2 = Math.floor(sm.idx.length / 2);
+        const rows = levels.map(l => ({ l, a: heldStats(sm, l), h1: heldStats(sm, l, 0, H2), h2: heldStats(sm, l, H2) }));
+        const lgBy = new Map(rows.map(x => [x.l, x.a.lg]));
+        const neigh = l => {
+          const v = [];
+          for (let d = -2; d <= 2; d++) if (lgBy.has(l + d)) v.push(lgBy.get(l + d));
+          v.sort((a, b) => a - b);
+          return v.length ? Math.exp(v[Math.floor(v.length / 2)]) - 1 : NaN;
+        };
+
+        // crossings and the any-day baseline
+        const cr = crossings(sm, S.lvl);
+        const avg = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : NaN);
+        const base = {};
+        for (const h of [1, 5, 10, 20]) {
+          const a = [];
+          for (const i of sm.idx) if (i + h < N && sm.b[i + h] != null) a.push(sm.b[i + h] / sm.b[i] - 1);
+          base[h] = avg(a);
+        }
+
+        // trust checks: notes for section 3, short reasons for the verdict
+        const notes = [], why = [];
+        const edge = hs.avg - base[1];
+        if (hs.n) {
+          const nb = neigh(S.lvl);
+          if (cr.n < 20) { why.push(`it only fired ${cr.n} separate time${cr.n === 1 ? '' : 's'}`); notes.push(`<strong>Small sample.</strong> It first fired only ${cr.n} time${cr.n === 1 ? '' : 's'} in ${yrs.toFixed(0)} years, too few to separate an edge from luck.`); }
+          if (isFinite(nb) && hs.lg - Math.log1p(nb) > Math.log(1.5)) { why.push('nearby levels did much worse'); notes.push(`<strong>A spike, not a plateau.</strong> This level grows ${pct(hs.comp)} on its signal days, but the levels within 2 points have a median of ${pct(nb)}. Small changes in the market would likely move you off it.`); }
+          else if (isFinite(nb)) notes.push(`<strong>Neighbours agree.</strong> Levels within 2 points have a median of ${pct(nb)}, close to this level's ${pct(hs.comp)}.`);
+          const h1 = heldStats(sm, S.lvl, 0, H2), h2 = heldStats(sm, S.lvl, H2);
+          const mid = fmtDate(DATES[sm.idx[H2]]);
+          if (h1.n && h2.n && (h1.comp < 0) !== (h2.comp < 0)) { why.push('it lost money in one half of the history'); notes.push(`<strong>The halves disagree.</strong> Before ${mid}: ${pct(h1.comp)}; after: ${pct(h2.comp)}. It worked in one era and not the other.`); }
+          else if (h1.n && h2.n) notes.push(`<strong>Both halves positive.</strong> Before ${mid}: ${pct(h1.comp)}; after: ${pct(h2.comp)}.`);
+          if (hs.n >= 10) {
+            const sorted = hs.rets.slice().sort((a, b) => b - a);
+            const without = Math.exp(hs.lg - sorted.slice(0, 3).reduce((s, x) => s + Math.log1p(x), 0)) - 1;
+            if (without < hs.comp / 3 || without < 0) why.push('most of the gain came from its 3 best days');
+            notes.push(`<strong>Best days.</strong> Without its 3 best days, the growth on signal days falls from ${pct(hs.comp)} to ${pct(without)}.`);
+          }
+          if (edge <= 0) notes.push(`<strong>No edge.</strong> The average signal day (${pct(hs.avg, 2)}) is no better than any day (${pct(base[1], 2)}).`);
+        }
+        notes.push('Any level picked from this table is fit to the same history it is scored on. Expect live results to come in below it.');
+        const hon = document.getElementById('rb-honesty');
+        hon.className = 'rb-honesty' + (why.length || edge <= 0 ? ' is-warn' : '');
+        hon.innerHTML = `<ul>${notes.map(n => `<li>${n}</li>`).join('')}</ul>`;
+
+        // verdict
+        const summary = `Since ${fmtDate(from)}, $10,000 following this rule would have grown to <strong>${money(10000 * (1 + fr.total))}</strong> (${pct(fr.cagr)} a year), against ${money(10000 * (1 + fr.bhTotal))} for holding ${sym(S.buy)} every day. It held ${sym(S.buy)} on ${hs.n.toLocaleString('en-US')} days, about ${Math.round(hs.n / yrs)} a year.`;
+        let v;
+        if (!hs.n) v = verdictBox('Never fired', '--color-disabled', `${sym(S.sig)}'s RSI never got that far in this history, so the rule never bought anything. Try a less extreme level.`);
+        else if (hs.comp <= 0) v = verdictBox('Lost money', '--color-red', `${sym(S.buy)} lost money on the days this rule picked. ${summary}`);
+        else if (edge <= 0) v = verdictBox('No edge', '--color-red', `On signal days ${sym(S.buy)} averaged ${pct(hs.avg, 2)}, no better than its ${pct(base[1], 2)} on any day. ${summary}`);
+        else if (why.length) v = verdictBox('Fragile', '--color-yellow', `It made money, but ${why.join(', and ')}. Treat this level with caution. ${summary}`);
+        else v = verdictBox('Holds up', '--color-green', `Signal days beat an average ${sym(S.buy)} day, nearby levels agree and both halves of the history made money. ${summary}`);
+        document.getElementById('rb-verdict').innerHTML = v;
+
+        document.getElementById('rb-res-sub').textContent = `${fmtDate(from)} to ${fmtDate(to)}, ${yrs.toFixed(1)} years of price history that these tickers share.`;
+        const tile = (val, l) => `<div class="rb-tile"><b>${val}</b><span>${l}</span></div>`;
+        document.getElementById('rb-tiles').innerHTML = [
+          tile(pct(fr.cagr), 'a year, following the rule'),
+          tile(pct(fr.bhCagr), `a year, just holding ${sym(S.buy)}`),
+          tile(pct(fr.dd, 0), `rule's worst drop (${sym(S.buy)} alone: ${pct(fr.bhDd, 0)})`),
+          tile((hs.n / yrs).toFixed(1), `signal days a year (${hs.n.toLocaleString('en-US')} in total)`),
+        ].join('');
+        document.getElementById('rb-tiles2-wrap').hidden = !hs.n;
+        if (hs.n) document.getElementById('rb-tiles2').innerHTML = [
+          tile(pct(hs.avg, 2), `average day (any day: ${pct(base[1], 2)})`),
+          tile(Math.round(hs.up * 100) + '%', 'of days were up'),
+          tile(pct(hs.worst), 'worst day'),
+          tile(pct(hs.comp), 'growth from signal days alone'),
+        ].join('');
+        document.getElementById('rb-tiles3').innerHTML = [
+          tile(ratioTxt(fr.sharpe), `Sharpe (${sym(S.buy)} alone: ${ratioTxt(fr.bh.sharpe)})`),
+          tile(pct(fr.vol, 0).replace('+', ''), `yearly volatility (${sym(S.buy)} alone: ${pct(fr.bh.vol, 0).replace('+', '')})`),
+        ].join('');
+
+        // sweep table
+        document.getElementById('rb-sweep').innerHTML =
+          `<thead><tr><th>Level</th><th>Signal days</th><th>Avg day</th><th>Up days</th><th>Worst day</th><th>Growth</th><th>Nearby median</th><th>First half</th><th>Second half</th><th class="rb-gstart">Per year</th><th>Worst drop</th><th>Sharpe</th></tr></thead><tbody>` +
+          rows.map(({ l, a, h1, h2 }) => a.n === 0
+            ? `<tr data-l="${l}"${l === S.lvl ? ' class="is-sel"' : ''}><td>${cmp} ${l}</td><td>0</td><td colspan="10" style="text-align:left">never fired</td></tr>`
+            : `<tr data-l="${l}"${l === S.lvl ? ' class="is-sel"' : ''}><td>${cmp} ${l}</td><td>${a.n}</td><td>${signed(a.avg, 2)}</td><td>${Math.round(a.up * 100)}%</td><td>${signed(a.worst)}</td><td>${signed(a.comp)}</td><td>${signed(neigh(l))}</td><td>${h1.n ? signed(h1.comp) : '—'}</td><td>${h2.n ? signed(h2.comp) : '—'}</td>${(f => `<td class="rb-gstart">${signed(f.cagr)}</td><td>${signed(f.dd, 0)}</td>${ratioCell(f.sharpe)}`)(fullRule(sm, l))}</tr>`
+          ).join('') + '</tbody>';
+
+        // crossings table
+        const f5 = cr.f[5];
+        document.getElementById('rb-cross').innerHTML =
+          `<thead><tr><th></th><th>Times</th><th>Next day</th><th>5 days</th><th>10 days</th><th>20 days</th><th>Up after 5 days</th><th>Worst next day</th></tr></thead><tbody>` +
+          (cr.n ? `<tr class="is-sel"><td>first day ${cmp} ${S.lvl}</td><td>${cr.n}</td>${[1, 5, 10, 20].map(h => `<td>${signed(avg(cr.f[h]))}</td>`).join('')}<td>${f5.length ? Math.round(100 * f5.filter(x => x > 0).length / f5.length) + '%' : '—'}</td><td>${signed(Math.min(...cr.f[1]))}</td></tr>` : `<tr><td>first day ${cmp} ${S.lvl}</td><td>0</td><td colspan="6" style="text-align:left">never fired</td></tr>`) +
+          `<tr class="is-base"><td>any day</td><td></td>${[1, 5, 10, 20].map(h => `<td>${pct(base[h])}</td>`).join('')}<td></td><td></td></tr></tbody>`;
+
+        document.getElementById('rb-rsi-title').textContent = `${S.sig} ${S.win}-day RSI`;
+        drawRsi(sm);
+        document.getElementById('rb-eq-sub').textContent = `The whole rule (${S.buy} on signal days, ${elsName} otherwise) against holding ${S.buy} every day, ${fmtDate(from)} to ${fmtDate(to)}.`;
+        document.getElementById('rb-eq-legend').innerHTML =
+          `<span><i style="background:var(--color-green)"></i>Rule ${pct(fr.total)}</span><span><i style="background:var(--color-blue)"></i>${sym(S.buy)} held ${pct(fr.bhTotal)}</span>` +
+          (S.els === 'cash' ? '' : `<span><i style="background:var(--color-disabled)"></i>${sym(S.els)} only ${pct(fr.elTotal)}</span>`);
+        drawEquity(fr, { b: S.buy, e: S.els === 'cash' ? null : S.els });
+        resortAll();
+      }
+
+      // ---------- cascade mode ----------
+      // An ordered IF / ELSE IF list. Each branch fires when ANY of its tickers'
+      // RSI crosses its level (one ticker is just a list of one); the first
+      // branch that fires picks the fund, otherwise the fallback is held.
+      const OB12 = 'SMH QQQ SPY TQQQ TECL QQQE VOOG VOOV VTV FAS XLP XLY'.split(' ');
+      const CDEF = {
+        br: [
+          { t: ['SMH'], dir: 'lt', lvl: 32, win: 10, buy: 'SOXL' },
+          { t: ['QQQ'], dir: 'lt', lvl: 32, win: 10, buy: 'TQQQ' },
+          { t: ['SPY'], dir: 'lt', lvl: 29, win: 10, buy: 'SPXL' },
+          { t: OB12, dir: 'gt', lvl: 80, win: 10, buy: 'UVXY' },
+        ],
+        els: 'BIL', bench: 'SPY',
+      };
+      const CPRESETS = [
+        { label: 'Dip buys + overbought hedge', br: CDEF.br },
+        { label: 'Dip buys only', br: CDEF.br.slice(0, 3) },
+        { label: 'Overbought hedge only', br: CDEF.br.slice(3) },
+      ];
+      let C;
+      const cmpOf = d => (d === 'lt' ? '<' : '>');
+      const encBr = b => [b.t.join('.'), b.dir, b.lvl, b.win, b.buy].join(':');
+
+      function cRead() {
+        const q = new URLSearchParams(location.search);
+        C = { br: [], els: CDEF.els, bench: CDEF.bench };
+        const raw = q.get('c');
+        if (raw) for (const s of raw.split(';')) {
+          const [t, dir, lvl, win, buy] = s.split(':');
+          const ts = (t || '').split('.').map(x => x.toUpperCase()).filter(x => P.tickers[x]);
+          const B = (buy || '').toUpperCase(), l = parseFloat(lvl), w = parseInt(win, 10);
+          if (ts.length && P.tickers[B] && l > 0 && l < 100) C.br.push({ t: ts, dir: dir === 'gt' ? 'gt' : 'lt', lvl: l, win: w >= 2 && w <= 252 ? w : 10, buy: B });
+        }
+        if (!C.br.length) C.br = JSON.parse(JSON.stringify(CDEF.br));
+        const e = q.get('else'); C.els = e === 'cash' ? 'cash' : (e && P.tickers[e.toUpperCase()] ? e.toUpperCase() : CDEF.els);
+        const bm = q.get('bench'); C.bench = bm && P.tickers[bm.toUpperCase()] ? bm.toUpperCase() : CDEF.bench;
+      }
+      function cWrite() {
+        let qs = 'mode=cascade&c=' + C.br.map(encBr).join(';');
+        if (C.els !== CDEF.els) qs += '&else=' + C.els;
+        if (C.bench !== CDEF.bench) qs += '&bench=' + C.bench;
+        if (window.history && history.replaceState) history.replaceState(null, '', location.pathname + '?' + qs);
+      }
+
+      const dayRet = (f, i) => { if (f === 'cash') return 0; const c = P.tickers[f].closes; return c[i + 1] / c[i] - 1; };
+
+      // Sample: days where every signal ticker has a settled RSI and every fund
+      // (plus the benchmark) has today's and tomorrow's price, as Composer
+      // starts a backtest only once all of its tickers have data.
+      function cSample() {
+        const rs = C.br.map(b => b.t.map(s => rsiOf(s, b.win)));
+        const funds = [...new Set(C.br.map(b => b.buy).concat(C.els === 'cash' ? [] : [C.els], [C.bench]))];
+        const idx = [];
+        outer: for (let i = 0; i < N - 1; i++) {
+          for (const r of rs) for (const x of r) if (!isFinite(x[i])) continue outer;
+          for (const f of funds) { const c = P.tickers[f].closes; if (c[i] == null || c[i + 1] == null) continue outer; }
+          idx.push(i);
+        }
+        // the ticker that holds the start back, for the subtitle
+        let lim = null, limAt = -1;
+        C.br.forEach((b, k) => b.t.forEach((s, m) => { const x = rs[k][m]; let f = 0; while (f < N && !isFinite(x[f])) f++; if (f > limAt) { limAt = f; lim = s; } }));
+        funds.forEach(s => { const c = P.tickers[s].closes; let f = 0; while (f < N && c[f] == null) f++; if (f > limAt) { limAt = f; lim = s; } });
+        return { idx, rs, lim };
+      }
+
+      function cRun(sm, lv) {
+        const n = sm.idx.length, pick = new Int8Array(n), r = new Float64Array(n);
+        for (let j = 0; j < n; j++) {
+          const i = sm.idx[j]; let k = -1;
+          for (let b = 0; b < C.br.length && k < 0; b++) {
+            const lt = C.br[b].dir === 'lt', L = lv[b];
+            for (const x of sm.rs[b]) { const v = x[i]; if (lt ? v < L : v > L) { k = b; break; } }
+          }
+          pick[j] = k; r[j] = dayRet(k < 0 ? C.els : C.br[k].buy, i);
+        }
+        let eq = 1, pk = 1, dd = 0, s = 0, s2 = 0;
+        for (let j = 0; j < n; j++) { const x = r[j]; eq *= 1 + x; pk = Math.max(pk, eq); dd = Math.min(dd, eq / pk - 1); s += x; s2 += x * x; }
+        const cagr = Math.pow(eq, 252 / n) - 1;
+        return { pick, r, eq, total: eq - 1, cagr, dd, ...ratios(s, s2, n) };
+      }
+      const cagrOf = (r, lo, hi) => { let lg = 0; for (let j = lo; j < hi; j++) lg += Math.log1p(r[j]); return Math.exp(lg * 252 / (hi - lo)) - 1; };
+      const median = a => { const v = a.filter(isFinite).sort((x, y) => x - y); return v.length ? v[Math.floor(v.length / 2)] : NaN; };
+
+      function brRow(b, k) {
+        return `<div class="rc-row" data-b="${k}">
+          <div class="rc-head"><span>Rule ${k + 1}${k ? ' &middot; only if the rules above are false' : ''}</span>
+            <span>${k ? `<button type="button" class="rc-x" data-act="up" title="Move up">&uarr;</button>` : ''}${C.br.length > 1 ? `<button type="button" class="rc-x" data-act="del" title="Remove branch">&times;</button>` : ''}</span></div>
+          <div class="rb-params">
+            <div class="rb-field rc-wide"><label>If any of these tickers (space separated)</label><input data-f="t" type="text" value="${escapeHtml(b.t.join(' '))}" spellcheck="false" autocomplete="off"><div class="rc-bad" data-bad></div></div>
+            <div class="rb-field"><label>RSI window</label><input data-f="win" type="number" min="2" max="252" step="1" value="${b.win}" title="2 to 252 days"></div>
+            <div class="rb-field"><label>RSI</label><select data-f="dir"><option value="lt"${b.dir === 'lt' ? ' selected' : ''}>drops below</option><option value="gt"${b.dir === 'gt' ? ' selected' : ''}>rises above</option></select></div>
+            <div class="rb-field"><label>Level</label><select data-f="lvl">${lvlOptions(b.lvl)}</select></div>
+            <div class="rb-field"><label>Then buy</label><select data-f="buy">${tickerOptions(b.buy, true)}</select></div>
+          </div></div>`;
+      }
+
+      function cShell() {
+        document.getElementById('rb-root').innerHTML = `
+          <div class="rb-panel">
+            <h2>1. Build your cascade</h2>
+            <p class="rb-sub">Rules are checked from the top at each close. The first one that is true picks the fund for the next day; if none is, the fallback is held. A rule can watch several tickers and is true when any of them crosses its level.</p>
+            <div class="rb-chips"><span>Start from an example:</span>${CPRESETS.map((p, k) => `<button type="button" class="rb-chip" data-cp="${k}">${p.label}</button>`).join('')}</div>
+            ${RSI_HELP}
+            <div id="rc-br"></div>
+            <div class="rb-params" style="margin-top:4px">
+              <div class="rb-field"><label for="rc-els">Otherwise hold</label><select id="rc-els"><option value="cash"${C.els === 'cash' ? ' selected' : ''}>Cash (0%)</option>${tickerOptions(C.els)}</select></div>
+              <div class="rb-field"><label for="rc-bench">Compare against</label><select id="rc-bench">${tickerOptions(C.bench)}</select></div>
+              <div class="rb-field" style="align-self:end"><button class="btn btn-outline btn-sm" id="rc-add" type="button">+ Add a rule</button></div>
+            </div>
+            <div class="rb-logic"><code id="rb-code"></code><button class="btn btn-outline btn-sm" id="rb-copy-link" type="button">Copy link</button><span class="rb-copied" id="rb-copied"></span></div>
+          </div>
+
+          <div class="rb-panel">
+            <h2>2. What it would have done</h2>
+            <p class="rb-sub" id="rc-sub"></p>
+            <div id="rb-verdict"></div>
+            <div class="rb-tiles" id="rc-tiles"></div>
+          </div>
+
+          <div class="rb-panel">
+            <h2>3. Are the levels lucky numbers?</h2>
+            <div id="rc-honesty" class="rb-honesty" style="margin-top:10px"></div>
+          </div>
+
+          <div class="rb-panel">
+            <h2>Growth of $1 (log scale)</h2>
+            <p class="rb-sub" id="rb-eq-sub"></p>
+            <div class="rb-chart" id="rb-eq-chart"></div>
+            <div class="rb-legend" id="rb-eq-legend"></div>
+          </div>
+
+          <div class="rb-panel">
+            <h2>What each rule did</h2>
+            <p class="rb-sub">Days each rule was the one in charge. <em>Share of cascade days</em> counts only days some rule fired; a <em>stint</em> is a run of back-to-back days held. A rule further down only gets the days the rules above it pass on.</p>
+            <div class="db-table-wrap"><table class="db-table rb-table rc-static" id="rc-branches"></table></div>
+          </div>
+
+          <div class="rb-panel">
+            <h2>Nudging each level</h2>
+            <p class="rb-sub">Return per year (then worst drop and Sharpe) when one rule's level moves and everything else stays put. A good level sits on a plateau; if the row jumps around, the current number is fitted to history. The last row moves every level the same way: looser means more signal days.</p>
+            <div class="db-table-wrap"><table class="db-table rb-table rc-static" id="rc-sens"></table></div>
+          </div>
+
+          <div class="rb-panel">
+            <h2>Year by year</h2>
+            <div class="db-table-wrap"><table class="db-table rb-table rc-static" id="rc-years"></table></div>
+            <p class="rb-note">Assumptions: signals read at each close, the chosen fund held to the next close; no costs, slippage or taxes; dividend-adjusted daily prices, refreshed weekly. Sharpe uses daily returns with no risk-free rate subtracted. This method matched a Composer backtest of a similar cascade within about 2 points a year. Past results do not predict future returns.</p>
+          </div>`;
+
+        const brBox = document.getElementById('rc-br');
+        const drawRows = () => { brBox.innerHTML = C.br.map(brRow).join(''); };
+        drawRows();
+        brBox.addEventListener('change', e => {
+          const row = e.target.closest('[data-b]'), f = e.target.dataset.f; if (!row || !f) return;
+          const b = C.br[+row.dataset.b], v = e.target.value;
+          if (f === 't') {
+            const all = v.toUpperCase().split(/[\s,]+/).filter(Boolean);
+            const ok = all.filter(s => P.tickers[s]), bad = all.filter(s => !P.tickers[s]);
+            row.querySelector('[data-bad]').textContent = bad.length ? 'Not in the price data: ' + bad.join(' ') : '';
+            if (!ok.length) return;
+            b.t = [...new Set(ok)];
+          } else if (f === 'lvl') { const l = parseFloat(v); if (!(l > 0 && l < 100)) return; b.lvl = l; }
+          else if (f === 'win') { const w = parseFloat(v); if (!isFinite(w)) { e.target.value = b.win; return; } b.win = clampWin(w); e.target.value = b.win; }
+          else b[f] = v;
+          cUpdate();
+        });
+        brBox.addEventListener('click', e => {
+          const btn = e.target.closest('[data-act]'); if (!btn) return;
+          const k = +btn.closest('[data-b]').dataset.b;
+          if (btn.dataset.act === 'del') C.br.splice(k, 1);
+          else { const t = C.br[k]; C.br[k] = C.br[k - 1]; C.br[k - 1] = t; }
+          drawRows(); cUpdate();
+        });
+        document.getElementById('rc-add').addEventListener('click', () => {
+          C.br.push({ t: ['SPY'], dir: 'lt', lvl: 30, win: 10, buy: 'SPXL' }); drawRows(); cUpdate();
+        });
+        document.getElementById('rc-els').addEventListener('change', e => { C.els = e.target.value; cUpdate(); });
+        document.getElementById('rc-bench').addEventListener('change', e => { C.bench = e.target.value; cUpdate(); });
+        document.getElementById('rb-copy-link').addEventListener('click', copyLink);
+        document.querySelector('.rb-chips').addEventListener('click', e => {
+          const b = e.target.closest('[data-cp]'); if (!b) return;
+          C.br = JSON.parse(JSON.stringify(CPRESETS[+b.dataset.cp].br)); C.els = 'BIL';
+          cShell(); cUpdate();
+        });
+      }
+
+      function cUpdate() {
+        cWrite();
+        const elsName = C.els === 'cash' ? 'cash' : C.els;
+        document.getElementById('rb-code').textContent = C.br.map((b, k) =>
+          `${k ? 'ELSE IF' : 'IF'} ${b.t.length > 1 ? 'any of ' + b.t.join(' ') : b.t[0]} ${b.win}d RSI ${cmpOf(b.dir)} ${b.lvl}  ->  ${b.buy}`).join('\n') + `\nELSE  ->  ${elsName}`;
+
+        const sm = cSample(), n = sm.idx.length;
+        if (n < 60) {
+          document.getElementById('rb-verdict').innerHTML = verdictBox('No data', '--color-disabled', 'These tickers do not share enough price history to test.');
+          document.getElementById('rc-tiles').innerHTML = '';
+          return;
+        }
+        const lv = C.br.map(b => b.lvl);
+        const res = cRun(sm, lv);
+        const from = DATES[sm.idx[0]], to = DATES[sm.idx[n - 1] + 1];
+        // benchmark and curve
+        let eq = 1, bh = 1, bpk = 1, bdd = 0;
+        const curve = [];
+        for (let j = 0; j < n; j++) {
+          eq *= 1 + res.r[j]; bh *= 1 + dayRet(C.bench, sm.idx[j]);
+          bpk = Math.max(bpk, bh); bdd = Math.min(bdd, bh / bpk - 1);
+          curve.push([sm.idx[j] + 1, eq, bh, bh]);
+        }
+        const bCagr = Math.pow(bh, 252 / n) - 1;
+        let bs = 0, bs2 = 0;
+        for (const i of sm.idx) { const y = dayRet(C.bench, i); bs += y; bs2 += y * y; }
+        const bR = ratios(bs, bs2, n);
+        const inMkt = res.pick.reduce((s, k) => s + (k >= 0 ? 1 : 0), 0);
+
+        document.getElementById('rc-sub').textContent = `${fmtDate(from)} to ${fmtDate(to)}, ${(n / 252).toFixed(1)} years. The test starts once every ticker has data; ${sm.lim} is the latest to arrive.`;
+        const tile = (v, l) => `<div class="rb-tile"><b>${v}</b><span>${l}</span></div>`;
+        document.getElementById('rc-tiles').innerHTML = [
+          tile(pct(res.cagr), 'per year'),
+          tile(pct(res.total), 'total'),
+          tile(pct(res.dd, 0), 'worst drop'),
+          tile(ratioTxt(res.sharpe), 'Sharpe'),
+          tile(pct(res.vol, 0).replace('+', ''), 'yearly volatility'),
+          tile(Math.round(100 * inMkt / n) + '%', `of days in a branch fund, not ${escapeHtml(elsName)}`),
+          tile(pct(bCagr), `${escapeHtml(C.bench)} per year (worst drop ${pct(bdd, 0)}, Sharpe ${ratioTxt(bR.sharpe)})`),
+        ].join('');
+
+        // branches
+        // stints are runs of consecutive test days held by the same rule
+        const brStats = k => {
+          let d = 0, sum = 0, up = 0, worst = Infinity, lg = 0, run = 0;
+          const stints = [];
+          for (let j = 0; j < n; j++) {
+            if (res.pick[j] === k) { const x = res.r[j]; d++; sum += x; if (x > 0) up++; worst = Math.min(worst, x); lg += Math.log1p(x); run++; }
+            else if (run) { stints.push(run); run = 0; }
+          }
+          if (run) stints.push(run);
+          return { d, avg: d ? sum / d : NaN, up: d ? up / d : NaN, worst: d ? worst : NaN, comp: d ? Math.exp(lg) - 1 : NaN,
+            typ: median(stints), long: stints.length ? Math.max(...stints) : 0 };
+        };
+        const brName = b => (b.t.length > 1 ? 'any of ' + b.t.length : b.t[0]);
+        const brLabel = (b, k) => `${k + 1}. ${brName(b)} ${cmpOf(b.dir)} ${b.lvl} &rarr; ${escapeHtml(b.buy)}`;
+        const dayWord = v => `${v} day${v === 1 ? '' : 's'}`;
+        const brRowHtml = (lab, s, inCascade) => s.d
+          ? `<tr><td>${lab}</td><td>${s.d.toLocaleString('en-US')}</td><td>${inCascade ? (100 * s.d / inMkt).toFixed(1) + '%' : '—'}</td><td>${(100 * s.d / n).toFixed(1)}%</td><td>${(s.d / (n / 252)).toFixed(1)}</td><td>${dayWord(s.typ)}</td><td>${dayWord(s.long)}</td><td>${signed(s.avg, 2)}</td><td>${Math.round(s.up * 100)}%</td><td>${signed(s.worst)}</td><td>${signed(s.comp)}</td></tr>`
+          : `<tr><td>${lab}</td><td>0</td><td colspan="9" style="text-align:left">never in charge</td></tr>`;
+        document.getElementById('rc-branches').innerHTML =
+          '<thead><tr><th>Rule</th><th>Days held</th><th>Share of cascade days</th><th>Share of all days</th><th>Days a year</th><th>Typical stint</th><th>Longest stint</th><th>Avg day</th><th>Up days</th><th>Worst day</th><th>Compounded</th></tr></thead><tbody>' +
+          C.br.map((b, k) => brRowHtml(brLabel(b, k), brStats(k), true)).join('') +
+          brRowHtml(`otherwise &rarr; ${escapeHtml(elsName)}`, brStats(-1), false) + '</tbody>';
+
+        // sensitivity
+        const D = [-2, -1, 0, 1, 2];
+        const cell = (r, cur) => `<td${cur ? ' style="font-weight:700;color:var(--color-primary)"' : ''}>${signed(r.cagr)} <span style="color:var(--color-disabled)">${pct(r.dd, 0)} &middot; ${ratioTxt(r.sharpe)}</span></td>`;
+        const spikes = [];
+        let sensHtml = '<thead><tr><th>Level moved by</th>' + D.map(d => `<th>${d === 0 ? 'current' : (d > 0 ? '+' : MINUS) + Math.abs(d)}</th>`).join('') + '</tr></thead><tbody>';
+        C.br.forEach((b, k) => {
+          const runs = D.map(d => { const l2 = lv.slice(); l2[k] += d; return cRun(sm, l2); });
+          const med = median(runs.map(r => r.cagr));
+          if (res.cagr - med > 0.05) spikes.push(`${brName(b)} ${cmpOf(b.dir)} ${b.lvl} gives ${pct(res.cagr)} a year, but the median from ${MINUS}2 to +2 is ${pct(med)}`);
+          sensHtml += `<tr><td>${brLabel(b, k)}</td>${runs.map((r, m) => cell(r, D[m] === 0)).join('')}</tr>`;
+        });
+        const allRuns = D.map(d => cRun(sm, C.br.map(b => b.lvl + (b.dir === 'lt' ? d : -d))));
+        sensHtml += `<tr><td>All levels, looser (+) or tighter (${MINUS})</td>${allRuns.map((r, m) => cell(r, D[m] === 0)).join('')}</tr></tbody>`;
+        document.getElementById('rc-sens').innerHTML = sensHtml;
+
+        // years
+        const yr = new Map();
+        for (let j = 0; j < n; j++) {
+          const y = DATES[sm.idx[j] + 1].slice(0, 4);
+          const o = yr.get(y) || { a: 0, b: 0 }; o.a += Math.log1p(res.r[j]); o.b += Math.log1p(dayRet(C.bench, sm.idx[j])); yr.set(y, o);
+        }
+        let neg = 0;
+        document.getElementById('rc-years').innerHTML =
+          `<thead><tr><th>Year</th><th>Cascade</th><th>${escapeHtml(C.bench)}</th></tr></thead><tbody>` +
+          [...yr].map(([y, o]) => { if (o.a < 0) neg++; return `<tr><td>${y}</td><td>${signed(Math.expm1(o.a))}</td><td>${signed(Math.expm1(o.b))}</td></tr>`; }).join('') + '</tbody>';
+
+        // honesty
+        const notes = [], why = []; let warn = false;
+        const H2 = Math.floor(n / 2), c1 = cagrOf(res.r, 0, H2), c2 = cagrOf(res.r, H2, n), mid = fmtDate(DATES[sm.idx[H2]]);
+        if ((c1 < 0) !== (c2 < 0) || Math.min(c1, c2) < Math.max(c1, c2) / 3) { warn = true; why.push('the two halves of the history differ a lot'); notes.push(`<strong>The halves differ a lot.</strong> Before ${mid}: ${pct(c1)} a year; after: ${pct(c2)}.`); }
+        else notes.push(`<strong>Both halves hold up.</strong> Before ${mid}: ${pct(c1)} a year; after: ${pct(c2)}.`);
+        if (spikes.length) { warn = true; why.push('nearby levels do noticeably worse'); notes.push(`<strong>Spiky level${spikes.length > 1 ? 's' : ''}.</strong> ${spikes.join('; ')}. Nearby levels do noticeably worse, so ${spikes.length > 1 ? 'these are' : 'this one is'} probably fitted.`); }
+        else notes.push('<strong>Levels sit on plateaus.</strong> For every branch, the current level is within 5 points a year of the median across moves of up to 2 points.');
+        const sorted = Array.from(res.r).sort((a, b) => b - a);
+        let lgTop = 0; for (let j = 0; j < 5; j++) lgTop += Math.log1p(sorted[j]);
+        const wo = Math.exp((Math.log(res.eq) - lgTop) * 252 / n) - 1;
+        if (wo < res.cagr / 2) { warn = true; why.push('a handful of days carry the result'); }
+        notes.push(`<strong>Best days.</strong> Without its 5 best days, the yearly return falls from ${pct(res.cagr)} to ${pct(wo)}.`);
+        if (neg) notes.push(`${neg} of ${yr.size} calendar years lost money.`);
+        notes.push('Every level here was chosen with this same history in view. Expect live results to come in below the backtest.');
+        const hon = document.getElementById('rc-honesty');
+        hon.className = 'rb-honesty' + (warn ? ' is-warn' : '');
+        hon.innerHTML = `<ul>${notes.map(x => `<li>${x}</li>`).join('')}</ul>`;
+
+        const csum = `Since ${fmtDate(from)}, $10,000 would have grown to <strong>${money(10000 * res.eq)}</strong> (${pct(res.cagr)} a year), against ${money(10000 * bh)} in ${escapeHtml(C.bench)}. Its worst drop was ${pct(res.dd, 0)}.`;
+        document.getElementById('rb-verdict').innerHTML = res.total <= 0
+          ? verdictBox('Lost money', '--color-red', csum)
+          : why.length
+            ? verdictBox('Fragile', '--color-yellow', `It made money, but ${why.join(', and ')}. Treat these levels with caution. ${csum}`)
+            : verdictBox('Holds up', '--color-green', `Both halves of the history made money, every level sits on a plateau and no handful of days carries the result. ${csum}`);
+        document.getElementById('rb-eq-sub').textContent = `The cascade against holding ${C.bench} every day, ${fmtDate(from)} to ${fmtDate(to)}.`;
+        document.getElementById('rb-eq-legend').innerHTML =
+          `<span><i style="background:var(--color-green)"></i>Cascade ${pct(res.total)}</span><span><i style="background:var(--color-blue)"></i>${escapeHtml(C.bench)} ${pct(bh - 1)}</span>`;
+        drawEquity({ curve }, { b: C.bench, e: null, rule: 'cascade' });
+        resortAll();
+      }
+
+      // ---------- sortable tables ----------
+      // Results tables re-render on every change, so each table's chosen sort
+      // is kept by id and reapplied after each render. Clicks cycle
+      // high-to-low, low-to-high, then back to the original order.
+      const sortBy = {};
+      const cellNum = td => { const v = parseFloat(td.textContent.replace(/−/g, '-').replace(/[^0-9.\-]/g, '')); return isFinite(v) ? v : null; };
+      function applySort(tbl) {
+        const st = sortBy[tbl.id], heads = tbl.querySelectorAll('thead th');
+        heads.forEach((th, c) => {
+          th.classList.add('sortable');
+          let a = th.querySelector('.db-sort-arrow');
+          if (!a) { a = document.createElement('span'); a.className = 'db-sort-arrow'; th.append(' ', a); }
+          const on = st && st.c === c;
+          a.classList.toggle('active', !!on);
+          a.innerHTML = on ? (st.dir > 0 ? '&#9650;' : '&#9660;') : '&#8597;';
+        });
+        const body = tbl.tBodies[0]; if (!body) return;
+        const rows = [...body.rows];
+        rows.forEach((r, k) => { if (r.dataset.o == null) r.dataset.o = k; });
+        // rows that span columns ("never fired") or are a baseline stay at the bottom
+        const live = rows.filter(r => r.cells.length === heads.length && !r.classList.contains('is-base'));
+        const rest = rows.filter(r => !live.includes(r)).sort((a, b) => a.dataset.o - b.dataset.o);
+        let keyed;
+        if (!st) keyed = live.map(r => ({ r, v: +r.dataset.o })).sort((a, b) => a.v - b.v);
+        else {
+          const nums = live.map(r => cellNum(r.cells[st.c]));
+          const numeric = nums.filter(v => v != null).length >= live.length / 2;
+          keyed = live.map((r, k) => ({ r, o: +r.dataset.o, v: numeric ? nums[k] : r.cells[st.c].textContent.trim() }));
+          keyed.sort((a, b) => {
+            if (a.v == null || a.v === '') return 1;
+            if (b.v == null || b.v === '') return -1;
+            return (numeric ? a.v - b.v : a.v.localeCompare(b.v)) * st.dir || a.o - b.o;
+          });
+        }
+        keyed.forEach(x => body.appendChild(x.r));
+        rest.forEach(r => body.appendChild(r));
+      }
+      const resortAll = () => document.querySelectorAll('#rb-root table.rb-table').forEach(applySort);
+
+      function startMode(m) {
+        document.querySelectorAll('#rb-mode button').forEach(x => x.classList.toggle('is-on', x.dataset.m === m));
+        document.getElementById('rb-modehint').textContent = m === 'cascade' ? 'Several IF / ELSE IF rules checked in order, like a full symphony.' : 'One IF rule: when a ticker\'s RSI crosses a level, buy a fund.';
+        if (m === 'cascade') { cRead(); cShell(); cUpdate(); }
+        else { readUrl(); shell(); update(); }
+      }
+
+      (async function () {
+        P = await loadPrices();
+        DATES = P.dates; N = DATES.length;
+        document.getElementById('rb-refreshed').innerHTML =
+          `<span class="updated-badge"><span class="updated-badge-dot"></span>Prices through ${fmtDate(DATES[N - 1])}, refreshed weekly</span>`;
+        document.getElementById('rb-mode').addEventListener('click', e => {
+          const b = e.target.closest('button'); if (!b || b.classList.contains('is-on')) return;
+          if (window.history && history.replaceState) history.replaceState(null, '', location.pathname + (b.dataset.m === 'cascade' ? '?mode=cascade' : ''));
+          startMode(b.dataset.m);
+        });
+        document.getElementById('rb-root').addEventListener('click', e => {
+          const th = e.target.closest('table.rb-table thead th'); if (!th) return;
+          const tbl = th.closest('table'), c = th.cellIndex, st = sortBy[tbl.id];
+          sortBy[tbl.id] = !st || st.c !== c ? { c, dir: -1 } : st.dir < 0 ? { c, dir: 1 } : null;
+          applySort(tbl);
+        });
+        const swap = document.getElementById('rb-swap');
+        swap.addEventListener('click', () => { swap.href = swap.getAttribute('href').split('?')[0] + location.search; });
+        startMode(new URLSearchParams(location.search).get('mode') === 'cascade' ? 'cascade' : 'single');
+      })().catch(err => {
+        document.getElementById('rb-root').innerHTML = `
+          <div class="error-state">
+            <h2>Failed to load price data</h2>
+            <p>${escapeHtml(err.message)}</p>
+          </div>`;
+      });
+    })();
+  </script>
+</body>
+</html>

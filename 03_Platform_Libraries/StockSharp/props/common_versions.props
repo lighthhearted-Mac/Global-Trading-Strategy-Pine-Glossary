@@ -1,0 +1,47 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <NetVer>10</NetVer>
+    <NetTfm>net$(NetVer).0</NetTfm>
+    <NetOldVer>6</NetOldVer>
+    <NetOldTfm>net$(NetOldVer).0</NetOldTfm>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$(TargetFramework.StartsWith('netstandard')) OR $(TargetFramework.StartsWith('$(NetOldTfm)'))">
+    <LangVersion>13.0</LangVersion>
+    <MsExtensionsVer>8.*</MsExtensionsVer>
+    <MsCodeAnalysisVer>4.12.0</MsCodeAnalysisVer>
+    <MsCodeAnalysisAnalyzersVer>3.3.4</MsCodeAnalysisAnalyzersVer>
+    <MsTestVer>3.11.1</MsTestVer>
+    <MsTestSdkVer>17.13.0</MsTestSdkVer>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$(TargetFramework.StartsWith('$(NetTfm)'))">
+    <LangVersion>latest</LangVersion>
+    <MsExtensionsVer>$(NetVer).*</MsExtensionsVer>
+    <MsCodeAnalysisVer>5.*</MsCodeAnalysisVer>
+    <MsCodeAnalysisAnalyzersVer>5.*</MsCodeAnalysisAnalyzersVer>
+    <MsTestVer>4.*</MsTestVer>
+    <MsTestSdkVer>18.*</MsTestSdkVer>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <EcngVer>1.0.*</EcngVer>
+    <StockSharpVer>5.*</StockSharpVer>
+
+    <MathNumVer>6.0.0-beta2</MathNumVer>
+    <NuGetApiVer>7.*</NuGetApiVer>
+    <SpectreVer>0.*</SpectreVer>
+    <McpVer>2.*</McpVer>
+    <SharpPcapVer>6.*</SharpPcapVer>
+    <NumpyVer>0.9.*</NumpyVer>
+    <IronPythonVer>3.4.2</IronPythonVer>
+    <MoqVer>4.*</MoqVer>
+    <ILGPUVer>1.*</ILGPUVer>
+    <FSharpControlTaskSeqVer>1.*</FSharpControlTaskSeqVer>
+    <FSharpPlusVer>1.*</FSharpPlusVer>
+    <MsSqlClientVer>7.*</MsSqlClientVer>
+    <AvaloniaVer>12.*</AvaloniaVer>
+    <NewtonsoftVer>13.*</NewtonsoftVer>
+    <ActiproVer>25.*</ActiproVer>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\props\common_target_net.props" />
+  <ItemGroup>
+    <ProjectReference Include="..\Localization\Localization.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Ecng.Logging" Version="$(EcngVer)" />
+    <PackageReference Include="Ecng.Linq" Version="$(EcngVer)" />
+  </ItemGroup>
+</Project>

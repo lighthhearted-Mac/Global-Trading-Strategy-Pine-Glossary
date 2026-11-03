@@ -1,0 +1,9 @@
+# Every crawler is welcome, AI assistants and answer engines included.
+# Referencing, quoting and citing this site is expressly permitted; see the
+# AI, SEARCH, AND AUTOMATED ACCESS section of LICENSE in the repository.
+# This is deliberate and is not to be narrowed without an owner decision.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://composeratlas.com/sitemap.xml

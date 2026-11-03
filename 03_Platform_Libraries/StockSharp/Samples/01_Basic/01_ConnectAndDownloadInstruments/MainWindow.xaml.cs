@@ -1,0 +1,68 @@
+﻿namespace StockSharp.Samples.Basic.ConnectAndDownloadInstruments;
+
+using System.Windows;
+using System.IO;
+
+using Ecng.Serialization;
+using Ecng.Configuration;
+using Ecng.IO;
+
+using StockSharp.Configuration;
+using StockSharp.Messages;
+using StockSharp.Algo;
+using StockSharp.BusinessEntities;
+using StockSharp.Xaml;
+
+/// <summary>
+/// Interaction logic for MainWindow.xaml
+/// </summary>
+public partial class MainWindow
+{
+	private readonly Connector _connector = new();
+	private const string _connectorFile = "ConnectorFile.json";
+	private readonly IFileSystem _fileSystem = Paths.FileSystem;
+
+	public MainWindow()
+	{
+		InitializeComponent();
+
+		// registering all connectors
+		ConfigManager.RegisterService<IMessageAdapterProvider>(new InMemoryMessageAdapterProvider(_connector.Adapter.InnerAdapters));
+	}
+
+	private async void OnLoaded(object sender, RoutedEventArgs e)
+	{
+		ThemeExtensions.ApplyDefaultTheme();
+
+		if (_fileSystem.FileExists(_connectorFile))
+			await _connector.LoadAsync(await _connectorFile.DeserializeAsync<SettingsStorage>(_fileSystem, default), default);
+	}
+
+	private async void Setting_Click(object sender, RoutedEventArgs e)
+	{
+		if (await _connector.ConfigureAsync(this, default))
+		{
+			await (await _connector.SaveAsync(default)).SerializeAsync(_fileSystem, _connectorFile, true, default);
+		}
+	}
+
+	private void Connect_Click(object sender, RoutedEventArgs e)
+	{
+		SecurityPicker.SecurityProvider = _connector;
+		SecurityPicker.MarketDataProvider = _connector;
+		_connector.Connected += Connector_Connected;
+		_connector.Connect();
+	}
+
+	private void Connector_Connected()
+	{
+		// try lookup all securities
+		_connector.Subscribe(new(StockSharp.Messages.Extensions.LookupAllCriteriaMessage));
+	}
+
+	private void SecurityPicker_SecuritySelected(Security security)
+	{
+		if (security == null) return;
+		_connector.Subscribe(new(DataType.Level1, security));
+	}
+}

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. The dollar figures are
+       Composer's and are not read from any data file here. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/referral">
+  <link rel="canonical" href="https://composeratlas.com/referral">
+  <meta property="og:title" content="Get $50 on Composer: How Referral Codes Work">
+  <meta property="og:description" content="New Composer accounts receive a $50 bonus with a referral code. The field only appears during signup and cannot be added later. Copy the code before you start.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="New Composer accounts receive a $50 bonus with a referral code. The field only appears during signup and cannot be added later. Copy the code before you start.">
+  <title>Get $50 on Composer: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <h1 style="color:var(--color-primary);margin-bottom:8px">Composer referral codes</h1>
+      <p style="color:var(--color-secondary);font-size:1.0625rem;margin-bottom:28px">
+        What they are, how to claim yours, and how to share your own.
+      </p>
+
+      <div class="ref-disclosure">
+        <strong>Disclosure.</strong> The code on this page is the site author's own. If you sign up
+        with it, the author receives a referral bonus from Composer. That is the arrangement in
+        plain terms, stated before anything else rather than in a footnote. Nothing here is
+        financial advice, and opening a brokerage account is a decision about your money, not about
+        a sign-up bonus.
+      </div>
+
+      <!-- The code, immediately after the disclosure: a reader who arrived
+           knowing what they want should not have to scroll to find it. It
+           appears again in section 4, in its explanatory context. -->
+      <section class="ref-cta">
+        <p class="ref-cta-head">
+          Claim <span class="ref-amount">$50</span> on your new Composer account
+        </p>
+        <p class="ref-cta-sub">
+          One extra field during signup is the whole job. Skip it and you get nothing, and
+          <strong>it cannot be added afterwards.</strong>
+        </p>
+        <div class="ref-code-block">
+          <code data-referral-code>&nbsp;</code>
+          <button type="button" class="btn btn-green" data-referral-copy>Copy code</button>
+        </div>
+        <p class="ref-cta-actions">
+          <a href="https://composer.trade" target="_blank" rel="noopener noreferrer"
+            class="btn btn-outline-green">Open Composer and sign up &#x2197;</a>
+          <span class="ref-cta-note">Copy the code first. You will need it on the signup form.</span>
+        </p>
+      </section>
+
+      <div class="about-content">
+        <nav class="ref-toc" aria-label="Contents">
+          <h2>Contents</h2>
+          <ol>
+            <li><a href="#what">What a referral code is</a></li>
+            <li><a href="#amounts">What each side receives</a></li>
+            <li><a href="#redeem">Redeeming a code when you sign up</a></li>
+            <li><a href="#example">The code, and claiming your $50</a></li>
+            <li><a href="#share">Sharing your own code</a></li>
+            <li><a href="#limits">Limitations and common problems</a></li>
+            <li><a href="#notes">Notes</a></li>
+          </ol>
+        </nav>
+
+        <h2 id="what">1. What a referral code is</h2>
+        <p>
+          A <strong>referral code</strong> is a short string that
+          <a href="https://composer.trade" target="_blank" rel="noopener noreferrer">Composer</a>
+          issues to each existing account holder. When somebody opens a new account and enters that
+          code, Composer credits both parties: the person who shared the code and the person who
+          used it. It is a standard customer-acquisition mechanism, used across the brokerage
+          industry, and it costs the new account holder nothing.
+        </p>
+        <p>
+          The code is tied to the account that issued it, not to any particular person or website.
+          <strong>It is entered during account creation and generally cannot be applied
+          afterwards</strong>, which is the single most common way people miss the credit. See
+          <a href="#limits">Limitations</a>.
+        </p>
+
+        <h2 id="amounts">2. What each side receives</h2>
+        <p>
+          A completed referral pays <strong>$50 to the new account holder</strong> and
+          <strong>$100 to the person who shared the code</strong>, as displayed on Composer's own
+          invite screen at the time of writing. The amounts are not equal, and this page says which
+          is which rather than rounding them into a vague "you both earn".
+        </p>
+        <p>
+          Put plainly: <strong>the code is free money for opening an account you were going to open
+          anyway.</strong> It is not a discount, a trial credit or a deposit match. It is a cash
+          bonus for filling in one field that most people scroll straight past, and the only thing
+          standing between a reader and $50 is remembering to paste eleven characters at the right
+          moment.
+        </p>
+        <p>
+          <strong>These figures and their conditions are set by Composer and can change without
+          notice.</strong> Promotions of this kind normally carry requirements, such as funding the
+          account within a certain window or maintaining a minimum balance for a period. Composer
+          defines those terms, this site does not, and no attempt is made here to restate them from
+          memory. Check the offer text shown during your own signup, and treat what it says as
+          authoritative over anything on this page.
+        </p>
+
+        <h2 id="redeem">3. Redeeming a code when you sign up</h2>
+        <p>
+          The flow is short. The only step that catches people out is the third one, because the
+          field is easy to scroll past.
+        </p>
+        <ol class="ref-steps">
+          <li><strong>Copy the code first, before you start.</strong> Have it on your clipboard
+            rather than in another tab, since leaving a half-finished signup to go and fetch it is
+            how the field ends up skipped.</li>
+          <li><strong>Open Composer and begin creating an account.</strong> Use the normal signup
+            route at <a href="https://composer.trade" target="_blank" rel="noopener noreferrer">composer.trade</a>.</li>
+          <li><strong>Find the referral or promo code field and paste the code in.</strong> It
+            usually appears during account creation rather than after, and it may be collapsed
+            behind a link such as "Have a referral code?". <strong>This is the step that decides
+            whether you get $50 or $0.</strong> Paste rather than retype: the codes mix upper and
+            lower case, and a capital I and a lowercase l are indistinguishable in most interface
+            fonts.</li>
+          <li><strong>Check that the code was accepted before you continue.</strong> A valid code
+            normally produces some visible confirmation. If the form simply moves on without
+            acknowledging it, assume it did not register and resolve that before finishing.</li>
+          <li><strong>Complete signup and funding as Composer instructs.</strong> The credit is
+            generally tied to completing the process, not to creating the account alone.</li>
+        </ol>
+
+        <h2 id="example">4. The code, and claiming your $50</h2>
+        <p>
+          This is the site author's code. It works as a live example and as a code you are welcome
+          to use. Entering it is what turns an ordinary signup into a $50 one, and it is the one
+          step that cannot be repaired later. Use the button rather than retyping it.
+        </p>
+        <div class="ref-code-block">
+          <code data-referral-code>&nbsp;</code>
+          <button type="button" class="btn btn-green" data-referral-copy>Copy code</button>
+        </div>
+        <div class="ref-cta-strip">
+          <span><strong>Code copied?</strong> Open Composer and paste it into the referral field.</span>
+          <a href="https://composer.trade" target="_blank" rel="noopener noreferrer"
+            class="btn btn-sm btn-outline-green">Sign up &#x2197;</a>
+        </div>
+        <p style="font-size:0.875rem">
+          Composer's terms govern the amount and its conditions; see
+          <a href="#amounts">section 2</a>. Paste it into the referral field described in
+          <a href="#redeem">Redeeming a code</a>. If you already hold a Composer account, this code
+          will not apply to it; referral credits are for new accounts.
+        </p>
+
+        <h2 id="share">5. Sharing your own code</h2>
+        <p>
+          Once you hold an account, Composer issues you a code of your own, and the larger half of
+          the deal becomes yours: <strong>$100 per completed referral</strong>. To find it, open
+          Composer and look for the invite or referral screen, which displays your code alongside a
+          copy button.
+        </p>
+        <p>
+          A few things make the difference between a code that gets used and one that does not:
+        </p>
+        <ul>
+          <li><strong>Send the code to people who were already considering the platform.</strong>
+            A referral code is a sweetener on a decision somebody has already made. It is a poor
+            reason, on its own, for anyone to open a brokerage account.</li>
+          <li><strong>Lead with what they get, not what you get.</strong> "You get $50" is the part
+            that moves; the amounts differ, and leading with your own benefit reads exactly as it
+            is.</li>
+          <li><strong>Tell them it has to be entered during signup.</strong> This is the step that
+            fails, and your referral fails with it.</li>
+          <li><strong>Disclose that you benefit.</strong> If you are sharing a code publicly rather
+            than with a friend, say plainly that you receive a bonus. In the United States this is
+            not merely good manners: the FTC's endorsement guidance expects a clear disclosure of a
+            material connection, and a referral bonus is one.</li>
+        </ul>
+
+        <h2 id="limits">6. Limitations and common problems</h2>
+        <ul>
+          <li><strong>The code must be entered during account creation.</strong> Applying one to an
+            existing account is normally not possible, and support cannot always add it later.</li>
+          <li><strong>One code per new account</strong>, and codes do not stack with each other.</li>
+          <li><strong>Self-referral does not work.</strong> Opening a second account to use your own
+            code is the kind of thing brokerage terms address directly.</li>
+          <li><strong>A mistyped code fails silently.</strong> Composer will usually reject an
+            invalid code outright, but a code that is wrong in a way that happens to match nothing
+            simply produces no credit, and signup continues normally. This is why every code on this
+            page is copied from one place and never retyped.</li>
+          <li><strong>Terms change.</strong> The amounts in
+            <a href="#amounts">section 2</a> were accurate when this page was written and are not
+            monitored for changes. Composer's own signup screen is the authority.</li>
+        </ul>
+
+        <h2 id="notes">7. Notes</h2>
+        <p>
+          Composer Atlas is <strong>not affiliated with, endorsed by, or associated with Composer
+          Technologies, Inc.</strong> This page describes a publicly available referral programme
+          operated by Composer and has no special standing with it. The referral programme's terms,
+          amounts, eligibility and continued existence are entirely Composer's to set and to change.
+        </p>
+        <p>
+          Nothing on this page is financial advice or a recommendation to open an account. A sign-up
+          bonus is a small, one-off amount; the cost of a brokerage decision made for the wrong
+          reason is not.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

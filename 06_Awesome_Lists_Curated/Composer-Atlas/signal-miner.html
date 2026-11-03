@@ -1,0 +1,3106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/signal-miner">
+  <link rel="canonical" href="https://composeratlas.com/signal-miner">
+  <meta property="og:title" content="Brute-Force Miner for IF-THEN Signals">
+  <meta property="og:description" content="Backtests thousands of RSI, return, and volatility rules across a fixed ticker universe to find IF/THEN signals, entirely in your browser.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Backtests thousands of RSI, return, and volatility rules across a fixed ticker universe to find IF/THEN signals, entirely in your browser.">
+  <title>Signal Miner: Brute-Force IF-THEN Signals</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .sl-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .sl-panel h2 { color: var(--color-primary); font-size: 1rem; font-weight: 600; margin: 0 0 4px; }
+    .sl-panel .sl-sub { font-size: 0.8125rem; color: var(--color-secondary); margin: 0 0 14px; line-height: 1.6; }
+    .sl-label { display: block; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-disabled); margin: 0 0 8px; }
+    .sl-group { margin-bottom: 20px; }
+    .sl-group:last-child { margin-bottom: 0; }
+
+    .sl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .sl-chip {
+      font-family: var(--font-mono); font-size: 0.75rem; padding: 4px 10px; border-radius: 6px;
+      background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-secondary);
+      cursor: pointer; user-select: none; transition: all .12s;
+    }
+    .sl-chip:hover { border-color: var(--color-disabled); color: var(--color-primary); }
+    .sl-chip.on-target { background: rgba(58,167,106,0.16); border-color: var(--color-green); color: var(--color-green); }
+    .sl-chip.on-compare { background: rgba(74,124,220,0.16); border-color: var(--color-blue); color: var(--color-blue); }
+
+    /* Ticker group blocks + select-all controls (v1.18.0). The universe grew to
+       80 tickers, so flat chip rows became unusable; chips are now grouped by
+       asset class with an "All" per group plus a row-level all/none. */
+    .sl-grouphead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 8px; }
+    .sl-rowhead { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+    .sl-rowhead .sl-label { margin: 0; }
+    /* flex-wrap matters: the buttons inside carry white-space: nowrap, and at
+       <=640px this group is given width:100%. Without wrapping they stayed on
+       one line and ran 65px past a 390px viewport (V1.20 item 18 sweep). */
+    .sl-selgroup { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+    .sl-sel {
+      background: transparent; border: 1px solid var(--color-border); color: var(--color-secondary);
+      border-radius: 6px; padding: 3px 9px; font-family: var(--font-mono); font-size: 0.6875rem;
+      cursor: pointer; line-height: 1.5; white-space: nowrap;
+    }
+    .sl-sel:hover { border-color: var(--color-disabled); color: var(--color-primary); }
+    .sl-sel.is-on { border-color: var(--color-green); color: var(--color-green); background: rgba(58,167,106,0.12); }
+    .sl-cmp .sl-sel.is-on { border-color: var(--color-blue); color: var(--color-blue); background: rgba(74,124,220,0.12); }
+    .sl-tgroup { margin-bottom: 14px; }
+    .sl-tgroup:last-child { margin-bottom: 0; }
+    .sl-tgroup-name { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.03em; color: var(--color-disabled); }
+    .sl-chip.is-short { border-style: dashed; }
+
+    /* Busy state for a heavy sort/filter pass over a large cached result set.
+       The table dims and stops accepting clicks rather than silently freezing,
+       so a slow pass reads as "working" instead of "crashed". */
+    .sl-table.is-busy { opacity: 0.45; pointer-events: none; transition: opacity 120ms ease; }
+    .sl-table th.is-inert { cursor: default; opacity: 0.6; }
+    .sl-busy-dot {
+      display: inline-block; width: 10px; height: 10px; margin-right: 7px; vertical-align: -1px;
+      border: 2px solid var(--color-border); border-top-color: var(--color-green);
+      border-radius: 50%; animation: sl-spin 0.7s linear infinite;
+    }
+    @keyframes sl-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .sl-busy-dot { animation: none; } }
+    @media (max-width: 640px) {
+      .sl-selgroup { margin-left: 0; width: 100%; }
+    }
+
+    .sl-fams { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 16px; }
+    .sl-check { display: inline-flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--color-secondary); cursor: pointer; }
+    .sl-check input { accent-color: var(--color-green); }
+
+    .sl-params { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
+    .sl-field label { display: block; font-size: 0.75rem; color: var(--color-disabled); margin-bottom: 6px; }
+    .sl-field input, .sl-field select {
+      width: 100%; box-sizing: border-box; background: var(--color-bg); color: var(--color-primary);
+      border: 1px solid var(--color-border-strong); border-radius: 8px; padding: 8px 10px;
+      font-family: var(--font-mono); font-size: 0.8125rem;
+    }
+    .sl-field input:focus, .sl-field select:focus { outline: 2px solid var(--color-blue); outline-offset: -1px; }
+
+    .sl-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 4px; }
+    .sl-est { font-size: 0.8125rem; color: var(--color-secondary); font-family: var(--font-mono); }
+    .sl-est.warn { color: var(--color-yellow); }
+    .sl-est.stop { color: var(--color-pink); }
+
+    .sl-progress { height: 8px; border-radius: 6px; background: var(--color-bg); border: 1px solid var(--color-border); overflow: hidden; margin-top: 14px; display: none; }
+    .sl-progress > div { height: 100%; width: 0; background: var(--color-green); transition: width .1s linear; }
+    .sl-status { font-size: 0.8125rem; color: var(--color-secondary); margin-top: 8px; min-height: 1.2em; font-family: var(--font-mono); }
+
+    .sl-results-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .sl-results-head h2 { margin: 0; }
+    #sl-filter { background: var(--color-bg); color: var(--color-primary); border: 1px solid var(--color-border); border-radius: 8px; padding: 7px 10px; font-family: var(--font-mono); font-size: 0.8125rem; min-width: 220px; }
+
+    .sl-combine { margin: 0 0 1rem; padding: .85rem 1rem; border: 1px solid var(--color-green);
+      border-radius: 6px; background: var(--color-surface-2, rgba(127,127,127,.06)); }
+    .sl-combine-main { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; }
+    .sl-combine-main strong { font-family: var(--font-mono); font-size: .9rem; }
+    .sl-combine-warn { display: block; margin: .55rem 0 0; font-size: .8rem;
+      color: var(--color-yellow); line-height: 1.5; }
+    .sl-combine-warn[hidden] { display: none; }
+    .sl-table input.sl-sel { cursor: pointer; }
+
+    /* The honesty check. Four bucket colours, and the two bad ones are the
+       loud ones: the owner's rule is plain language only when the result is
+       bad, so a good result gets a quiet line and a bad one gets a box. */
+    .sl-honesty { margin: 0 0 .9rem; border-radius: 6px; padding: .75rem .9rem; font-size: .92rem; line-height: 1.5; }
+    .sl-honesty.q-good { border: 1px solid var(--color-border); color: var(--color-secondary); padding: .55rem .9rem; }
+    .sl-honesty.q-fair { border: 1px solid var(--color-border); }
+    .sl-honesty.q-poor { border: 1px solid var(--color-yellow); background: rgba(245, 197, 24, .06); }
+    .sl-honesty.q-bad  { border: 1px solid var(--color-pink); background: rgba(255, 130, 172, .07); }
+    .sl-honesty strong { font-weight: 700; }
+    .sl-honesty .sl-h-head { display: block; margin-bottom: .3rem; }
+    .sl-honesty .sl-h-comp { font-size: .85rem; color: var(--color-secondary); margin-top: .45rem; }
+    .sl-honesty .sl-h-comp code { font-size: .85em; }
+    .sl-baseline { margin: 0 0 1rem; padding: .85rem 1rem; border: 1px solid var(--color-border);
+      border-left: 3px solid var(--color-blue); border-radius: 6px; background: var(--color-surface-2, rgba(127,127,127,.06)); }
+    .sl-baseline-title { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--color-disabled); margin-bottom: .6rem; }
+    .sl-baseline-row { display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; align-items: baseline;
+      padding: .35rem 0; border-top: 1px solid var(--color-border); }
+    .sl-baseline-row:first-child { border-top: 0; }
+    .sl-baseline-row > span { display: flex; flex-direction: column; font-family: var(--font-mono); font-size: .85rem; }
+    .sl-baseline-row > span em { font-style: normal; font-family: var(--font-body, inherit);
+      font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--color-disabled); }
+    .sl-baseline-row > .tgt { font-weight: 700; color: var(--color-primary); align-self: center; min-width: 3.5rem; }
+
+    .sl-table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: 10px; }
+    table.sl-table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+    table.sl-table th, table.sl-table td { padding: 8px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--color-border); }
+    table.sl-table th { position: sticky; top: 0; background: var(--color-surface-raised); color: var(--color-disabled); font-weight: 600; text-transform: uppercase; font-size: 0.6875rem; letter-spacing: 0.04em; cursor: pointer; user-select: none; z-index: 1; }
+    table.sl-table th:hover { color: var(--color-primary); }
+    table.sl-table th.sorted::after { content: ' \25BE'; }
+    table.sl-table th.sorted.asc::after { content: ' \25B4'; }
+    table.sl-table td.sig, table.sl-table th.sig { text-align: left; white-space: normal; font-family: var(--font-mono); color: var(--color-primary); min-width: 260px; }
+    table.sl-table td.tgt { text-align: left; font-family: var(--font-mono); color: var(--color-green); }
+    /* Plateau columns (V2.2 item A). These carry no sort handler, so they must
+       not wear the pointer cursor and hover colour that promise one. `help` is
+       the honest cursor: everything they have to say is in the tooltip. */
+    table.sl-table th.nosort { cursor: help; }
+    table.sl-table th.nosort:hover { color: var(--color-disabled); }
+    table.sl-table td.plat { color: var(--color-secondary); cursor: help; }
+    table.sl-table tbody tr:hover { background: var(--color-surface); }
+    .num-pos { color: var(--color-green); }
+    .num-neg { color: var(--color-pink); }
+    .sl-copy-btn { font-size: 0.6875rem; padding: 3px 8px; }
+    .sl-combo-tag { display: inline-block; font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-yellow); border: 1px solid var(--color-yellow); border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: middle; }
+
+    .sl-note { font-size: 0.8125rem; color: var(--color-secondary); line-height: 1.7; }
+    .sl-warn-box { background: rgba(247,138,131,0.08); border: 1px solid rgba(247,138,131,0.35); border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; }
+    .sl-warn-box strong { color: var(--color-pink); }
+    .sl-empty { padding: 40px 16px; text-align: center; color: var(--color-secondary); font-size: 0.9375rem; }
+    .sl-meta { font-size: 0.75rem; color: var(--color-disabled); margin-top: 10px; }
+    .btn-ghost { background: transparent; border: 1px solid var(--color-border); color: var(--color-secondary); }
+    .btn-ghost:hover { border-color: var(--color-disabled); color: var(--color-primary); }
+    .sl-refreshed { margin-top: 18px; font-size: 0.8125rem; color: var(--color-secondary); font-family: var(--font-mono); display: inline-flex; align-items: center; gap: 8px; }
+    .sl-refreshed .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-green); display: inline-block; flex: none; }
+  </style>
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <section class="hero" style="padding-bottom:24px">
+      <div class="container">
+        <p class="hero-eyebrow">Signal Miner</p>
+        <h1 class="hero-title" style="font-size:2rem">Mine IF-THEN signals across a ticker universe.</h1>
+        <p class="hero-desc" style="margin-bottom:0">Pick assets to invest in and assets to check signals against. Signal Miner brute-forces millions of Composer-style rules across all nine of Composer's condition functions (price, moving averages, EMA, RSI, returns, volatility, and drawdown), backtests each one, and ranks what worked. Everything runs in your browser on committed price history. No signal is a recommendation.</p>
+        <p class="sl-refreshed" id="sl-refreshed"><span class="dot"></span><span id="sl-refreshed-text">Loading price data...</span></p>
+      </div>
+    </section>
+
+    <div class="container" style="padding-bottom:64px">
+
+      <div class="sl-warn-box">
+        <p class="sl-note" style="margin:0"><strong>Read this first.</strong> This tool tests tens of thousands of rules at once, so some will look brilliant purely by chance. High returns on a signal that is rarely active (low Time in Market) are usually noise. Results ignore trading costs, slippage, and taxes, and use history from 2010 onward, or from the listing date of the most recently launched ticker you selected, whichever is later. Treat every row as a hypothesis to investigate, never a strategy to run. This is an educational tool and is independent of Composer.trade.</p>
+      </div>
+
+      <!-- Controls -->
+      <div class="sl-panel">
+        <h2>1. Assets</h2>
+        <p class="sl-sub">Pick <span style="color:var(--color-green)">Target</span> tickers (what you invest in when a signal fires) and <span style="color:var(--color-blue)">Signal</span> tickers (what conditions are measured on). <strong>Conditions are built only from the Signal set</strong>, so a target is not measured unless you also add it there. To test a rule that reads its own target, like <em>if RSI(TECL) &gt; 79 then hold TECL</em>, put that ticker in <em>both</em> boxes. Chips are grouped by asset class, and each group has an <strong>All</strong> toggle; the row-level button selects the whole universe. Watch the estimate below as you go: signal counts grow with the <em>square</em> of the tickers used, so selecting everything is far heavier than it looks. A <span style="border:1px dashed var(--color-disabled);border-radius:4px;padding:0 5px;font-family:var(--font-mono);font-size:0.75rem">dashed</span> chip means the fund covers less than 90% of the price history, so it both shortens the sample window for the whole run and has its metrics fit to fewer days.</p>
+
+        <div class="sl-group sl-tgt">
+          <div class="sl-rowhead">
+            <span class="sl-label">Target tickers <span id="sl-tgt-count" style="color:var(--color-green)"></span></span>
+            <span class="sl-selgroup">
+              <button type="button" class="sl-sel" id="sl-default">Default</button>
+              <button type="button" class="sl-sel" id="sl-example">Community V2 Example</button>
+              <button type="button" class="sl-sel" data-all="target">Select all</button>
+              <button type="button" class="sl-sel" data-none="target">Clear</button>
+            </span>
+          </div>
+          <div id="sl-targets"></div>
+        </div>
+        <div class="sl-group sl-cmp">
+          <div class="sl-rowhead">
+            <span class="sl-label">Signal / comparison tickers <span id="sl-cmp-count" style="color:var(--color-blue)"></span></span>
+            <span class="sl-selgroup">
+              <button type="button" class="sl-sel" data-all="compare">Select all</button>
+              <button type="button" class="sl-sel" data-none="compare">Clear</button>
+            </span>
+          </div>
+          <div id="sl-compares"></div>
+        </div>
+      </div>
+
+      <div class="sl-panel">
+        <div class="sl-rowhead">
+          <span class="sl-label" style="font:inherit"><h2 style="margin:0">2. Signal families <span id="sl-fam-count" style="color:var(--color-green)"></span></h2></span>
+          <span class="sl-selgroup">
+            <button type="button" class="sl-sel" id="sl-fam-def">Default</button>
+            <button type="button" class="sl-sel" id="sl-fam-all">Select all</button>
+            <button type="button" class="sl-sel" id="sl-fam-none">Clear</button>
+          </span>
+        </div>
+        <p class="sl-sub">Every family maps to a native Composer condition type, built from the nine functions Composer exposes. Each group has an <strong>All</strong> toggle. Eleven are on by default; the rest are off because they are either expensive or rarely productive, not because they do not work. Watch the estimate in section 1 as you add them: the <em>compare</em> families put two (ticker, window) operands on either side, so they grow with the <em>square</em> of tickers times windows, while the <em>vs level</em> families grow only linearly.</p>
+        <div id="sl-families"></div>
+      </div>
+
+      <div class="sl-panel">
+        <h2>3. Filters &amp; combinations</h2>
+        <p class="sl-sub">After single signals are ranked, the survivors can be paired with AND logic (both must be true), exactly like stacking two conditions in Composer. Once you have run a backtest, these four controls update the results live, no re-run needed (changing tickers, families, or the min period still needs a fresh run).</p>
+        <div class="sl-params">
+          <div class="sl-field">
+            <label for="sl-combo">Combine signals</label>
+            <select id="sl-combo">
+              <option value="1">Single signals only</option>
+              <option value="2" selected>Also test 2-signal AND pairs</option>
+            </select>
+          </div>
+          <div class="sl-field">
+            <label for="sl-minp">Min signal period (days)</label>
+            <select id="sl-minp"></select>
+          </div>
+          <div class="sl-field">
+            <label for="sl-tim">Min Time in Market (%)</label>
+            <input id="sl-tim" type="number" step="0.5" min="0" max="100" value="15"
+                   title="Percent of the sample the signal must be in the market. 15 means a signal firing on fewer than 15% of days is discarded.">
+          </div>
+          <div class="sl-field">
+            <label for="sl-mdd">Max Drawdown floor (%)</label>
+            <input id="sl-mdd" type="number" step="1" min="0" max="100" value="69"
+                   title="Worst drawdown tolerated, entered as a positive percent. 69 discards anything that fell more than 69% from a peak.">
+          </div>
+          <div class="sl-field">
+            <label for="sl-quant">Prune quantile (0-0.9)</label>
+            <input id="sl-quant" type="number" step="0.05" min="0" max="0.9" value="0">
+          </div>
+          <div class="sl-field">
+            <label for="sl-cpu">CPU load</label>
+            <select id="sl-cpu">
+              <option value="max">Max (~80% CPU, fastest)</option>
+              <option value="high" selected>High (~40% CPU, default)</option>
+              <option value="medium">Medium (~20% CPU)</option>
+              <option value="low">Low (~10% CPU, slowest)</option>
+            </select>
+          </div>
+        </div>
+        <div class="sl-actions">
+          <button id="sl-run" class="btn btn-green">Run backtest</button>
+          <span id="sl-est" class="sl-est"></span>
+        </div>
+        <div class="sl-progress" id="sl-progress"><div></div></div>
+        <div class="sl-status" id="sl-status"></div>
+      </div>
+
+      <!-- Results -->
+      <div class="sl-panel" id="sl-results-panel" style="display:none">
+        <div class="sl-results-head">
+          <h2>Results <span id="sl-count" style="color:var(--color-disabled);font-weight:400"></span></h2>
+          <input id="sl-filter" type="text" placeholder="Filter by ticker or text...">
+        </div>
+        <div class="sl-honesty" id="sl-honesty" style="display:none"></div>
+        <div class="sl-baseline" id="sl-baseline" style="display:none"></div>
+        <div class="sl-combine" id="sl-combine" style="display:none">
+          <div class="sl-combine-main">
+            <strong id="sl-combine-count"></strong>
+            <button class="btn btn-green btn-sm" id="sl-combine-copy">Copy combined JSON</button>
+            <button class="btn btn-ghost btn-sm" id="sl-combine-clear">Clear selection</button>
+          </div>
+          <span class="sl-combine-warn" id="sl-combine-warn" hidden></span>
+        </div>
+        <div class="sl-table-wrap">
+          <table class="sl-table" id="sl-table">
+            <thead><tr id="sl-head"></tr></thead>
+            <tbody id="sl-body"></tbody>
+          </table>
+        </div>
+        <p class="sl-meta" id="sl-meta"></p>
+      </div>
+
+      <div class="sl-panel">
+        <h2>How to read a row</h2>
+        <p class="sl-note">A row like <span style="font-family:var(--font-mono);color:var(--color-primary)">MA-Return(10d) of KMLM &lt; MA-Return(90d) of VIXM &rarr; QQQ</span> means: on any day the 10-day average daily return of KMLM is below the 90-day average daily return of VIXM, hold QQQ the next day, otherwise hold cash. <strong style="color:var(--color-primary)">Calmar</strong> is annualized return divided by worst drawdown, so above 1.0 means a year's gain exceeds the worst peak-to-trough loss, <strong style="color:var(--color-primary)">Sortino</strong> rewards return per unit of downside volatility, <strong style="color:var(--color-primary)">Profit Factor</strong> is gross gains over gross losses, and <strong style="color:var(--color-primary)">Time in Market</strong> is the share of days the signal was active. See the <a id="sl-glossary-link" href="#" style="color:var(--color-blue)">Glossary</a> for each term.</p>
+        <p class="sl-note"><strong style="color:var(--color-primary)">Copy JSON</strong> puts a complete Composer symphony on your clipboard, ready to paste straight into the Composer editor: an IF block that holds the target when the signal fires and a cash proxy (BIL) otherwise. AND-combined rows export as an "all of" compound condition. Swap the else asset or weighting inside Composer to taste.</p>
+        <p class="sl-meta" id="sl-data-meta"></p>
+        <p class="sl-meta">Reworked from a community Google Colab notebook by IAMCAPTAINNOW (shared in the Composer Discord). Rebuilt from scratch to run fully client-side with no data upload.</p>
+      </div>
+
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="data/prices.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+
+    // ---- Load price data (script tag for file://, fetch fallback) ----
+    async function loadPrices() {
+      if (window.PRICES_DATA) return window.PRICES_DATA;
+      const res = await fetch(`${BASE}/data/prices.json`);
+      if (!res.ok) throw new Error('Failed to load prices.json');
+      return res.json();
+    }
+
+    const NaNv = NaN;
+    const CMP_SYM = { GT: '>', LT: '<' };
+
+    // ONE window grid for every family (v1.23.0). Until then each family had
+    // its own, inherited from the community V2 notebook: RSI stepped by 5 to 30
+    // then jumped to 100, CumRet stepped by 5 all the way to 90, MA and StdDev
+    // stepped by 10. Nothing lined up, so no two families could be compared at
+    // the same horizon, and the CumRet grid's nineteen linear steps cost 61.5%
+    // of the entire search space to distinguish a 55-day lookback from a 60-day
+    // one, which is not a real distinction.
+    //
+    // Every value below traces to a calendar period, a named indicator default,
+    // or a published momentum specification, and the spacing is roughly
+    // log-uniform (no two windows closer than 15%), because information content
+    // scales with the ratio between windows, not the difference:
+    //
+    //     5    1 trading week
+    //     7    the short-RSI cluster common in Composer symphonies
+    //    10    2 weeks; the single most used window in the strategy library
+    //    12    MACD fast leg
+    //    14    Wilder's default (RSI, ATR, ADX, Stochastic)
+    //    21    1 month; the standard realised-volatility estimator
+    //    26    MACD slow leg
+    //    30    ~6 weeks; heavily used in practice
+    //    42    2 months
+    //    50    golden-cross fast leg
+    //    63    1 quarter; momentum formation period
+    //   100    bridges the quarter to the year
+    //   126    6 months; momentum formation period
+    //   200    the trend gate (Faber's 10-month SMA, rounded)
+    //   252    1 year; the dominant momentum window in the literature
+    //
+    // 20, 60 and 189 were dropped as near-duplicates of 21, 63 and 200 (all
+    // within 6%): they cost the same as any other window, in a family that
+    // scales with the SQUARE of the grid, while producing an almost identical
+    // daily series to a window already present.
+    const WINDOWS = [5, 7, 10, 12, 14, 21, 26, 30, 42, 50, 63, 100, 126, 200, 252];
+
+    // The floor always lands on a real window, so choosing it never silently
+    // rounds to something the grid does not contain.
+    const MIN_PERIOD_OPTS = WINDOWS.slice();
+
+    // The one grid, filtered to periods >= minP. Never empty: the largest
+    // window is always kept, so a floor above every window still runs.
+    function activeWindows(minP) {
+      const f = WINDOWS.filter(p => p >= minP);
+      return f.length ? f : [WINDOWS[WINDOWS.length - 1]];
+    }
+
+    // ---------- level grids (v1.23.0) ----------
+    // RSI thresholds step by 2 rather than 10. Threshold families cost
+    // tickers x windows x levels x 2, LINEAR in the level count, unlike the
+    // comparison families which square with the window count, so finer
+    // resolution here is close to free: it adds about 1.2% to a maximal run.
+    // The old 10-step grid was coarse enough that on a mid-length window only
+    // four of its nine levels ever separated anything.
+    //
+    // RSI levels are NOT window-scaled. Scaling them by sqrt(window) was tried
+    // and measured wrong: it assumes the distribution is symmetric about 50,
+    // and a trending asset sits above 50 for years at a time, so the scaled
+    // grid drifted off the part of the range that actually separates days.
+    const RSI_LEVELS = [];
+    for (let L = 10; L <= 90; L += 2) RSI_LEVELS.push(L);
+
+    // Quantities that ACCUMULATE over the window disperse as sqrt(t). A 10%
+    // move over 5 days and a 10% move over 252 days are not the same event,
+    // and one fixed grid mis-serves both ends: measured on TQQQ 2010-2026, a
+    // fixed +/-10% cumulative-return grid left only 12% of days inside the
+    // grid at 252 days, so most of its levels were pinned true (or false) for
+    // the whole sample and separated nothing. The base grids below are quoted
+    // at LEVEL_BASE_WIN days and scaled by sqrt(p / LEVEL_BASE_WIN).
+    //
+    // Rate-like quantities do NOT scale. Mean daily return and daily
+    // volatility estimate a per-day rate; a longer window makes the estimate
+    // steadier, not larger, so those keep one fixed grid across all windows.
+    const LEVEL_BASE_WIN = 21;
+
+    // Every percent-quoted grid is UNIFORMLY STEPPED (v1.23.1), replacing the
+    // hand-written ladders that used to thin out at their extremes. Grids are
+    // declared in percent and generated on an integer lattice of hundredths of
+    // a percentage point, so repeated addition cannot drift and 0.1 + 0.2 can
+    // never land at 0.30000000000000004. Values are stored as fractions.
+    const PCT_UNIT = 10000;              // 1.0 -> 100.00% -> 10000 lattice units
+    function pctGrid(loPct, hiPct, stepPct) {
+      const st = Math.round(stepPct * 100), out = [];
+      for (let v = Math.round(loPct * 100); v <= Math.round(hiPct * 100); v += st) out.push(v / PCT_UNIT);
+      return out;
+    }
+    // The same grid with its RANGE scaled by sqrt(p / LEVEL_BASE_WIN) but its
+    // STEP held fixed, so resolution is constant across windows and only the
+    // reach changes. Endpoints snap inward to the step lattice, which keeps
+    // every window's levels on the same values rather than on 15 offset sets.
+    function scaledPctGrid(loPct, hiPct, stepPct, p, capPct) {
+      const k = Math.sqrt(p / LEVEL_BASE_WIN), st = Math.round(stepPct * 100);
+      const cap = capPct ? Math.round(capPct * 100) : Infinity;
+      const lo = Math.max(-cap, Math.ceil(Math.round(loPct * k * 100) / st) * st);
+      const hi = Math.min(cap, Math.floor(Math.round(hiPct * k * 100) / st) * st);
+      const out = [];
+      for (let v = lo; v <= hi; v += st) out.push(v / PCT_UNIT);
+      return out.length ? out : [Math.round((loPct + hiPct) * k * 50) / PCT_UNIT];
+    }
+
+    // Percent, quoted at LEVEL_BASE_WIN days. Cumulative return and drawdown
+    // scale; the two per-day rates below do not.
+    // Widths were set from the DATA, not from taste (measured 2026-08-20 over
+    // all 72 tickers, 2010-2026). The first pass used +/-10% and 2..20% at 21
+    // days, which sounded reasonable and covered only 75-81% of days for
+    // cumulative return, and 49-76% for drawdown. Drawdown missed at BOTH
+    // ends: at 5 days its 1% floor sat above the 1.2% median, so half the
+    // sample fell below the grid, while its 9% ceiling sat below the 18%
+    // 99th percentile. A threshold nothing ever crosses tests nothing.
+    //
+    // These brackets clear the 5th-to-95th percentile at every window:
+    //
+    //   window       CumRet p5/p95     grid       MaxDD p50/p95    grid
+    //        5        -8% /   +8%    +/- 9%       1.2% /  10%     1..19%
+    //       21       -16% /  +16%    +/-20%       4.4% /  25%     1..40%
+    //       63       -27% /  +29%    +/-34%       8.6% /  43%     2..69%
+    //      252       -55% /  +78%    +/-69%      17.8% /  73%     3..95%
+    //
+    // The upside tail runs fatter than sqrt(t) predicts because leveraged
+    // funds compound (252-day CumRet reaches +2311% in this universe), so no
+    // finite grid brackets it; the grid is sized on the percentiles, and the
+    // extremes are reachable through the comparison families instead.
+    // Drawdown is bounded by construction, so its grid is capped at 95%:
+    // above that nothing separates, since almost no day is on the far side.
+    const CUM_LO = -20, CUM_HI = 20;
+    const DD_LO = 1, DD_HI = 40, DD_CAP = 95;
+    // One percentage point, not two. These two families are 1.3% of a maximal
+    // run between them and are LINEAR in the level count, so the finer step
+    // costs about as much as adding a single window to one comparison family,
+    // and a comparison family would pay that cost squared. At 252 days it is
+    // the difference between 35 thresholds and 69.
+    const LVL_STEP = 1;
+
+    // Daily rates, fixed across all windows and stepped at the resolution the
+    // quantity actually has. Their entire range is narrower than one 2-point
+    // step, so the 2% grid is meaningless here; these carry the equivalent
+    // resolution in their own units instead. Levels a given window never
+    // reaches simply pin true or false, which costs one linear slot each.
+    const STD_R_LEVELS = pctGrid(0.2, 6.0, 0.1);     // 0.2%/day (TLT-quiet) to 6%/day (panic)
+    const MA_R_LEVELS = pctGrid(-0.5, 0.5, 0.02);    // +/-0.5%/day, ~0.02% = 5%/yr per step
+
+    // ---------- indicators ----------
+    // One entry per native Composer function. `calc` builds the series for a
+    // ticker at a window; `fn` is the Composer slug the exporter emits; `pct`
+    // marks a quantity Composer states in percent, so a level stored here as a
+    // fraction is multiplied by 100 for the label and the export (the same
+    // trade cumulative return has always used). `close` is the only
+    // window-less indicator, and is what "current price" compares.
+    const INDICATORS = {
+      close: { label: 'Price',         suffix: '',  fn: 'current-price' },
+      rsi:   { label: 'RSI',           suffix: '',  fn: 'relative-strength-index',          calc: (c, p) => rsi(c.close, p) },
+      cum:   { label: 'CumRet',        suffix: 'd', fn: 'cumulative-return',                calc: (c, p) => cumret(c.close, p), pct: true },
+      ma:    { label: 'MA-Return',     suffix: 'd', fn: 'moving-average-return',            calc: (c, p) => rollMean(c.dret, p), pct: true },
+      std:   { label: 'StdDev-Return', suffix: 'd', fn: 'standard-deviation-return',        calc: (c, p) => rollStd(c.dret, p), pct: true },
+      map:   { label: 'MA-Price',      suffix: 'd', fn: 'moving-average-price',             calc: (c, p) => rollMean(c.px, p) },
+      ema:   { label: 'EMA-Price',     suffix: 'd', fn: 'exponential-moving-average-price', calc: (c, p) => ema(c.px, p) },
+      stdp:  { label: 'StdDev-Price',  suffix: 'd', fn: 'standard-deviation-price',         calc: (c, p) => rollStd(c.px, p) },
+      dd:    { label: 'MaxDD',         suffix: 'd', fn: 'max-drawdown',                     calc: (c, p) => maxDrawdown(c.px, p), pct: true },
+    };
+
+    // ---------- signal families ----------
+    // Sixteen families over the nine Composer functions, in three kinds:
+    //
+    //   lvl   one series against a constant     n * W * levels(p) * 2 specs
+    //   cmp   two (ticker, window) operands     m * (m-1), m = n * W
+    //   self  two indicators, ONE ticker, ONE   n * W * 2
+    //         window (price vs its own average)
+    //
+    // Only `cmp` squares with the grid, which is why the level families can
+    // afford fine grids and the comparison families cannot afford extra
+    // windows. Eleven are on by default: the ones that are both cheap and
+    // well attested in the strategy library. The rest stay one click away.
+    const FAMILIES = [
+      // --- Price ---
+      { id: 'price_ma',   group: 'Price',  on: true,  kind: 'self', a: 'close', b: 'map',  label: 'Price vs own moving average' },
+      { id: 'price_ema',  group: 'Price',  on: true,  kind: 'self', a: 'close', b: 'ema',  label: 'Price vs own EMA' },
+      { id: 'map_cmp',    group: 'Price',  on: true,  kind: 'cmp',  a: 'map',  same: true, label: 'Moving average of price compare' },
+      { id: 'ema_cmp',    group: 'Price',  on: false, kind: 'cmp',  a: 'ema',  same: true, label: 'EMA of price compare' },
+      { id: 'ema_map',    group: 'Price',  on: false, kind: 'self', a: 'ema',   b: 'map',  label: 'EMA vs moving average (same ticker)' },
+      // --- Return / momentum ---
+      { id: 'rsi_thresh', group: 'Return', on: true,  kind: 'lvl',  a: 'rsi',   lv: () => RSI_LEVELS,                    label: 'RSI vs level' },
+      { id: 'rsi_cmp',    group: 'Return', on: true,  kind: 'cmp',  a: 'rsi',                                            label: 'RSI vs RSI' },
+      { id: 'cum_lvl',    group: 'Return', on: true,  kind: 'lvl',  a: 'cum',   lv: p => scaledPctGrid(CUM_LO, CUM_HI, LVL_STEP, p), label: 'Cumulative return vs level' },
+      { id: 'cum_cmp',    group: 'Return', on: true,  kind: 'cmp',  a: 'cum',                                            label: 'Cumulative return compare' },
+      { id: 'ma_cmp',     group: 'Return', on: true,  kind: 'cmp',  a: 'ma',                                             label: 'Moving average of return compare' },
+      { id: 'ma_lvl',     group: 'Return', on: false, kind: 'lvl',  a: 'ma',    lv: () => MA_R_LEVELS,                   label: 'Moving average of return vs level' },
+      // --- Risk ---
+      { id: 'std_cmp',    group: 'Risk',   on: true,  kind: 'cmp',  a: 'std',                                            label: 'Std dev of return compare' },
+      { id: 'std_lvl',    group: 'Risk',   on: true,  kind: 'lvl',  a: 'std',   lv: () => STD_R_LEVELS,                  label: 'Std dev of return vs level' },
+      { id: 'dd_lvl',     group: 'Risk',   on: true,  kind: 'lvl',  a: 'dd',    lv: p => scaledPctGrid(DD_LO, DD_HI, LVL_STEP, p, DD_CAP),   label: 'Max drawdown vs level' },
+      { id: 'dd_cmp',     group: 'Risk',   on: false, kind: 'cmp',  a: 'dd',                                             label: 'Max drawdown compare' },
+      { id: 'stdp_cmp',   group: 'Risk',   on: false, kind: 'cmp',  a: 'stdp', same: true,                               label: 'Std dev of price compare' },
+    ];
+    const FAM_GROUPS = ['Price', 'Return', 'Risk'];
+    const FAM = {};                      // id -> family
+    const FAM_IX = {};                   // id -> index (what the spec store holds)
+    FAMILIES.forEach((f, i) => { FAM[f.id] = f; FAM_IX[f.id] = i; });
+
+    // Every indicator a set of enabled families needs a cache for.
+    function neededIndicators(fams) {
+      const s = new Set();
+      for (const f of FAMILIES) if (fams[f.id]) { s.add(f.a); if (f.b) s.add(f.b); }
+      s.delete('close');                 // always present, never windowed
+      return [...s];
+    }
+
+    // The single source of truth for "how many specs will this produce".
+    // estimate() and buildSpecs() both read it, so the number shown before a
+    // run and the number the run actually tests cannot drift apart.
+    function famSpecCount(f, n, W) {
+      // `same` families never leave the ticker, so they are n * C(W,2) ordered
+      // pairs * 2 directions rather than m * (m - 1) over all m = n * W
+      // operands. See pushCmpSpecs for why.
+      if (f.kind === 'cmp') {
+        const w = W.length;
+        if (f.same) return n * w * (w - 1);
+        const m = n * w; return m * (m - 1);
+      }
+      if (f.kind === 'self') return n * W.length * 2;
+      let c = 0;
+      for (const p of W) c += f.lv(p).length;
+      return n * c * 2;
+    }
+    function countSpecs(n, fams, W) {
+      let c = 0;
+      for (const f of FAMILIES) if (fams[f.id]) c += famSpecCount(f, n, W);
+      return c;
+    }
+
+    const SURV_CAP = 150;      // max single-signal survivors fed into pairing, per target
+    const DISPLAY_CAP = 100;   // max rows rendered (see selectTop: never sort the full set)
+    // Estimate thresholds, recalibrated 2026-08-21 (v1.24.2). They are raw
+    // spec counts, but the numbers themselves come from a measurement rather
+    // than from taste.
+    //
+    // Pass 1 does one backtest per (spec, target, day). Measured 2026-08-21 by
+    // scripts/measure_throughput.py, which times four run sizes from OUTSIDE
+    // the browser, that inner loop runs at 23 nanoseconds per unit of work
+    // unthrottled, plus about 1.7s of fixed per-run cost. The fit is linear
+    // across a 10x range (26.5, 24.8, 23.8, 23.3 ns/unit at 8, 16, 24 and 32
+    // tickers; the drift is the fixed cost being amortised).
+    //
+    // At the ~3,930-day sample a full-history selection gives, and one target:
+    //
+    //   91,232 specs (8 tickers, default families)   ~10s unthrottled, ~50s at Medium
+    //   390,320 specs (20 tickers)                   ~37s unthrottled, ~3.1min at Medium
+    //   600,000 specs                                ~56s unthrottled, ~4.6min at Medium
+    //   1,200,000 specs                             ~110s unthrottled, ~9.1min at Medium
+    //   3,936,096 specs (all 72, default families)  ~356s unthrottled, ~30min at Medium
+    //
+    // A PREVIOUS VERSION OF THIS COMMENT SAID 4.5 ns, AND WAS WRONG BY 5x. It
+    // came from performance.now() readings taken inside a driver running under
+    // --virtual-time-budget, where the page clock is paused during synchronous
+    // compute. Nothing timed from inside that rig means anything; see the
+    // header of scripts/harness/throughput.js.
+    //
+    // The old pair (45,000 warn / 100,000 confirm) was set when a default
+    // eight-ticker run was ~20,000 specs. After v1.23.1 that same ordinary run
+    // was 100,696 and tripped the confirm EVERY time, which trains people to
+    // click through the one warning that matters.
+    //
+    // KNOWN BLIND SPOT: this counts specs, not work. Pass 1 also scales with
+    // the number of targets and the sample length, so a three-target run does
+    // three times the work at the same spec count and will not warn any
+    // earlier. Projecting wall time directly would fix that; it was considered
+    // and deliberately not built, in favour of keeping the estimate a quantity
+    // that is exact rather than predicted.
+    const SIGNAL_WARN_CAP = 1200000;   // above this, warn-and-confirm before running (no hard limit)
+    const SIGNAL_WARN_SOFT = 600000;   // above this, the estimate line turns yellow
+    // Measured throughput, from the table above: nanoseconds of unthrottled
+    // compute per (spec, target, day), plus the fixed per-run cost of building
+    // indicator caches and rendering. Used only to project a duration in the
+    // large-batch confirm, so an approximate figure is fine; a run's own live
+    // "time left" readout is measured, not projected, and supersedes it as soon
+    // as the run starts.
+    const NS_PER_UNIT = 23;
+    const RUN_FIXED_MS = 1700;
+
+    let PD, DATES, N, UNIVERSE;
+    let targets = new Set();
+    let compares = new Set();
+    // ---------- Pass-1 result store (v1.22.15) ----------
+    // Pass 1 produces one row per (signal, target) that backtests to a valid
+    // result. On a large run that is millions of rows, and holding them as
+    // JavaScript objects is what bounds the tool now that the survivor cache
+    // is gone. The limit is NOT the machine's RAM: a browser tab has its own
+    // heap ceiling, measured at 3,586 MB in Edge on a 48GB box, and it does
+    // not grow with installed memory. An object row costs roughly 300 bytes:
+    // the object header and slack, eight separately heap-allocated doubles
+    // (V8 stopped storing doubles inline in objects), and an eagerly built
+    // label string that only the 100 displayed rows ever read.
+    //
+    // Columns instead. Eight Float64Arrays plus a spec index and a target
+    // index is 69 bytes per row, flat, in one allocation per column, outside
+    // the object heap and holding nothing for the garbage collector to trace.
+    // Row objects are materialised only where one is actually needed: the
+    // <=100 rows on screen, the <=150 per target fed into pairing, and the
+    // snapshot. Labels are derived from the spec at that point rather than
+    // stored, which is the same trade the survivor cache lost in v1.22.13:
+    // recomputing on demand beats retaining for a set that is never read.
+    const METRIC_KEYS = ['total', 'annRet', 'sortino', 'calmar', 'maxDD', 'tim', 'pf', 'pctProf'];
+
+    function makeStore() {
+      const st = { n: 0, cap: 0, si: new Uint32Array(0), ti: new Uint8Array(0), m: {},
+                   specs: null, tgt: null };
+      for (const k of METRIC_KEYS) st.m[k] = new Float64Array(0);
+      return st;
+    }
+
+    // Geometric growth. Pre-sizing to specs.length * targets would avoid the
+    // copies but allocates the worst case up front, which on a multi-target
+    // run is larger than what actually survives.
+    function growStore(st) {
+      const cap = st.cap ? st.cap * 2 : 65536;
+      const si = new Uint32Array(cap); si.set(st.si); st.si = si;
+      // A target index, not a ticker string: the universe is 72 tickers, so a
+      // byte is ample and the assert below is the guard if that ever changes.
+      const ti = new Uint8Array(cap); ti.set(st.ti); st.ti = ti;
+      for (const k of METRIC_KEYS) { const a = new Float64Array(cap); a.set(st.m[k]); st.m[k] = a; }
+      st.cap = cap;
+    }
+
+    function pushStore(st, specIdx, tgtIdx, m) {
+      if (st.n === st.cap) growStore(st);
+      const i = st.n++;
+      st.si[i] = specIdx; st.ti[i] = tgtIdx;
+      for (const k of METRIC_KEYS) st.m[k][i] = m[k];
+    }
+
+    // Build the row object the table, the exporter and the snapshot expect.
+    // Called for tens of rows, not millions.
+    function storeRow(st, i) {
+      const spec = specAt(st.specs, st.si[i]);
+      const r = { single: true, target: st.tgt[st.ti[i]], spec, label: specLabel(spec) };
+      for (const k of METRIC_KEYS) r[k] = st.m[k][i];
+      return r;
+    }
+
+    // A result set is the read-only view the table works through: `count` rows
+    // addressed by index, where the sort value and the search text can be read
+    // WITHOUT materialising a row. That is what lets selectTop scan millions
+    // of rows while allocating only the handful it keeps.
+    function arraySet(arr) {
+      return {
+        count: arr.length,
+        get: i => arr[i],
+        num: (i, key) => arr[i][key],
+        text: (i, key) => String(arr[i][key]),
+        match: (i, needle) => containsCI(arr[i].target, needle) || containsCI(arr[i].label, needle),
+      };
+    }
+
+    function storeSet(st, idx) {
+      const lab = i => specLabel(specAt(st.specs, st.si[idx[i]]));
+      return {
+        count: idx.length,
+        get: i => storeRow(st, idx[i]),
+        num: (i, key) => st.m[key][idx[i]],
+        text: (i, key) => key === 'target' ? st.tgt[st.ti[idx[i]]] : lab(i),
+        // The label is built here only when the user has typed in the filter
+        // box, and dies immediately. Retaining one per row is what cost 100MB+.
+        match: (i, needle) => containsCI(st.tgt[st.ti[idx[i]]], needle) || containsCI(lab(i), needle),
+      };
+    }
+
+    function concatSet(a, b) {
+      if (!a.count) return b;
+      if (!b.count) return a;
+      const n = a.count;
+      return {
+        count: n + b.count,
+        get: i => i < n ? a.get(i) : b.get(i - n),
+        num: (i, key) => i < n ? a.num(i, key) : b.num(i - n, key),
+        text: (i, key) => i < n ? a.text(i, key) : b.text(i - n, key),
+        match: (i, needle) => i < n ? a.match(i, needle) : b.match(i - n, needle),
+      };
+    }
+
+    let lastResults = arraySet([]);
+    let sortKey = 'calmar', sortAsc = false;   // default ranking metric (v1.22.0)
+    let lastBaselines = null;   // buy-and-hold reference rows for the current run
+    // Rows ticked for the combined export, keyed so a selection survives
+    // re-sorting, filtering and the 100-row display cap: a row can be selected
+    // and then scroll out of the visible set, and it must still export.
+    const selectedRows = new Map();
+    const rowKey = r => r.target + '|' + r.label;
+    // Cached Pass-1 output from the last run: every valid single-signal result
+    // (before the Time-in-Market / Max Drawdown filters) plus the arrays needed
+    // to recompute pairing. Lets the section-3 filters re-apply live without
+    // re-running any backtest. Invalidated when tickers/families/min-period change.
+    let sigCache = null;
+
+    // ---------- math helpers ----------
+    function dailyReturns(close) {
+      const r = new Float64Array(N);
+      r[0] = NaNv;
+      for (let i = 1; i < N; i++) {
+        const a = close[i], b = close[i - 1];
+        r[i] = (a == null || b == null) ? NaNv : a / b - 1;
+      }
+      return r;
+    }
+    function logReturns(close) {
+      const r = new Float64Array(N);
+      r[0] = NaNv;
+      for (let i = 1; i < N; i++) {
+        const a = close[i], b = close[i - 1];
+        r[i] = (a == null || b == null) ? NaNv : Math.log(a / b);
+      }
+      return r;
+    }
+    // Wilder RSI via ewm(alpha=1/p, adjust=False), first p values masked NaN (ta lib parity).
+    function rsi(close, p) {
+      const out = new Float64Array(N);
+      const alpha = 1 / p;
+      let emaUp = 0, emaDn = 0;
+      for (let i = 0; i < N; i++) {
+        let up = 0, dn = 0;
+        if (i > 0 && close[i] != null && close[i - 1] != null) {
+          const d = close[i] - close[i - 1];
+          if (d > 0) up = d; else if (d < 0) dn = -d;
+        }
+        emaUp = (1 - alpha) * emaUp + alpha * up;
+        emaDn = (1 - alpha) * emaDn + alpha * dn;
+        if (i < p) { out[i] = NaNv; continue; }
+        if (emaDn === 0) out[i] = 100;
+        else out[i] = 100 - 100 / (1 + emaUp / emaDn);
+      }
+      return out;
+    }
+    // Cumulative return over p days: close[i]/close[i-p] - 1.
+    function cumret(close, p) {
+      const out = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        if (i < p || close[i] == null || close[i - p] == null) { out[i] = NaNv; continue; }
+        out[i] = close[i] / close[i - p] - 1;
+      }
+      return out;
+    }
+    // Rolling mean of a series (requires full non-NaN window).
+    function rollMean(src, p) {
+      const out = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        if (i < p) { out[i] = NaNv; continue; }
+        let s = 0, ok = true;
+        for (let k = i - p + 1; k <= i; k++) { const v = src[k]; if (v !== v) { ok = false; break; } s += v; }
+        out[i] = ok ? s / p : NaNv;
+      }
+      return out;
+    }
+    // Rolling sample std (ddof=1).
+    function rollStd(src, p) {
+      const out = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        if (i < p) { out[i] = NaNv; continue; }
+        let s = 0, ok = true;
+        for (let k = i - p + 1; k <= i; k++) { const v = src[k]; if (v !== v) { ok = false; break; } s += v; }
+        if (!ok) { out[i] = NaNv; continue; }
+        const m = s / p;
+        let ss = 0;
+        for (let k = i - p + 1; k <= i; k++) { const d = src[k] - m; ss += d * d; }
+        out[i] = Math.sqrt(ss / (p - 1));
+      }
+      return out;
+    }
+    // Exponential moving average of price, alpha = 2/(p+1) (Composer's
+    // convention). Seeded on the first real observation and masked for the
+    // first p days so it is not reported before the window is filled, matching
+    // how rsi/rollMean mask theirs.
+    function ema(px, p) {
+      const out = new Float64Array(N);
+      const a = 2 / (p + 1);
+      let e = 0, started = false;
+      for (let i = 0; i < N; i++) {
+        const v = px[i];
+        if (v !== v) { out[i] = NaNv; started = false; continue; }
+        e = started ? e + a * (v - e) : v;
+        started = true;
+        out[i] = i < p ? NaNv : e;
+      }
+      return out;
+    }
+    // Rolling max drawdown over the trailing p days, as a POSITIVE fraction
+    // (0.2 = a 20% peak-to-trough decline inside the window). Composer states
+    // it in percent, so the exporter multiplies by 100.
+    function maxDrawdown(px, p) {
+      const out = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        if (i < p) { out[i] = NaNv; continue; }
+        let peak = -Infinity, dd = 0, ok = true;
+        for (let k = i - p + 1; k <= i; k++) {
+          const v = px[k];
+          if (v !== v) { ok = false; break; }
+          if (v > peak) peak = v;
+          const d = 1 - v / peak;
+          if (d > dd) dd = d;
+        }
+        out[i] = ok ? dd : NaNv;
+      }
+      return out;
+    }
+    function percentile(sorted, q) {
+      const n = sorted.length;
+      if (n === 0) return NaNv;
+      if (n === 1) return sorted[0];
+      const pos = q * (n - 1);
+      const lo = Math.floor(pos), hi = Math.ceil(pos), frac = pos - lo;
+      return sorted[lo] + (sorted[hi] - sorted[lo]) * frac;
+    }
+
+    // ---------- caches ----------
+    // `need` is the indicator-key list from neededIndicators(); `W` is the one
+    // active window grid. `px` is the close series as a Float64Array with NaN
+    // for missing days: the raw `closes` array holds nulls, and the rolling
+    // helpers test for NaN, which a null slips past silently (null !== null is
+    // false, and `sum += null` adds zero). Price-based indicators read px.
+    function buildCaches(tickers, need, W) {
+      const cache = {};
+      for (const t of tickers) {
+        const close = PD.tickers[t].closes;
+        const px = new Float64Array(N);
+        for (let i = 0; i < N; i++) px[i] = close[i] == null ? NaNv : close[i];
+        const c = { close: px, px: px, lret: logReturns(close) };
+        if (need.indexOf('ma') !== -1 || need.indexOf('std') !== -1) c.dret = dailyReturns(close);
+        for (const k of need) {
+          c[k] = {};
+          for (const p of W) c[k][p] = INDICATORS[k].calc(c, p);
+        }
+        cache[t] = c;
+      }
+      return cache;
+    }
+
+    // ---------- signal specs ----------
+    // A spec is plain data; evalSpec(spec, cache) builds its boolean Uint8Array.
+    // Emit each two-sided comparison ONCE per unordered operand pair, where an
+    // operand is a (ticker, window) tuple.
+    //
+    // `X < Y` and `Y > X` are the same condition. Before v1.18.4 this walked the
+    // full Cartesian product of tickers (both (a,b) and (b,a)) and emitted both
+    // GT and LT for every one, so every comparison signal was generated exactly
+    // twice and every AND pair four times: the results table showed four
+    // identical rows for one signal, and half of each run's compute was spent
+    // rediscovering mirror images.
+    //
+    // Canonical order loses no coverage. `Y > X` is still reachable, it just
+    // arrives spelled `X < Y`, and both directions are still emitted for every
+    // pair kept. Operands are ordered by ticker index, then by window.
+    //
+    // Specs are stored COLUMNARLY (v1.23.0), for the same reason the Pass-1
+    // results are: a maximal run now builds well over five million of them,
+    // and as JavaScript objects that was ~300MB of the tab's ~3.5GB heap
+    // ceiling, held live for the whole run because Pass 1 indexes back into
+    // it. Seven typed arrays cost 10 bytes per spec, in one allocation per
+    // column, with nothing for the garbage collector to trace. A spec object
+    // is materialised only where one is genuinely needed: labels, the export,
+    // the <=150 survivors per target fed into pairing, and the snapshot.
+    const SPEC_COLS = [['fi', Uint8Array], ['d', Uint8Array], ['a', Uint8Array],
+                       ['b', Uint8Array], ['p', Uint16Array], ['q', Uint16Array],
+                       ['lv', Float64Array]];
+    function makeSpecStore(tickerList) {
+      const sp = { n: 0, cap: 0, tk: tickerList };
+      for (const [k, T] of SPEC_COLS) sp[k] = new T(0);
+      return sp;
+    }
+    function growSpecs(sp) {
+      const cap = sp.cap ? sp.cap * 2 : 65536;
+      for (const [k, T] of SPEC_COLS) { const arr = new T(cap); arr.set(sp[k]); sp[k] = arr; }
+      sp.cap = cap;
+    }
+    // dir is 0 for GT, 1 for LT. b/q are the second operand and are left at
+    // zero for the kinds that do not have one.
+    function pushSpec(sp, fi, dir, ai, p1, bi, p2, lv) {
+      if (sp.n === sp.cap) growSpecs(sp);
+      const i = sp.n++;
+      sp.fi[i] = fi; sp.d[i] = dir; sp.a[i] = ai; sp.p[i] = p1;
+      sp.b[i] = bi; sp.q[i] = p2; sp.lv[i] = lv;
+    }
+    function specAt(sp, i) {
+      return { f: FAMILIES[sp.fi[i]].id, dir: sp.d[i] ? 'LT' : 'GT',
+               t1: sp.tk[sp.a[i]], p1: sp.p[i],
+               t2: sp.tk[sp.b[i]], p2: sp.q[i], level: sp.lv[i] };
+    }
+
+    // `sameOnly` restricts a comparison family to operands on the SAME ticker,
+    // i.e. fast window vs slow window, dropping every cross-ticker pair.
+    //
+    // It is set on the three families that compare DOLLAR MAGNITUDES
+    // (map_cmp, ema_cmp, stdp_cmp). "MA-Price(21d) of SPY > MA-Price(21d) of
+    // QQQ" is not a signal, it is a statement about share prices, and it was
+    // measured across all 72 tickers, 2010-2026, at four windows:
+    //
+    //   family     cross-ticker pairs      same-ticker pairs
+    //   map_cmp    median 1 flip, 94.5% flip <12 times    median 51 flips, 7.4% inert
+    //   ema_cmp    median 1 flip, 94.3% flip <12 times    median 53 flips, 8.3% inert
+    //   stdp_cmp   median 9 flips, 54.1% flip <12 times   median 26 flips, 26.4% inert
+    //   rsi_cmp    median 212 flips, 2.5% inert     <- scale-free control
+    //   cum_cmp    median 223 flips, 1.5% inert     <- scale-free control
+    //
+    // The reason to cut them is NOT that they are constant: only 42.5% of
+    // map_cmp cross pairs never separate a day. It is that they are INERT.
+    // A median cross-ticker price pair changes state ONCE in sixteen years, so
+    // it is a date wearing a condition's clothes ("before/after 2018"), and a
+    // rule that fires on one regime break is the purest form of over-fit the
+    // tool can produce. The scale-free families flip hundreds of times and are
+    // deliberately left alone.
+    //
+    // stdp_cmp's case is the weakest of the three (54% inert, not 94%). If a
+    // real signal ever turns out to be missing, its flag is the first to flip.
+    function pushCmpSpecs(sp, fi, nT, windows, sameOnly) {
+      for (let i = 0; i < nT; i++) {
+        const jEnd = sameOnly ? i + 1 : nT;
+        for (let j = i; j < jEnd; j++) {
+          for (const p1 of windows) {
+            for (const p2 of windows) {
+              // Same ticker on both sides: keep only p1 < p2. That drops the
+              // mirror (p2, p1) and the degenerate p1 === p2, which compares a
+              // series to itself and is therefore always false. Different
+              // windows on one ticker (fast vs slow) stay, they are real signals.
+              if (i === j && !(p1 < p2)) continue;
+              pushSpec(sp, fi, 0, i, p1, j, p2, 0);
+              pushSpec(sp, fi, 1, i, p1, j, p2, 0);
+            }
+          }
+        }
+      }
+    }
+
+    function buildSpecs(tickerList, fams, W) {
+      if (tickerList.length > 255) throw new Error('ticker index is a byte; more than 255 signal tickers needs a wider array');
+      const sp = makeSpecStore(tickerList);
+      const nT = tickerList.length;
+      for (const f of FAMILIES) {
+        if (!fams[f.id]) continue;
+        const fi = FAM_IX[f.id];
+        if (f.kind === 'cmp') { pushCmpSpecs(sp, fi, nT, W, !!f.same); continue; }
+        for (let i = 0; i < nT; i++) {
+          for (const p of W) {
+            // Threshold families compare one series against a constant, so
+            // they have no mirror form and are unaffected by the canonical
+            // ordering above. `self` families pin both operands to one ticker
+            // and one window, so they have no mirror either.
+            if (f.kind === 'self') {
+              pushSpec(sp, fi, 0, i, p, i, p, 0);
+              pushSpec(sp, fi, 1, i, p, i, p, 0);
+            } else {
+              for (const lvl of f.lv(p)) {
+                pushSpec(sp, fi, 0, i, p, 0, 0, lvl);
+                pushSpec(sp, fi, 1, i, p, 0, 0, lvl);
+              }
+            }
+          }
+        }
+      }
+      return sp;
+    }
+
+    // The series an (indicator, window) operand resolves to. `close` is the
+    // only window-less one.
+    function seriesOf(c, ind, p) { return ind === 'close' ? c.close : c[ind][p]; }
+
+    // Two ways in, one shape out: [leftSeries, rightSeriesOrConstant].
+    // leftRight takes a materialised spec (the pairing path, which works from
+    // survivor row objects); leftRightAt reads the columnar store directly, so
+    // Pass 1 never allocates an object per spec.
+    function leftRight(spec, cache) {
+      const f = FAM[spec.f], c1 = cache[spec.t1];
+      if (f.kind === 'lvl') return [seriesOf(c1, f.a, spec.p1), spec.level];
+      if (f.kind === 'self') return [seriesOf(c1, f.a, spec.p1), seriesOf(c1, f.b, spec.p1)];
+      return [seriesOf(c1, f.a, spec.p1), seriesOf(cache[spec.t2], f.a, spec.p2)];
+    }
+    function leftRightAt(sp, i, cache) {
+      const f = FAMILIES[sp.fi[i]], c1 = cache[sp.tk[sp.a[i]]], p1 = sp.p[i];
+      if (f.kind === 'lvl') return [seriesOf(c1, f.a, p1), sp.lv[i]];
+      if (f.kind === 'self') return [seriesOf(c1, f.a, p1), seriesOf(c1, f.b, p1)];
+      return [seriesOf(c1, f.a, p1), seriesOf(cache[sp.tk[sp.b[i]]], f.a, sp.q[i])];
+    }
+    // `out` lets Pass 1 hand in one reusable buffer instead of allocating an
+    // N-byte array per spec. backtest() consumes it synchronously, so reuse is
+    // safe there; the pairing path omits it and gets a fresh array to keep.
+    function boolInto(L, R, gt, out) {
+      const arr = out || new Uint8Array(N);
+      const scalarR = typeof R === 'number';
+      for (let i = 0; i < N; i++) {
+        const a = L[i];
+        if (a !== a) { arr[i] = 0; continue; }
+        const b = scalarR ? R : R[i];
+        if (b !== b) { arr[i] = 0; continue; }
+        arr[i] = gt ? (a > b ? 1 : 0) : (a < b ? 1 : 0);
+      }
+      return arr;
+    }
+    function evalSpec(spec, cache) {
+      const [L, R] = leftRight(spec, cache);
+      return boolInto(L, R, spec.dir === 'GT', null);
+    }
+    function evalSpecAt(sp, i, cache, out) {
+      const [L, R] = leftRightAt(sp, i, cache);
+      return boolInto(L, R, sp.d[i] === 0, out);
+    }
+
+    // ---------- backtest one boolean signal against one target ----------
+    // `s0` is the first index of the run's common sample window (see windowInfo).
+    // Everything before it is history where at least one selected ticker did not
+    // exist yet, so no signal could fire there; scoring over it would penalise a
+    // young ticker for time it could never have traded. `nw` is the window length
+    // and is what the per-day averages divide by, NOT the full axis length.
+    function backtest(arr, lret, s0, nw) {
+      // shifted = arr shifted +1; ret = shifted ? lret : 0 (NaN lret -> 0)
+      // peakEq tracks the running high-water mark of the EQUITY MULTIPLE
+      // (exp(cum), starting at 1.0), not of total return. Drawdown must be a
+      // percentage of the peak, eq/peakEq - 1, so it is always in [-1, 0].
+      // Until v1.21.0 this was (ret - peakRet), an absolute gap in return units,
+      // which is only equal to the real thing while equity stays near 1.0. Once
+      // a series multiplies, the gap is denominated in the grown equity: TQQQ
+      // 2010-2026 reported -16761% against a true -81.7%. It also corrupted
+      // Calmar, and made the default -0.8 Max Drawdown floor reject anything
+      // that had compounded at all.
+      let cum = 0, peakEq = 1, maxDD = 0;   // cum is cumulative log return; equity = exp(cum)
+      let sumRet = 0, sumNeg = 0, sumNeg2 = 0, nNeg = 0;
+      let gp = 0, gl = 0, active = 0, activeWin = 0;
+      for (let i = Math.max(1, s0); i < N; i++) {
+        if (arr[i - 1] === 0) continue;
+        active++;
+        let r = lret[i];
+        if (r !== r) r = 0;
+        sumRet += r;
+        cum += r;
+        const eq = Math.exp(cum);
+        if (eq > peakEq) peakEq = eq;
+        const dd = eq / peakEq - 1;
+        if (dd < maxDD) maxDD = dd;
+        if (r > 0) { gp += r; activeWin++; }
+        else if (r < 0) { gl -= r; sumNeg += r; sumNeg2 += r * r; nNeg++; }
+      }
+      // Note: sumRet/mean is over active days only; the notebook divides by full length.
+      const total = Math.exp(cum) - 1;
+      // Annualised (CAGR) over the WINDOW, not over days in market: the strategy
+      // sits in cash when the signal is off, and that flat time is part of the
+      // return you actually earn. cum is already a log return, so this is
+      // exp(cum / years) - 1 with years = nw / 252, which avoids raising a
+      // possibly-tiny base to a fractional power. Note nw is fixed for a whole
+      // run, so within one result set this is a monotone transform of `total`
+      // and sorts identically; it is here for readable magnitude, not as a new
+      // ranking dimension, which is also why quantilePrune does not use it.
+      const annRet = nw > 0 ? Math.exp(cum * 252 / nw) - 1 : NaNv;
+      // Days in the window that can carry a return. The loop starts at
+      // max(1, s0) because a return needs a prior close, so this is the loop's
+      // exact iteration count. Dividing by nw instead left tim at 0.9998 rather
+      // than 1.0 for an always-on signal when s0 was 0, and made the two window
+      // cases inconsistent with each other.
+      const scored = N - Math.max(1, s0);
+      const tim = scored > 0 ? active / scored : NaNv;
+      // mean over all rows IN THE WINDOW (matches returns.mean() with non-active days 0)
+      const meanAll = scored > 0 ? sumRet / scored : NaNv;
+      // downside deviation = std (ddof=1) of ONLY the negative returns
+      let negStd = 0;
+      if (nNeg > 1) { const mN = sumNeg / nNeg; negStd = Math.sqrt((sumNeg2 - nNeg * mN * mN) / (nNeg - 1)); }
+      else if (nNeg === 1) negStd = 0;
+      // A ddof=1 standard deviation is UNDEFINED below two observations, and
+      // the branches above say so in their own structure: nNeg === 1 sets
+      // negStd to exactly 0, and nNeg === 0 leaves it at its initial 0. In both
+      // cases the 1e-9 guard becomes the entire denominator, so the result was
+      // not a large Sortino, it was meanAll multiplied by a billion. Measured
+      // on a 27,972 spec lattice, 131 rows returned values near 2e6 and 43 of
+      // the store's top 100 by Calmar carried one. Returning NaN says "this
+      // quantity does not exist for this row", which fmtVal already renders as
+      // a dash and selectTop already sorts to the bottom. The defect was latent
+      // rather than live: the sl-tim display filter, default 15%, discards every
+      // one of these rows before a visitor sees it, so this is robustness for
+      // the case where someone lowers that filter toward 0, which the input
+      // permits. See docs/PRD.md Section 14, item C, and scripts/harness/sortino.js.
+      // negStd > 0 is checked as well as nNeg > 1: two negative days with an
+      // identical return give a real but zero deviation, and dividing by it
+      // would return Infinity, which passes an `x === x` test and would sort to
+      // the top exactly like the bug being fixed.
+      const sortino = (nNeg > 1 && negStd > 0) ? meanAll / negStd * Math.sqrt(252) : NaNv;
+      // Calmar = ANNUALISED return over worst drawdown. The source notebook
+      // used total return here, which is only comparable between runs of equal
+      // length: over the 2010 axis TQQQ scored 418 that way, against a real
+      // Calmar of 0.52, and the "below 1.0 is a warning sign" reading in the
+      // PRD silently stopped applying. Using annRet makes the number mean the
+      // same thing regardless of window length, which matters now that the
+      // window varies with the ticker selection.
+      const calmar = maxDD !== 0 ? annRet / Math.abs(maxDD) : NaNv;
+      const pf = gl !== 0 ? gp / gl : NaNv;
+      const pctProf = active > 0 ? activeWin / active : NaNv;
+      return { total, annRet, sortino, calmar, maxDD, tim, pf, pctProf };
+    }
+
+    // ---------- buy-and-hold baseline ----------
+    // Every signal is a bet that being in an asset SOMETIMES beats being in it
+    // ALWAYS. Without a reference the table has no scale: a 300% return looks
+    // like a discovery until you notice holding QQQ over the same window did
+    // more, with no rules and no assumptions.
+    //
+    // The benchmarks are a FIXED set rather than the run's targets, so the
+    // yardstick does not move when the selection changes and two runs stay
+    // comparable to each other. BIL is the cash floor: it is what a signal
+    // earns while it is switched off, so a strategy that cannot beat it is
+    // not paying for its own complexity.
+    //
+    // Reuses backtest() unchanged so any difference from a signal row is
+    // attributable to the strategy rather than to different arithmetic. `tim`
+    // comes out at exactly 1.0 by construction, which doubles as a check that
+    // the window plumbing is right.
+    const BASELINE_TICKERS = ['TQQQ', 'QQQ', 'SPY', 'BIL'];
+
+    function computeBaselines(win) {
+      const ones = new Uint8Array(N).fill(1);
+      const out = [];
+      for (const sym of BASELINE_TICKERS) {
+        if (!PD.tickers[sym]) continue;              // pruned from the universe
+        // A benchmark can list AFTER the run's window opens (TQQQ starts
+        // 2010-02-11, the axis 2010-01-04). Scoring it from the window start
+        // would credit it with flat days it did not exist for, so clamp to its
+        // own first valid bar and report the shorter window rather than hiding it.
+        const s0 = Math.max(win.s0, firstValidIndex(sym));
+        const nw = N - s0;
+        if (nw < 30) continue;
+        const m = backtest(ones, logReturns(PD.tickers[sym].closes), s0, nw);
+        out.push(Object.assign({ target: sym, single: true, label: 'Buy & hold ' + sym,
+                                 start: DATES[Math.min(s0, N - 1)], short: s0 > win.s0 }, m));
+      }
+      return out;
+    }
+
+    // ---------- labels ----------
+    // "RSI(21) of SPY" / "MA-Price(50d) of SPY" / "Price of SPY".
+    function indText(ind, p) {
+      const I = INDICATORS[ind];
+      return ind === 'close' ? I.label : `${I.label}(${p}${I.suffix})`;
+    }
+    // Levels are stored as the indicator's native unit: a fraction for the
+    // percent-quoted ones, a plain number otherwise. trimNum keeps a scaled
+    // grid readable (3.5% rather than 3.50%) without dropping real precision.
+    function trimNum(v, dp) {
+      let s = v.toFixed(dp);
+      if (s.indexOf('.') !== -1) { while (s.endsWith('0')) s = s.slice(0, -1); if (s.endsWith('.')) s = s.slice(0, -1); }
+      return s;
+    }
+    function levelText(ind, v) {
+      return INDICATORS[ind].pct ? trimNum(v * 100, 2) + '%' : trimNum(v, 4);
+    }
+    function specLabel(spec) {
+      const f = FAM[spec.f], c = CMP_SYM[spec.dir];
+      const left = `${indText(f.a, spec.p1)} of ${spec.t1}`;
+      if (f.kind === 'lvl') return `${left} ${c} ${levelText(f.a, spec.level)}`;
+      if (f.kind === 'self') return `${left} ${c} ${indText(f.b, spec.p1)} of ${spec.t1}`;
+      return `${left} ${c} ${indText(f.a, spec.p2)} of ${spec.t2}`;
+    }
+
+    // ---------- Composer symphony JSON export ----------
+    // Maps a signal (or AND-pair) to a full Composer symphony that pastes into
+    // the app: root -> wt-cash-equal -> if -> [if-child (then asset), else asset].
+    // The else branch holds a cash proxy (BIL), matching the tool's "hold cash
+    // when the signal is off" backtest. Schema mirrors a real Composer export.
+    const ELSE_TICKER = 'BIL';   // cash proxy for the else branch
+
+    function uid() {
+      if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, ch => {
+        const r = Math.random() * 16 | 0, v = ch === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+    function shortId() {
+      const cs = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let s = ''; for (let i = 0; i < 20; i++) s += cs[Math.random() * cs.length | 0];
+      return s;
+    }
+    // Composer states the percent-quoted functions in percent, so a level held
+    // here as a fraction is multiplied by 100 on the way out.
+    function composerConst(ind, v) {
+      return INDICATORS[ind].pct ? Number((v * 100).toFixed(4)) : Number(v.toFixed(4));
+    }
+    // One operand. `current-price` takes no window, so it emits no params.
+    function composerOperand(ind, p, ticker) {
+      const I = INDICATORS[ind];
+      const o = { fn: I.fn, ticker: ticker };
+      if (ind !== 'close') o.params = { window: p };
+      return o;
+    }
+    // One binary-compound condition object for a single spec.
+    function composerCondition(spec) {
+      const f = FAM[spec.f];
+      const cmp = spec.dir === 'GT' ? 'gt' : 'lt';
+      const lhs = composerOperand(f.a, spec.p1, '%');
+      let rhs;
+      if (f.kind === 'lvl') rhs = { constant: composerConst(f.a, spec.level) };
+      else if (f.kind === 'self') rhs = composerOperand(f.b, spec.p1, spec.t1);
+      else rhs = composerOperand(f.a, spec.p2, spec.t2);
+      return { 'condition-type': 'binary-compound', operator: 'any', tickers: [spec.t1], lhs: lhs, comparator: cmp, rhs: rhs };
+    }
+    // Legacy flat fields Composer keeps beside `condition` (describe first spec).
+    function composerFlat(spec) {
+      const f = FAM[spec.f];
+      const o = { 'lhs-fn': INDICATORS[f.a].fn, 'lhs-val': spec.t1, 'comparator': spec.dir === 'GT' ? 'gt' : 'lt' };
+      if (f.a !== 'close') o['lhs-fn-params'] = { window: spec.p1 };
+      if (f.kind === 'lvl') {
+        o['rhs-fixed-value?'] = true;
+        o['rhs-val'] = String(composerConst(f.a, spec.level));
+      } else {
+        const rInd = f.kind === 'self' ? f.b : f.a;
+        const rWin = f.kind === 'self' ? spec.p1 : spec.p2;
+        o['rhs-fn'] = INDICATORS[rInd].fn;
+        if (rInd !== 'close') o['rhs-fn-params'] = { window: rWin };
+        o['rhs-val'] = f.kind === 'self' ? spec.t1 : spec.t2;
+      }
+      return o;
+    }
+    // One "if" branch: this row's condition, holding this row's target.
+    // Shared by the single-row export and the combined ladder so both stay in
+    // the same shape; a branch is identical whether it is alone or third in a
+    // ladder, which is what makes the ladder just a list of these.
+    function composerThenChild(row) {
+      const specs = row.single ? [row.spec] : row.specs;
+      const condition = { 'condition-type': 'compound', operator: 'all', conditions: specs.map(composerCondition) };
+      const flat = composerFlat(specs[0]);
+      return Object.assign({
+        id: uid(), step: 'if-child', name: 'If', suppress_incomplete_warnings: false,
+        children: [{ id: uid(), step: 'asset', suppress_incomplete_warnings: false, ticker: row.target }],
+        'is-else-condition?': false,
+        condition: condition,
+      }, flat);
+    }
+
+    function composerElseChild(children) {
+      return {
+        id: uid(), step: 'if-child', name: 'Else', suppress_incomplete_warnings: true,
+        children: children, 'is-else-condition?': true,
+      };
+    }
+    function composerCashAsset() {
+      return { id: uid(), step: 'asset', suppress_incomplete_warnings: false, ticker: ELSE_TICKER };
+    }
+    // An `if` step always holds exactly two children: the condition branch and
+    // the else. Nothing else is a valid shape.
+    function composerIfNode(thenChild, elseChild) {
+      return {
+        id: uid(), step: 'if', name: 'Condition', suppress_incomplete_warnings: false,
+        weight: { num: 100, den: 100 }, children: [thenChild, elseChild],
+      };
+    }
+
+    function buildComposerSymphony(row) {
+      const ifNode = composerIfNode(composerThenChild(row), composerElseChild([composerCashAsset()]));
+      const weight = {
+        id: uid(), step: 'wt-cash-equal', name: 'Weight', suppress_incomplete_warnings: true, children: [ifNode],
+      };
+      return {
+        id: shortId(), step: 'root', name: `IF ${row.label} THEN invest in ${row.target}`,
+        children: [weight], description: '', rebalance: 'daily',
+      };
+    }
+
+    // Combine several rows into an if / else-if ladder: the Frontrunner shape,
+    // where the first matching branch wins and the rest are fallbacks.
+    //
+    // Composer builds a ladder by NESTING (corrected v1.22.5, from a real
+    // Composer screenshot). An `if` step takes exactly two children, a
+    // condition branch and an else, and rung N+1 sits INSIDE rung N's else.
+    // The earlier version emitted one flat `if` carrying every branch as a
+    // sibling, which Composer would not accept. The single-row export was
+    // always correct, and a ladder is now that same shape recursively: the
+    // deepest else holds the cash asset, every shallower else holds the next
+    // `if`. Each rung is still built by composerThenChild, so a branch is
+    // identical whether it stands alone or sits third in a ladder.
+    //
+    // Priority order is **Calmar descending**, not the table's current sort or
+    // the order rows were ticked. Ladder position is a real strategy decision
+    // (rung 1 pre-empts rung 2 on every day both fire), so deriving it from a
+    // metric keeps it deterministic and reproducible instead of depending on
+    // what the user happened to click first. It also means no drag-to-reorder
+    // UI. NaN sorts last rather than unpredictably, so a row with no finite
+    // Calmar becomes the lowest-priority rung instead of jumping the queue.
+    function composerLadderIf(rows, i) {
+      const rest = i + 1 < rows.length ? [composerLadderIf(rows, i + 1)] : [composerCashAsset()];
+      return composerIfNode(composerThenChild(rows[i]), composerElseChild(rest));
+    }
+
+    function buildComposerLadder(rows) {
+      const ordered = rows.slice().sort((a, b) => {
+        const ca = a.calmar === a.calmar ? a.calmar : -Infinity;
+        const cb = b.calmar === b.calmar ? b.calmar : -Infinity;
+        return cb - ca;
+      });
+      const weight = {
+        id: uid(), step: 'wt-cash-equal', name: 'Weight', suppress_incomplete_warnings: true,
+        children: [composerLadderIf(ordered, 0)],
+      };
+      const targets = [...new Set(ordered.map(r => r.target))];
+      return {
+        id: shortId(), step: 'root',
+        name: `Frontrunner: ${ordered.length} signals by Calmar to ${targets.join(', ')}`,
+        children: [weight], description:
+          'Composer Atlas Signal Miner built this strategy. Branches are ordered ' +
+          'by the calmar ratio each signal scored standalone, holding cash when ' +
+          'a signal is off.',
+        rebalance: 'daily',
+      };
+    }
+
+    // ---------- last-run snapshot ----------
+    // The top rows of the last run are saved locally so a revisit shows the
+    // previous results instead of an empty table.
+    //
+    // Only the DISPLAYED rows are saved, always the top 100 by Calmar. The full
+    // run cannot be saved: Pass 1 holds a Uint8Array per surviving signal, which
+    // runs to hundreds of MB, far past any storage quota, and serialising it
+    // would cost more than re-running the backtest. That is why a restored view
+    // is read-only: sorting and the section-3 filters need the full cached set,
+    // and re-ranking just the saved 100 would look like it worked while quietly
+    // ranking a subset. The sort headers are disabled until a fresh run.
+    const RESULTS_STORE_KEY = 'composer-atlas.signal-miner.lastrun.v4';
+    const SNAPSHOT_ROWS = 100;
+    let restored = false;      // showing a snapshot, so sorting is off
+    let snapshotNote = '';     // meta line for a restored view, kept across re-renders
+
+    function saveResults(win) {
+      try {
+        const top = selectTop(lastResults, SNAPSHOT_ROWS, 'calmar', false, '').rows;
+        localStorage.setItem(RESULTS_STORE_KEY, JSON.stringify({
+          at: new Date().toISOString(),
+          total: lastResults.count,
+          baselines: lastBaselines,
+          win: win ? { start: win.start, len: win.len, binding: win.binding, warm: win.warm } : null,
+          end: DATES[N - 1],
+          rows: top.map(r => ({
+            single: r.single, target: r.target, label: r.label,
+            spec: r.spec, specs: r.specs,
+            total: r.total, annRet: r.annRet, sortino: r.sortino, calmar: r.calmar,
+            maxDD: r.maxDD, tim: r.tim, pf: r.pf, pctProf: r.pctProf,
+          })),
+        }));
+      } catch (e) { /* quota or disabled storage: the snapshot is a convenience, not required */ }
+    }
+
+    function loadResults() {
+      let raw = null;
+      try { raw = localStorage.getItem(RESULTS_STORE_KEY); } catch (e) { return null; }
+      if (!raw) return null;
+      try {
+        const v = JSON.parse(raw);
+        if (!v || !Array.isArray(v.rows) || !v.rows.length) return null;
+        return v;
+      } catch (e) { return null; }
+    }
+
+    function showSnapshot(snap) {
+      lastResults = arraySet(snap.rows);
+      lastBaselines = Array.isArray(snap.baselines) ? snap.baselines : null;
+      restored = true;
+      sortKey = 'calmar'; sortAsc = false;
+      const panel = document.getElementById('sl-results-panel');
+      panel.style.display = 'block';
+      renderResults();
+      const when = new Date(snap.at);
+      const nice = isNaN(when) ? 'a previous session' : when.toLocaleDateString(undefined,
+        { year: 'numeric', month: 'short', day: 'numeric' });
+      const w = snap.win;
+      snapshotNote =
+        `Saved results from ${nice}: top ${snap.rows.length} of ${(snap.total || 0).toLocaleString()} by Calmar` +
+        (w ? `, scored ${w.start} to ${snap.end} (${(w.len || 0).toLocaleString()} trading days` +
+             `${w.binding ? `, window set by ${w.binding}` : ''})` : '') +
+        `. Sorting needs the full result set, so run a backtest to re-enable it.`;
+      document.getElementById('sl-meta').textContent = snapshotNote;
+    }
+
+    // ---------- common sample window ----------
+    // Every ticker in a run must be scored over the same stretch of history, or
+    // the numbers are not comparable. A fund that listed partway through the axis
+    // has null closes before it existed and physically cannot fire a signal
+    // there, so counting those days against it caps its Time in Market and
+    // dilutes the mean feeding Sortino. IBIT covers ~30% of the axis, so before
+    // this an IBIT signal could never show tim above 0.30 however good it was.
+    //
+    // The window therefore starts at the LATEST first-valid date among the
+    // selected tickers: the most recently listed one binds the whole run.
+    const firstValidCache = new Map();
+    function firstValidIndex(sym) {
+      if (firstValidCache.has(sym)) return firstValidCache.get(sym);
+      const c = PD.tickers[sym].closes;
+      let i = c.findIndex(v => v != null);
+      if (i < 0) i = c.length;
+      firstValidCache.set(sym, i);
+      return i;
+    }
+
+    // Returns the window for a given set of symbols, plus which ticker binds it
+    // so the UI can name the culprit rather than just showing a short sample.
+    // INDICATOR WARM-UP IS CHARGED TO THE WINDOW START (v1.24.1).
+    //
+    // Every indicator needs `p` days of history before its first valid value,
+    // so a 252-day signal is NaN (and therefore out of the market) for its
+    // first 252 days while a 5-day signal is live after five. Before this, all
+    // of them were scored over the same nominal span regardless, which is not
+    // a rounding error: it is a RANKING BIAS. A 252-day signal had 247 fewer
+    // days than a 5-day signal in which to earn return, against the same
+    // target, competing for the same leaderboard slot. Long windows were
+    // systematically penalised and the leaderboard tilted short.
+    //
+    // The fix is to start the window after the LONGEST window in the active
+    // grid, so every row is scored on an identical set of days and the numbers
+    // are comparable again. It costs up to 252 days out of roughly 4,150, about
+    // 6% of the sample, and the cost is shown in the estimate line and the
+    // results meta rather than hidden.
+    //
+    // The alternative, starting each spec at its own first valid day, wastes no
+    // data but makes rows non-comparable in a different way (each scored over a
+    // different period) and would push a per-spec branch into the hottest loop
+    // in the tool. Comparability is what a leaderboard needs.
+    //
+    // `frac` deliberately still measures the TICKER-driven share of the axis,
+    // not the warm-up, so the "limited by X" hint keeps pointing at the chip
+    // the user did not mean to include.
+    function windowInfo(syms, warm) {
+      let list = 0, binding = null;
+      for (const sym of syms) {
+        const i = firstValidIndex(sym);
+        if (i > list) { list = i; binding = sym; }
+      }
+      const w = warm || 0;
+      const s0 = Math.min(N, list + w);
+      const len = Math.max(0, N - s0);
+      return { s0, len, binding, warm: w,
+               listStart: DATES[Math.min(list, N - 1)],
+               start: DATES[Math.min(s0, N - 1)],
+               frac: N ? (N - list) / N : 0 };
+    }
+
+    // ---------- run ----------
+    async function run() {
+      const runBtn = document.getElementById('sl-run');
+      const status = document.getElementById('sl-status');
+      const prog = document.getElementById('sl-progress');
+      const progBar = prog.firstElementChild;
+      const tgt = [...targets], cmp = [...compares];
+      // Clear any previous run's verdict immediately. A stale banner standing
+      // over a new run's numbers would be worse than no banner at all.
+      document.getElementById('sl-honesty').style.display = 'none';
+      if (tgt.length === 0) { status.textContent = 'Pick at least one target ticker.'; return; }
+      if (cmp.length === 0) { status.textContent = 'Pick at least one signal ticker. Conditions are built only from the Signal set, so add the target there too if you want it to condition on itself.'; return; }
+
+      const fams = {};
+      let anyFam = false;
+      document.querySelectorAll('#sl-families input').forEach(el => { fams[el.value] = el.checked; if (el.checked) anyFam = true; });
+      if (!anyFam) { status.textContent = 'Enable at least one signal family.'; return; }
+
+      // Note: the Time-in-Market / Max Drawdown / prune-quantile / pairing
+      // controls are read in applyFilters(), not here, so they can be re-applied
+      // live after the run without re-backtesting. Only inputs that change which
+      // signals exist (tickers, families, min period) are read in this pass.
+      const minP = parseInt(document.getElementById('sl-minp').value, 10) || 5;
+      const W = activeWindows(minP);
+
+      const universe = [...new Set([...tgt, ...cmp])];
+      // The run's common sample window. Bound by the most recently listed of the
+      // selected tickers, so every signal in this run is scored on equal footing.
+      // WINDOWS is ascending, so the last entry of the active grid is the
+      // longest warm-up any spec in this run can need.
+      const win = windowInfo(universe, W[W.length - 1]);
+      if (win.len < 30) {
+        status.textContent = `Not enough shared history: after ${win.warm} days of indicator warm-up, ${win.binding || 'the selection'} leaves only ${win.len} scored trading days. Remove it, pick tickers with longer history, or raise the min signal period.`;
+        return;
+      }
+      const need = neededIndicators(fams);
+
+      runBtn.disabled = true;
+      prog.style.display = 'block';
+      progBar.style.width = '0%';
+
+      // CPU throttle (rate limiter): after each batch, idle for a multiple of the
+      // time that batch spent computing, so the processor holds a target *duty
+      // cycle* (CPU-busy fraction) regardless of machine speed; heat tracks duty
+      // cycle, not absolute idle time. sleep = busy * FACTOR, so duty ~= 1/(1+F)
+      // and FACTOR = 100/duty - 1: Max .25 -> 80%, High 1.5 -> 40%,
+      // Medium 4 -> 20%, Low 9 -> 10%.
+      //
+      // Max was 100% (FACTOR 0, batch 500) until v1.22.11 and was crashing
+      // browsers, so it now throttles like every other level.
+      //
+      // CHUNK scales with the level (v1.22.12) because setTimeout clamps to
+      // ~4ms once nested, and sleep = busy * FACTOR. At Max, FACTOR .25 on a
+      // small batch asks for a sub-clamp sleep that the browser rounds UP,
+      // pushing real duty below the number on screen. A larger batch makes
+      // busy large enough that the requested sleep clears the clamp. The
+      // distortion only ever errs toward LESS CPU, never more, so the display
+      // overstates rather than misleads in the dangerous direction.
+      //
+      // The loop also measures compute time as it goes to show a live estimate
+      // of time remaining (see the status readout below).
+      const cpu = (document.getElementById('sl-cpu') || {}).value || 'medium';
+      const FACTOR = cpu === 'max' ? 0.25 : cpu === 'high' ? 1.5 : cpu === 'low' ? 9 : 4;
+      const CHUNK = cpu === 'max' ? 250 : cpu === 'high' ? 200 : cpu === 'low' ? 100 : 150;
+      const DUTY = Math.round(100 / (1 + FACTOR));
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const fmtDur = (ms) => {
+        if (!isFinite(ms) || ms < 0) return '?';
+        const s = ms / 1000;
+        if (s < 60) return Math.max(1, Math.round(s)) + 's';
+        const m = Math.floor(s / 60), r = Math.round(s % 60);
+        return r ? `${m}m ${r}s` : `${m}m`;
+      };
+
+      status.textContent = 'Building indicators...';
+      await sleep(0);
+      const cache = buildCaches(universe, need, W);
+
+      // Conditions are built from the SIGNAL set only, not the union with the
+      // targets. Until v1.21.1 this passed `universe`, which silently forced
+      // every target into the condition pool: choosing TECL as a target and
+      // XLK/KMLM as signals still produced TECL conditions, with no way to opt
+      // out. Self-referential rules ("if RSI(TECL) > 79, hold TECL") are a real
+      // and common Composer pattern, so they stay reachable, but by ASKING for
+      // them: put the ticker in both boxes. That is strictly more expressive
+      // than the old union, since the union could only ever add.
+      //
+      // `universe` is still right for windowInfo and buildCaches above: the
+      // target's listing date bounds the sample window, and targetLret reads
+      // cache[t].lret, so its price data is required either way.
+      const specs = buildSpecs(cmp, fams, W);
+      if (specs.n > SIGNAL_WARN_CAP) {
+        // The cost this dialog is really guarding is TIME, not memory. Measured
+        // 2026-08-21: a maximal run peaks at about a quarter of the tab's heap
+        // ceiling, so running out of memory is no longer the likely outcome of
+        // a big batch; waiting a long time is. So lead with a projected
+        // duration rather than with "your browser may be slow", which is now
+        // the smaller of the two costs and was the only one the old text named.
+        //
+        // The projection divides by the NOMINAL duty, so at Max it reads low:
+        // v1.24.3 established that Max delivers nearer 64% than the 80% on its
+        // label, because the requested sleep often falls under the browser's
+        // ~4ms nested-setTimeout floor. Erring low on a warning dialog is the
+        // wrong direction, but the live readout that replaces this number is
+        // measured, and it appears within a few seconds of clicking through.
+        const projMs = RUN_FIXED_MS +
+          (specs.n * tgt.length * win.len * NS_PER_UNIT / 1e6) * (100 / DUTY);
+        const ok = window.confirm(
+          `This run will test ${specs.n.toLocaleString()} signals against ${tgt.length} ` +
+          `${tgt.length === 1 ? 'target' : 'targets'} over ${win.len.toLocaleString()} days.\n\n` +
+          `At the ${cpu} CPU setting that is roughly ${fmtDur(projMs)}. The estimate is from ` +
+          `measured throughput on one machine, so treat it as a ballpark; the run shows a live ` +
+          `time-remaining figure once it starts. There is no cancel button, so stopping early ` +
+          `means reloading the page and losing the results.\n\n` +
+          `Leave the tab in the foreground: a background tab is throttled by the browser and ` +
+          `will take considerably longer.\n\n` +
+          `To finish sooner, reduce signal tickers, drop a target, disable a signal family, ` +
+          `raise the min signal period, or raise the CPU setting.\n\n` +
+          `Run it anyway?`
+        );
+        if (!ok) {
+          status.textContent = `Cancelled ${specs.n.toLocaleString()} signals. Reduce tickers or disable a family to lower the count.`;
+          runBtn.disabled = false; prog.style.display = 'none'; return;
+        }
+      }
+
+      // Pass 1 (the expensive part): backtest every single signal vs each target
+      // and cache ALL valid results, BEFORE applying the Time-in-Market / Max
+      // Drawdown filters. Those filters (and pairing) are then applied by
+      // applyFilters(), so tweaking them later re-filters instantly with no
+      // re-backtest. "Valid" = a real, finite result (positive total, finite
+      // Sortino/Calmar); the user-tunable thresholds are not applied here.
+      // Pass 1 used to keep a Uint8Array per surviving signal here, for pairing
+      // to AND together later. That was the tool's real scaling limit: 4,183
+      // bytes each, so a 3M-signal run at a 50% survival rate held over 4GB,
+      // hit the tab's heap ceiling around 2M signals, and spent the rest of the
+      // run in GC and swap. The cache was also almost entirely dead weight,
+      // because pairing only ever reads the top SURV_CAP (150) survivors PER
+      // TARGET, so on a large run over 99.9% of it was never touched.
+      //
+      // Nothing is cached now. applyFilters regenerates the handful of arrays
+      // it needs with evalSpec, which is sub-millisecond for 150 signals, so
+      // re-filtering stays instant and the memory ceiling goes away.
+      const store = makeStore();
+      if (tgt.length > 255) throw new Error('target index is a byte; more than 255 targets needs a wider array');
+      const targetLret = {};
+      for (const t of tgt) targetLret[t] = cache[t].lret;
+
+      const WARMUP_BATCHES = 5;                // batches before the estimate is shown
+      const runStart = performance.now();      // wall-clock start, for elapsed/remaining
+      let batchStart = runStart;
+      // MEASURED duty, not nominal (v1.24.3). The throttle sleeps for
+      // busy * FACTOR after each batch, which SHOULD give 1 / (1 + FACTOR).
+      // It does at every setting except Max, where the browser clamps a
+      // nested setTimeout to about 4ms: with FACTOR 0.25 the requested sleep
+      // is often shorter than the clamp, so real idle runs longer than asked
+      // and the delivered duty is nearer 64% than the 80% shown. GC pauses
+      // and a backgrounded tab push it the same way. The error has always
+      // been in the safe direction (less CPU than advertised), but showing a
+      // number we know to be wrong is not defensible when the true one costs
+      // one accumulator.
+      let busyTotal = 0;
+      const sigBuf = new Uint8Array(N);   // reused every spec; backtest reads it at once
+      for (let s = 0; s < specs.n; s++) {
+        const arr = evalSpecAt(specs, s, cache, sigBuf);
+        for (let ti = 0; ti < tgt.length; ti++) {
+          const m = backtest(arr, targetLret[tgt[ti]], win.s0, win.len);
+          // Sortino is deliberately NOT part of admission. It is undefined for a
+          // row with fewer than two losing days, and a row being undefined on
+          // ONE column is not a reason to delete the row: its Calmar, return and
+          // drawdown are all still real. Requiring a finite Sortino here would
+          // have made the formula fix silently evict about 0.6% of the store
+          // instead of showing a dash in one cell. Calmar stays in the rule
+          // because it is the default sort key, so a row without one cannot be
+          // ranked at all.
+          if (m.total > 0 && m.calmar === m.calmar) {
+            pushStore(store, s, ti, m);
+          }
+        }
+        // First boundary at s === CHUNK (not 0) so the first sample is a full batch.
+        if (s && (s % CHUNK) === 0) {
+          const busy = performance.now() - batchStart;   // compute time for this batch
+          busyTotal += busy;
+          const batchNo = s / CHUNK;
+          const frac = s / specs.n;
+          const elapsed = performance.now() - runStart;
+          // Project from WALL-CLOCK throughput. This previously projected from
+          // measured compute scaled by the duty factor, on the reasoning that
+          // at a boundary the current batch's sleep has not happened yet, so
+          // elapsed/frac understates the total on the first reading. True, but
+          // the shortfall is one batch's sleep out of `batchNo`, so it is gone
+          // within a handful of batches; a run of any size has thousands. The
+          // compute-scaled version assumed idle equals busy * FACTOR exactly,
+          // and when real idle ran longer than that (timer clamping, a
+          // backgrounded tab, GC pauses) elapsed overtook the projection and
+          // the countdown pinned itself at zero with a third of the run left.
+          // Suppressing the readout for WARMUP_BATCHES avoids the early error
+          // without inheriting that failure mode.
+          const remaining = elapsed * (1 - frac) / frac;
+          progBar.style.width = (95 * frac).toFixed(1) + '%';
+          status.textContent =
+            `Backtesting ${specs.n.toLocaleString()} signals... ${s.toLocaleString()} (${Math.round(frac * 100)}%)` +
+            ` · ${batchNo < WARMUP_BATCHES ? '~' + DUTY : Math.round(100 * busyTotal / elapsed)}% CPU · ` +
+            (batchNo < WARMUP_BATCHES ? 'estimating...' : `${fmtDur(remaining)} left`);
+          await sleep(busy * FACTOR);
+          batchStart = performance.now();
+        }
+      }
+
+      progBar.style.width = '100%';
+      selectedRows.clear();   // rows from the previous run no longer exist
+      lastBaselines = computeBaselines(win);
+      // `cache` replaces the old per-signal survivor arrays: ~30MB of shared
+      // indicator series that pairing re-derives its handful of arrays from.
+      store.specs = specs; store.tgt = tgt;
+      // busyMs is the accumulated COMPUTE time behind the duty meter. It is
+      // meaningful in a real browser and is what the "% CPU" readout divides.
+      // It is NOT usable for measurement from inside a headless harness: under
+      // --virtual-time-budget the page clock is paused during synchronous work,
+      // so busyMs reads near zero no matter how much compute happened (63ms and
+      // 70ms were logged for runs that really took 3.7s and 9.4s). Throughput
+      // figures in docs/PRD.md come from scripts/measure_throughput.py, which
+      // times runs from the parent process instead.
+      // `W` is the run's ACTIVE window grid, not the full WINDOWS list: the
+      // min-period control filters it, and the indicator cache only holds the
+      // windows that survived. The plateau reader steps along this lattice.
+      sigCache = { store, cache, tgt, targetLret, N, win, W, busyMs: busyTotal };
+
+      // ---- the honesty check, once per run ----
+      // See docs/PRD.md Section 14, item C and C-N3. This asks the only question
+      // the leaderboard cannot answer about itself: how much of the best number
+      // on it is the SEARCH rather than a real relationship. It answers by
+      // running the same search against the same target with its returns
+      // rotated, which destroys the alignment between signal and target while
+      // preserving the target's distribution, every signal's firing pattern, and
+      // the dependence between candidates. That last one is why rotation is used
+      // instead of a closed-form adjustment: the standard ones assume an
+      // independence a dense lattice badly violates.
+      status.textContent = 'Checking the result against shuffled data...';
+      try {
+        await runHonestyCheck(specs, cache, tgt, targetLret, win, N);
+      } catch (e) {
+        // A failure here must never cost the visitor their run. The panel is
+        // simply not shown, which is the same state as an older version.
+        document.getElementById('sl-honesty').style.display = 'none';
+      }
+      plateauCache.clear();
+      runBtn.disabled = false;
+      setTimeout(() => { prog.style.display = 'none'; }, 600);
+
+      sortKey = 'calmar'; sortAsc = false;
+      applyFilters(true);
+    }
+
+    // Re-apply the live section-3 filters (Min Time in Market, Max Drawdown
+    // floor, prune quantile, and AND-pairing) against the cached Pass-1 results,
+    // WITHOUT re-running any single-signal backtest. Pairing is recomputed here
+    // because it depends on which singles survive the filters, but it works from
+    // the cached survivor arrays and is far cheaper than Pass 1.
+    function applyFilters(scrollTo) {
+      if (!sigCache) return;
+      const status = document.getElementById('sl-status');
+      // Both of these are entered as PERCENTAGES and compared against
+      // FRACTIONS, because that is what the store holds. Max Drawdown is
+      // entered unsigned and negated here: a floor of 69 means "reject
+      // anything worse than -69%", which reads better than asking someone to
+      // type a minus sign in front of a number that is already called a floor.
+      const timPct = parseFloat(document.getElementById('sl-tim').value);
+      const mddPct = parseFloat(document.getElementById('sl-mdd').value);
+      const TIM = isFinite(timPct) ? timPct / 100 : 0;
+      // A blank or unparseable floor used to yield NaN, and every comparison
+      // against NaN is false, so the table silently emptied. Fall back to -1,
+      // which admits everything, since a filter that cannot be read should not
+      // be the strictest filter there is.
+      const MDD = isFinite(mddPct) ? -(mddPct / 100) : -1;
+      const QUANT = Math.min(0.9, Math.max(0, parseFloat(document.getElementById('sl-quant').value) || 0));
+      const comboLimit = parseInt(document.getElementById('sl-combo').value, 10);
+      const { store, cache, tgt, targetLret, N, win } = sigCache;
+
+      // Passing rows are addressed by index into the store, four bytes each.
+      // This used to be `allSingles.filter(...)`, a second full array of row
+      // objects alongside the first, so a large run paid for its results twice.
+      const timCol = store.m.tim, mddCol = store.m.maxDD;
+      const passBuf = new Uint32Array(store.n);
+      let np = 0;
+      for (let i = 0; i < store.n; i++) if (timCol[i] > TIM && mddCol[i] > MDD) passBuf[np++] = i;
+      const pass = passBuf.subarray(0, np);
+
+      const comboRows = [];
+      if (comboLimit >= 2) {
+        const byTarget = new Map();
+        for (let k = 0; k < np; k++) {
+          const i = pass[k], ti = store.ti[i];
+          if (!byTarget.has(ti)) byTarget.set(ti, []);
+          byTarget.get(ti).push(i);
+        }
+        for (let ti = 0; ti < tgt.length; ti++) {
+          const t = tgt[ti];
+          let surv = Uint32Array.from(byTarget.get(ti) || []);
+          surv = quantilePrune(store, surv, QUANT);
+          // Rank survivors by the same metric the table ranks by, so the pool
+          // fed into pairing matches what the user is actually looking at
+          // (v1.22.1; was Sortino, left behind when Calmar became the default
+          // sort in v1.22.0). NaN sorts last rather than unpredictably, so a
+          // row with no finite Calmar cannot displace a real one from the cap.
+          const cal = store.m.calmar;
+          surv.sort((a, b) => {
+            const ca = cal[a] === cal[a] ? cal[a] : -Infinity;
+            const cb = cal[b] === cal[b] ? cal[b] : -Infinity;
+            return cb - ca;
+          });
+          if (surv.length > SURV_CAP) surv = surv.subarray(0, SURV_CAP);
+          // The only place single rows are materialised in bulk, and it is
+          // capped at SURV_CAP per target, so at most 150 objects.
+          const survRows = Array.from(surv, i => storeRow(store, i));
+          // Rebuild only the capped survivors' arrays, once each, here rather
+          // than carrying every survivor's array through Pass 1. At most
+          // SURV_CAP per target, so this is ~150 evalSpec calls and about a
+          // megabyte, against the gigabytes the old cache held.
+          const arrs = survRows.map(r => evalSpec(r.spec, cache));
+          for (let i = 0; i < survRows.length; i++) {
+            for (let j = i + 1; j < survRows.length; j++) {
+              const A = arrs[i], B = arrs[j];
+              const arr = new Uint8Array(N);
+              for (let k = 0; k < N; k++) arr[k] = (A[k] & B[k]);
+              const m = backtest(arr, targetLret[t], win.s0, win.len);
+              // Same reasoning as Pass 1: an undefined Sortino is one blank cell,
+              // not grounds to drop a combination that has a real Calmar.
+              if (m.tim > TIM && m.maxDD > MDD && m.total > 0 &&
+                  m.calmar === m.calmar) {
+                comboRows.push({
+                  single: false, target: t,
+                  label: survRows[i].label + '  AND  ' + survRows[j].label,
+                  specs: [survRows[i].spec, survRows[j].spec],
+                  ...m,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      lastResults = concatSet(storeSet(store, pass), arraySet(comboRows));
+      status.textContent = `${np.toLocaleString()} single + ${comboRows.length.toLocaleString()} combined = ${lastResults.count.toLocaleString()} passing signals.`;
+      const panel = document.getElementById('sl-results-panel');
+      panel.style.display = 'block';
+      restored = false; snapshotNote = '';   // live results again: sorting and filters are valid
+      saveResults(win);
+      // Panel is shown BEFORE the render is requested, so on a large result set
+      // the busy state has somewhere visible to appear.
+      requestRender();
+      if (scrollTo) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Sequential quantile pruning across four metrics (matches the notebook).
+    // Takes and returns store indices (a Uint32Array). NaN metrics fail the
+    // `> cut` test and are dropped, exactly as when this walked row objects.
+    function quantilePrune(st, idxIn, q) {
+      if (q <= 0) return idxIn;
+      let r = idxIn;
+      for (const key of ['total', 'pf', 'sortino', 'calmar']) {
+        if (r.length <= 2) break;
+        const col = st.m[key];
+        const vals = [];
+        for (let i = 0; i < r.length; i++) { const v = col[r[i]]; if (v === v) vals.push(v); }
+        vals.sort((a, b) => a - b);
+        const cut = percentile(vals, q);
+        r = r.filter(i => col[i] > cut);
+      }
+      return r;
+    }
+
+    // ---------- rendering ----------
+    // ---------- parameter plateau (V2.2 item A) ----------
+    //
+    // A signal that only works at one setting found a lucky corner of the
+    // parameter grid. One that works at 20, 21 and 22 found something. The
+    // tool has always ranked on the peak alone, which is precisely the ranking
+    // that cannot tell those two apart, and a grid this dense produces the
+    // first kind in quantity.
+    //
+    // This is a DIAGNOSTIC and nothing more. It adds two read-only columns and
+    // changes no ranking. Ranking on the neighbourhood instead of the peak is
+    // a genuine change to what the tool promises and is deliberately not made
+    // here, and not made silently anywhere.
+    //
+    // Where the numbers come from. NOT the Pass 1 store. The store keeps only
+    // specs that turned a profit with finite Sortino and Calmar, so reading
+    // neighbours out of it would drop every losing neighbour and then report a
+    // plateau across the survivors of a filter the reader cannot see. A losing
+    // neighbour is not a hole. It is a low number, and it is exactly the number
+    // that should end a plateau. So each neighbour is re-evaluated directly,
+    // against indicator caches that are already in memory: one boolean pass and
+    // one backtest, the same work Pass 1 does millions of times.
+    //
+    // Cost. A fixed ring per row: 8 level positions and 4 window positions for
+    // a threshold family, 4 for `self`, 8 for `cmp`. At most 12 backtests for
+    // each of the <=100 rows on screen, memoised per row and metric, so a sort
+    // click recomputes nothing.
+    //
+    // Two axes, two different shapes, stated because they are easy to conflate:
+    //   - LEVEL exists only for the four `lvl` families, is uniform inside a
+    //     window, and is quotable in the units the reader thinks in ("holds
+    //     from 20% to 28%").
+    //   - WINDOW exists for every family, but WINDOWS is log-uniform, so a
+    //     neighbourhood there is measured in GRID POSITIONS, never in days.
+    //     One step from 5 is 7; one step from 200 is 252.
+    //
+    // Combined AND rows are scored too, and the first cut's decision not to was
+    // wrong in a way worth recording. The roadmap entry called them out of
+    // scope for a first version, on the reasoning that two conditions give a
+    // product of two lattices with no honest one-dimensional plateau to quote.
+    // True as far as it goes, and irrelevant: with pairing at its shipped
+    // default the top 100 by Calmar is essentially ALL combined rows, so
+    // singles-only rendered a wall of dashes on the view a visitor gets without
+    // touching anything. A feature invisible by default is not a feature.
+    //
+    // The product of two lattices is not searched. Each condition's parameters
+    // are perturbed INDEPENDENTLY while the other condition is held exactly as
+    // it is, the AND is rebuilt, and the row is re-backtested. That is the same
+    // one-axis-at-a-time move already used for the two windows of a comparison
+    // family, so the cost stays linear in the number of axes: about 24
+    // backtests for the widest combined row against 12 for a single.
+    const PLATEAU_LVL_RADIUS = 4;   // level steps evaluated each side
+    const PLATEAU_WIN_RADIUS = 2;   // window grid positions evaluated each side
+    const PLATEAU_MED_LVL = 2;      // level steps inside the neighbourhood median
+    const PLATEAU_MED_WIN = 1;      // window steps inside the neighbourhood median
+    const PLATEAU_DROP = 0.2;       // a neighbour holds within 20% of the row
+
+    // Reused across every neighbour, exactly as Pass 1 reuses its own buffer:
+    // backtest() consumes it synchronously, so there is nothing to retain.
+    let plateauBuf = null;
+    // rowKey + metric -> result. Plateau values depend only on the spec, the
+    // target and the metric, so the section-3 filters never invalidate them;
+    // only a new run does, and that clears this where sigCache is replaced.
+    const plateauCache = new Map();
+
+    // Score one perturbed spec. Returns the metric bundle, or null if the spec
+    // is not evaluable (an indicator the run never cached, say). A null here is
+    // a hole and is counted as one; it is never read as a zero.
+    // `andWith`, when present, is the other condition of a combined row, held
+    // fixed. Perturbing one condition and re-ANDing is what keeps a combined
+    // row's neighbourhood one-dimensional per axis instead of a product.
+    function plateauScore(spec, target, andWith) {
+      try {
+        const [L, R] = leftRight(spec, sigCache.cache);
+        if (!L) return null;
+        if (typeof R !== 'number' && !R) return null;
+        if (!plateauBuf || plateauBuf.length !== N) plateauBuf = new Uint8Array(N);
+        const arr = boolInto(L, R, spec.dir === 'GT', plateauBuf);
+        if (andWith) for (let i = 0; i < N; i++) arr[i] &= andWith[i];
+        return backtest(arr, sigCache.targetLret[target], sigCache.win.s0, sigCache.win.len);
+      } catch (e) { return null; }
+    }
+
+    // Evaluate one axis of the ring. `move(k)` returns the spec k steps from
+    // the row, or null when k leaves the lattice. Each slot ends up as an
+    // object (scored), the string 'edge' (the lattice ended here) or null (a
+    // hole: in the lattice, but not scorable). Keeping those three apart is
+    // what lets the UI say "one-sided at the bracket edge" instead of quietly
+    // reporting a shorter plateau.
+    function plateauAxis(move, target, metric, radius, andWith) {
+      const vals = new Array(2 * radius + 1).fill(null);
+      const beyond = { lo: true, hi: true };
+      let holes = 0;
+      for (const dir of [-1, 1]) {
+        const side = dir < 0 ? 'lo' : 'hi';
+        for (let k = 1; k <= radius; k++) {
+          const off = dir * k;
+          const sp = move(off);
+          if (!sp) {           // out of lattice: everything further out is too
+            for (let j = k; j <= radius; j++) vals[dir * j + radius] = 'edge';
+            beyond[side] = false;
+            break;
+          }
+          const m = plateauScore(sp, target, andWith);
+          const v = m ? m[metric] : NaN;
+          if (v !== v) { holes++; continue; }
+          vals[off + radius] = { v, spec: sp };
+        }
+        // Does the lattice continue past the ring? Asked with the mover alone
+        // and no backtest, so it costs nothing. Without it, a walk that holds
+        // all the way to the search radius is reported as "may run wider" even
+        // when the grid ends one step later, which is the one case where that
+        // sentence is false. It was 20 of 394 axis ends in the harness run
+        // that found it.
+        if (beyond[side] && !move(dir * (radius + 1))) beyond[side] = false;
+      }
+      return { vals, radius, holes, beyond };
+    }
+
+    // The contiguous run of neighbours that stay within PLATEAU_DROP of the
+    // row, walked outward from the centre. Anything that is not a scored value
+    // above the floor stops the walk, holes included: an unscored neighbour is
+    // not evidence that the plateau continues through it.
+    //
+    // `stop` records WHY each side stopped, because the three reasons mean
+    // different things. 'edge' is a one-sided neighbourhood at a bracket end
+    // and the width is a floor, not a measurement. 'ring' means the walk used
+    // up its radius while still holding, so the plateau is at least this wide
+    // and probably wider. 'break' is the only one that is a real measurement.
+    function plateauWalk(ax, floor) {
+      const R = ax.radius;
+      const out = { lo: 0, hi: 0, stop: { lo: 'break', hi: 'break' } };
+      for (const side of ['lo', 'hi']) {
+        const dir = side === 'lo' ? -1 : 1;
+        let n = 0;
+        while (n < R) {
+          const cell = ax.vals[dir * (n + 1) + R];
+          if (cell === 'edge') { out.stop[side] = 'edge'; break; }
+          if (!cell || cell.v < floor) break;
+          n++;
+        }
+        // Held all the way out. 'ring' only if there is more lattice to hold
+        // across; otherwise the walk really did reach the end of the grid.
+        if (n === R && out.stop[side] === 'break')
+          out.stop[side] = ax.beyond[side] ? 'ring' : 'edge';
+        out[side] = n;
+      }
+      return out;
+    }
+
+    // The scored slots within `radius` of the centre, for the median.
+    function plateauNear(ax, radius) {
+      const out = [];
+      for (let k = -radius; k <= radius; k++) {
+        if (!k) continue;
+        const cell = ax.vals[k + ax.radius];
+        if (cell && cell !== 'edge') out.push(cell.v);
+      }
+      return out;
+    }
+
+    function median(xs) {
+      if (!xs.length) return NaN;
+      const a = xs.slice().sort((x, y) => x - y), h = a.length >> 1;
+      return a.length % 2 ? a[h] : (a[h - 1] + a[h]) / 2;
+    }
+
+    // The two window axes are the same code with a different slot, so they are
+    // built by one factory. The same-ticker canonical rule (p1 < p2, from
+    // pushCmpSpecs) is enforced here too: a neighbour that violates it is a
+    // spec the run never built and, on one ticker, a comparison of a series
+    // against itself. It is out of lattice, not a hole.
+    function windowMover(spec, slot) {
+      const f = FAM[spec.f], W = sigCache.W;
+      const base = slot === 'p2' ? spec.p2 : spec.p1;
+      const at = W.indexOf(base);
+      if (at < 0) return null;
+      return k => {
+        const j = at + k;
+        if (j < 0 || j >= W.length) return null;
+        const p = W[j];
+        // `self` pins both operands to one window, so its two slots move
+        // together; leftRight reads p1, and p2 is kept equal for the label.
+        if (f.kind === 'self') return Object.assign({}, spec, { p1: p, p2: p });
+        if (slot === 'p2') {
+          if (spec.t1 === spec.t2 && !(spec.p1 < p)) return null;
+          return Object.assign({}, spec, { p2: p });
+        }
+        if (f.kind === 'cmp' && spec.t1 === spec.t2 && !(p < spec.p2)) return null;
+        return Object.assign({}, spec, { p1: p });
+      };
+    }
+
+    function levelMover(spec) {
+      const f = FAM[spec.f];
+      if (f.kind !== 'lvl') return null;
+      // The grid is regenerated rather than stored. It is a pure function of
+      // the family and the window, and float equality on a lattice value is not
+      // something to rely on, so the row's own level is matched by nearest.
+      const grid = f.lv(spec.p1);
+      let at = -1, best = Infinity;
+      for (let i = 0; i < grid.length; i++) {
+        const d = Math.abs(grid[i] - spec.level);
+        if (d < best) { best = d; at = i; }
+      }
+      if (at < 0) return null;
+      return { grid, at, move: k => {
+        const j = at + k;
+        if (j < 0 || j >= grid.length) return null;
+        return Object.assign({}, spec, { level: grid[j] });
+      } };
+    }
+
+    function stepNote(stop) {
+      if (stop === 'edge') return 'stops at the end of the grid, so this side is one-sided';
+      if (stop === 'ring') return 'still holding at the edge of the search, so it may run wider';
+      return 'ends at a neighbour that drops out of band';
+    }
+
+    // The AND of every condition EXCEPT `skip`, which is the partner array a
+    // perturbation of condition `skip` gets recombined with. Built once per row
+    // and thrown away with it.
+    function plateauPartner(specs, skip) {
+      let acc = null;
+      for (let j = 0; j < specs.length; j++) {
+        if (j === skip) continue;
+        const a = evalSpec(specs[j], sigCache.cache);
+        if (!acc) acc = a;
+        else for (let k = 0; k < N; k++) acc[k] &= a[k];
+      }
+      return acc;
+    }
+
+    // Every axis one condition contributes: its level if it has one, and one
+    // per window slot it owns.
+    function plateauAxesOf(spec, target, metric, andWith) {
+      const f = FAM[spec.f], out = [];
+      const lvl = levelMover(spec);
+      if (lvl) out.push({ id: 'level', grid: lvl.grid, at: lvl.at, spec,
+                          ax: plateauAxis(lvl.move, target, metric, PLATEAU_LVL_RADIUS, andWith),
+                          med: PLATEAU_MED_LVL });
+      for (const slot of (f.kind === 'cmp' ? ['p1', 'p2'] : ['p1'])) {
+        const mv = windowMover(spec, slot);
+        if (!mv) continue;
+        out.push({ id: slot, spec,
+                   ax: plateauAxis(mv, target, metric, PLATEAU_WIN_RADIUS, andWith),
+                   med: PLATEAU_MED_WIN });
+      }
+      return out;
+    }
+
+    // Everything above, assembled into what one table row needs.
+    function plateauFor(r, metric) {
+      if (!sigCache || restored) return null;
+      const specs = r.single ? (r.spec ? [r.spec] : []) : (r.specs || []);
+      if (!specs.length) return null;
+      const self = r[metric];
+      if (self == null || self !== self) return null;
+
+      const key = rowKey(r) + '|' + metric;
+      const hit = plateauCache.get(key);
+      if (hit !== undefined) return hit;
+
+      // 20% WORSE, not 80% of the stored number. On a metric that can be
+      // negative (Max DD always is, Calmar sometimes) multiplying by 0.8 moves
+      // toward zero, which is an IMPROVEMENT, and the band would then admit
+      // every neighbour that is worse than the row. Subtracting a fifth of the
+      // magnitude degrades in the right direction on both signs.
+      const floor = self - PLATEAU_DROP * Math.abs(self);
+
+      const axes = [];
+      for (let i = 0; i < specs.length; i++) {
+        const partner = specs.length > 1 ? plateauPartner(specs, i) : null;
+        for (const a of plateauAxesOf(specs[i], r.target, metric, partner)) {
+          a.cond = i;
+          axes.push(a);
+        }
+      }
+      if (!axes.length) { plateauCache.set(key, null); return null; }
+
+      let holes = 0;
+      const pool = [self];
+      for (const a of axes) {
+        a.walk = plateauWalk(a.ax, floor);
+        holes += a.ax.holes;
+        for (const v of plateauNear(a.ax, a.med)) pool.push(v);
+      }
+
+      // Text for one axis, in the units that axis actually has.
+      const W = sigCache.W, multi = specs.length > 1;
+      for (const a of axes) {
+        const f = FAM[a.spec.f];
+        a.span = a.walk.lo + a.walk.hi;
+        const where = multi ? 'condition ' + (a.cond + 1) + ' ' : '';
+        if (a.id === 'level') {
+          const lo = a.grid[a.at - a.walk.lo], hi = a.grid[a.at + a.walk.hi];
+          a.text = a.span ? levelText(f.a, lo) + ' to ' + levelText(f.a, hi)
+                          : 'only ' + levelText(f.a, a.spec.level);
+          a.name = where + 'level';
+        } else {
+          const base = a.id === 'p2' ? a.spec.p2 : a.spec.p1;
+          const at = W.indexOf(base);
+          a.text = a.span ? W[at - a.walk.lo] + 'd to ' + W[at + a.walk.hi] + 'd'
+                          : 'only ' + base + 'd';
+          a.name = where + (f.kind === 'cmp'
+            ? (a.id === 'p1' ? 'first window' : 'second window') : 'window');
+        }
+      }
+
+      // The cell quotes ONE axis, because a table cell that lists four is a
+      // cell nobody reads. For a single threshold row that is the level, which
+      // is the axis a reader can act on directly. Everywhere else it is the
+      // TIGHTEST axis, since that is the constraint that actually binds: a row
+      // is only as robust as its most fragile parameter. The rest are one hover
+      // away rather than hidden.
+      let primary = axes[0];
+      if (!(specs.length === 1 && axes[0].id === 'level')) {
+        for (const a of axes) if (a.span < primary.span) primary = a;
+      }
+      let text = primary.text;
+      if (primary.walk.stop.lo === 'ring' || primary.walk.stop.hi === 'ring') text += '+';
+      if (multi) text = (primary.cond + 1) + ': ' + text;
+
+      const detail = axes.map(a =>
+        a.name + ': ' + a.text + ' (' + a.walk.lo + ' step' + (a.walk.lo === 1 ? '' : 's') +
+        ' below, ' + a.walk.hi + ' above; low side ' + stepNote(a.walk.stop.lo) +
+        ', high side ' + stepNote(a.walk.stop.hi) + ')').join('\n');
+
+      const out = {
+        text: text,
+        med: median(pool),
+        steps: primary.span,
+        holes: holes,
+        title: 'Plateau on the ranking metric, within ' + (PLATEAU_DROP * 100) +
+               '% of this row. The cell quotes the tightest axis; every axis is listed here.\n' +
+               detail +
+               (multi ? '\nEach condition is perturbed on its own, with the other held ' +
+                        'exactly as it is, so these are not a search over both at once.' : '') +
+               (holes ? '\n' + holes + ' neighbour' + (holes === 1 ? '' : 's') +
+                        ' could not be scored and ' + (holes === 1 ? 'was' : 'were') +
+                        ' treated as breaks, not as zeros.' : '') +
+               '\nNeighbourhood median is over ' + pool.length + ' scored setting' +
+               (pool.length === 1 ? '' : 's') + ' including this one.' +
+               '\nWindow steps are grid positions, not days: the window grid is log-uniform.',
+      };
+      plateauCache.set(key, out);
+      return out;
+    }
+
+    // The metric the two plateau columns speak about. It follows the sort, so
+    // "neighbourhood median" always means the median of whatever the table is
+    // currently ranked by. Sorting by a text column leaves it on Calmar, which
+    // is the default ranking metric.
+    function plateauMetric() {
+      return (sortKey === 'label' || sortKey === 'target') ? 'calmar' : sortKey;
+    }
+    function plateauMetricLabel() {
+      const c = COLS.find(x => x.key === plateauMetric());
+      return c ? c.label : 'Calmar';
+    }
+
+    const COLS = [
+      { key: '_sel',    label: '' },
+      { key: 'label',   label: 'Signal', cls: 'sig' },
+      { key: 'target',  label: 'Target', cls: 'tgt' },
+      { key: 'total',   label: 'Total Return', fmt: 'pct' },
+      { key: 'annRet',  label: 'Annualized', fmt: 'pct' },
+      { key: 'sortino', label: 'Sortino', fmt: 'num' },
+      { key: 'calmar',  label: 'Calmar', fmt: 'num' },
+      // Computed at render time for the displayed rows only, which is also why
+      // neither is sortable: the value does not exist for the millions of rows
+      // outside the top 100, so a sort on it would order a sample while looking
+      // like it had ordered the set.
+      { key: '_nbhd',    label: () => 'Nbhd ' + plateauMetricLabel(), cls: 'nosort' },
+      { key: '_plateau', label: 'Plateau', cls: 'nosort' },
+      { key: 'maxDD',   label: 'Max DD', fmt: 'pct' },
+      { key: 'tim',     label: 'Time in Mkt', fmt: 'pct0' },
+      { key: 'pf',      label: 'Profit Factor', fmt: 'num' },
+      { key: 'pctProf', label: '% Profitable', fmt: 'pct0' },
+      { key: '_copy',   label: '' },
+    ];
+
+    function fmtVal(v, fmt) {
+      if (v == null || v !== v) return '<span style="color:var(--color-disabled)">-</span>';
+      if (fmt === 'pct') { const s = (v * 100).toFixed(1) + '%'; return `<span class="${v >= 0 ? 'num-pos' : 'num-neg'}">${s}</span>`; }
+      if (fmt === 'pct0') return (v * 100).toFixed(1) + '%';
+      if (fmt === 'num') return v.toFixed(2);
+      return String(v);
+    }
+
+    // Pick the top N rows under the active sort in a single O(n) pass, applying
+    // the text filter as we go. A large run can leave millions of rows in
+    // `lastResults`; the previous implementation ran filter + slice + a full
+    // Array.sort over all of them on every sort click, which allocated several
+    // huge arrays and froze the tab for many seconds. Nothing about the cached
+    // data changes here, only how much of it gets ordered: cost now scales with
+    // the number of rows KEPT (N), not the number scanned.
+    //
+    // NaN sorts as -Infinity, matching the previous comparator exactly (first
+    // when ascending, last when descending).
+    // Case-insensitive "contains" that allocates nothing. `String.toLowerCase()`
+    // would allocate a throwaway string per row, which at millions of rows costs
+    // far more than the comparison itself. `needleLower` must already be lowercased.
+    function containsCI(hay, needleLower) {
+      const n = needleLower.length;
+      if (!n) return true;
+      const limit = hay.length - n;
+      outer: for (let i = 0; i <= limit; i++) {
+        for (let j = 0; j < n; j++) {
+          const c = hay.charCodeAt(i + j);
+          if (((c >= 65 && c <= 90) ? c + 32 : c) !== needleLower.charCodeAt(j)) continue outer;
+        }
+        return true;
+      }
+      return false;
+    }
+
+    function selectTop(set, n, key, asc, needle) {
+      const isText = (key === 'label' || key === 'target');
+      const valOf = isText
+        ? (i) => set.text(i, key)
+        : (i) => { const v = set.num(i, key); return v === v ? v : -Infinity; };
+      const before = asc ? (a, b) => a < b : (a, b) => a > b;
+
+      // Indices, not rows. Materialising a row object per candidate would
+      // allocate millions of throwaway objects on every sort click, which is
+      // the churn the columnar store exists to avoid; only the survivors of
+      // this pass are turned into rows, at the bottom.
+      const out = [];    // row indices, best-first, length <= n
+      const keys = [];   // parallel sort values, so we never recompute valOf
+      let total = 0;
+
+      for (let i = 0; i < set.count; i++) {
+        if (needle && !set.match(i, needle)) continue;
+        total++;
+        const k = valOf(i);
+        // Fast reject: once the buffer is full, most rows lose to the worst kept
+        // row in one comparison. This is what keeps the pass close to linear.
+        if (out.length === n && !before(k, keys[n - 1])) continue;
+        let lo = 0, hi = out.length;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (before(k, keys[mid])) hi = mid; else lo = mid + 1; }
+        out.splice(lo, 0, i); keys.splice(lo, 0, k);
+        if (out.length > n) { out.pop(); keys.pop(); }
+      }
+      return { rows: out.map(i => set.get(i)), total };
+    }
+
+    // Above this many cached rows, a render pass is slow enough to be worth
+    // showing a busy state for. Below it, flashing one would just be noise.
+    const BUSY_ROWS = 200000;
+    let renderTimer = null;
+
+    function setBusy(on, msg) {
+      const table = document.getElementById('sl-table');
+      const meta = document.getElementById('sl-meta');
+      if (table) table.classList.toggle('is-busy', !!on);
+      if (on && meta) meta.innerHTML = '<span class="sl-busy-dot"></span>' + escapeHtml(msg || 'Working...');
+    }
+
+    // Route every re-render through here rather than calling renderResults()
+    // directly. It debounces (the filter box fires on each keystroke) and, for
+    // big result sets, paints a busy state before starting the pass. The double
+    // rAF matters: one frame lets the class land, the second lets the browser
+    // actually paint it before the main thread is occupied again.
+    function requestRender(delay) {
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(() => {
+        if (lastResults.count > BUSY_ROWS) {
+          setBusy(true, `Sorting ${lastResults.count.toLocaleString()} cached results...`);
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            renderResults();
+            setBusy(false);
+          }));
+        } else {
+          renderResults();
+        }
+      }, delay || 0);
+    }
+
+    // How many specs the honesty check samples, and how many rotations it
+    // scores them against. Both are deliberately small: this runs in a
+    // visitor's browser after a run they already waited for, and the answer it
+    // gives is a coarse bucket, which does not need a large sample to be right
+    // about. SAMPLE x (ROTATIONS + 1) backtests, so about 13,500, against the
+    // millions a real run performs.
+    const HON_SAMPLE = 1500;
+    const HON_ROTATIONS = 8;
+
+    // Rotate [s0, N) circularly. Bounded inside the scored window ON PURPOSE:
+    // lret carries NaN before a ticker's listing date and backtest maps NaN to
+    // a zero return, so rotating the whole axis would drag those in and convert
+    // them to flat days. That biases the null DOWNWARD, which is the dangerous
+    // direction, because a suppressed null makes a real row look better than it
+    // is.
+    function rotateLret(lret, s0, N, off) {
+      const span = N - s0;
+      const out = Float64Array.from(lret);
+      for (let i = 0; i < span; i++) out[s0 + i] = lret[s0 + ((i + off) % span)];
+      return out;
+    }
+
+    async function runHonestyCheck(specs, cache, tgt, targetLret, win, N) {
+      // `sleep` in this file is a const local to the run function, so it is
+      // not in scope here. This helper is defined where it is used.
+      const nap = (ms) => new Promise(r => setTimeout(r, ms));
+      const el = document.getElementById('sl-honesty');
+      el.style.display = 'none';
+      if (!specs.n || !tgt.length) return;
+
+      // One target only, the first, and the panel says so. Scoring every target
+      // would multiply the cost by the target count for an answer that does not
+      // change shape.
+      const target = tgt[0];
+      const lret = targetLret[target];
+      const s0 = Math.max(1, win.s0);
+      if (N - s0 < 500) return;   // too short to rotate meaningfully
+
+      // A stride sample is uniform over the lattice, but the lattice is ordered
+      // by family then ticker then window then level, so the sample's PREFIX is
+      // all one family. Nothing here reads a prefix, but the shuffle is kept
+      // because it costs nothing and the harness version was wrong without it.
+      const stride = Math.max(1, Math.floor(specs.n / HON_SAMPLE));
+      const idx = [];
+      for (let i = 0; i < specs.n; i += stride) idx.push(i);
+      let seed = 0x9e3779b9;
+      const rnd = () => {
+        seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+        return ((seed >>> 0) / 4294967296);
+      };
+      for (let i = idx.length - 1; i > 0; i--) {
+        const j = Math.floor(rnd() * (i + 1));
+        const t = idx[i]; idx[i] = idx[j]; idx[j] = t;
+      }
+
+      // Evaluate each sampled signal ONCE. Signals do not change under the
+      // null; only the target does. This is what makes the check affordable.
+      const buf = new Uint8Array(N);
+      const arrs = [];
+      for (const i of idx) arrs.push(Uint8Array.from(evalSpecAt(specs, i, cache, buf)));
+
+      // Pass 1's admission rule AND THE SHIPPED DISPLAY FILTER, read from the
+      // live controls exactly as applyFilters reads them. Pass 1 admission is
+      // not the population a visitor sees: Min Time in Market defaults to 15%,
+      // is applied at display time, and on a window of this length that is
+      // several hundred required firing days. A check that stops at admission
+      // reports a best Calmar that can come from a spec firing a handful of
+      // days in the whole window, which the default filter discards before
+      // anyone reads it. Both sides get the same rule either way, so the
+      // verdict was never unfair; what was wrong is that the number printed
+      // did not describe the table underneath it.
+      const timPct = parseFloat(document.getElementById('sl-tim').value);
+      const mddPct = parseFloat(document.getElementById('sl-mdd').value);
+      const TIM = isFinite(timPct) ? timPct / 100 : 0;
+      const MDD = isFinite(mddPct) ? -(mddPct / 100) : -1;
+      const bestOf = (l) => {
+        let best = -Infinity;
+        for (let i = 0; i < arrs.length; i++) {
+          const m = backtest(arrs[i], l, win.s0, win.len);
+          if (m.total > 0 && m.calmar === m.calmar && m.tim > TIM && m.maxDD > MDD
+              && m.calmar > best) best = m.calmar;
+        }
+        return best;
+      };
+
+      const real = bestOf(lret);
+      if (!isFinite(real)) return;
+
+      const nulls = [];
+      const span = N - s0;
+      for (let r = 0; r < HON_ROTATIONS; r++) {
+        // Offsets spread evenly rather than drawn at random, so no two
+        // rotations land near each other by luck.
+        const off = Math.floor(span * (r + 1) / (HON_ROTATIONS + 1));
+        const b = bestOf(rotateLret(lret, s0, N, off));
+        if (isFinite(b)) nulls.push(b);
+        await nap(0);   // keep the tab responsive between rotations
+      }
+      if (nulls.length < 4) return;
+
+      nulls.sort((a, b) => a - b);
+      const med = nulls[Math.floor(nulls.length / 2)];
+      let beat = 0;
+      for (const v of nulls) if (real > v) beat++;
+
+      // FOUR BUCKETS, no number with a decimal anywhere in the verdict. The
+      // measured percentile moved from 38 to 63 between two runs of the same
+      // configuration, so anything finer than this would be reporting noise.
+      let cls, head, body;
+      if (beat === nulls.length) {
+        cls = 'q-good';
+        head = 'This run beat every shuffled comparison.';
+        body = 'That is the uncommon result. It is still one search over a very large ' +
+               'number of candidates, so treat the top row as a lead to test, not a finding.';
+      } else if (beat >= nulls.length - 2) {
+        cls = 'q-fair';
+        head = 'This run beat most of the shuffled comparisons, but not all.';
+        body = 'The best result here is close to what the same search finds on data with ' +
+               'the relationship removed. It may be real. It is not yet evidence.';
+      } else if (beat > 1) {
+        cls = 'q-poor';
+        head = '<strong>The best result in this run is indistinguishable from noise.</strong>';
+        body = 'Running this same search against shuffled data, where no signal can ' +
+               'possibly predict anything, produced results about this good. That does not ' +
+               'mean your rules are bad. It means a search this large finds numbers this ' +
+               'good by chance, so this run has not shown that any of them work.';
+      } else {
+        cls = 'q-bad';
+        head = '<strong>Shuffled data beat this run.</strong>';
+        body = 'Almost every comparison against data with the relationship removed produced ' +
+               'a better best result than the real search did. Nothing in the table below ' +
+               'has been shown to be a real effect, and the top rows are the ones most ' +
+               'likely to be artifacts, because they are the ones the search selected hardest.';
+      }
+
+      // COMPONENTS FIRST, THEN THE SUMMARY, per the PRD. The components are what
+      // a reader can check; the bucket is an interpretation of them.
+      const fmt = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2));
+      el.className = 'sl-honesty ' + cls;
+      el.innerHTML =
+        '<span class="sl-h-head">' + head + '</span>' + body +
+        '<div class="sl-h-comp">' +
+        'Best Calmar in a sample of ' + arrs.length.toLocaleString() + ' of this run\'s ' +
+        specs.n.toLocaleString() + ' signals: <code>' + fmt(real) + '</code>. ' +
+        'The same sample scored against ' + nulls.length + ' rotations of <strong>' +
+        escapeHtml(target) + '</strong> with its returns shuffled: median <code>' + fmt(med) +
+        '</code>, best <code>' + fmt(nulls[nulls.length - 1]) + '</code>. ' +
+        'Your result beat <strong>' + beat + ' of ' + nulls.length + '</strong>. ' +
+        'Rotation keeps the target\'s own behaviour and every signal\'s firing pattern, ' +
+        'and destroys only the alignment between them, which is the thing being tested. ' +
+        'Scored on the first target, on Calmar, and at the Min Time in Market and ' +
+        'Max Drawdown settings this run was displayed with, so the figure describes ' +
+        'the same population as the table below.' +
+        '</div>';
+      el.style.display = '';
+    }
+
+    function renderResults() {
+      const filter = (document.getElementById('sl-filter').value || '').toLowerCase();
+      const picked = selectTop(lastResults, DISPLAY_CAP, sortKey, sortAsc, filter);
+      const total = picked.total;
+      const shown = picked.rows;
+
+      const head = document.getElementById('sl-head');
+      const metric = plateauMetric();
+      const metricFmt = (COLS.find(c => c.key === metric) || {}).fmt || 'num';
+      head.innerHTML = COLS.map(c => {
+        if (c.key === '_copy' || c.key === '_sel') return '<th></th>';
+        const label = typeof c.label === 'function' ? c.label() : c.label;
+        if (c.key === '_nbhd' || c.key === '_plateau') {
+          const tip = c.key === '_nbhd'
+            ? `Median ${plateauMetricLabel()} across this row and its immediate neighbours on the parameter grid. A row far above its own neighbourhood is a spike, not a setting.`
+            : `The range of settings either side of this row that stay within ${PLATEAU_DROP * 100}% of it. Hover a cell for the detail: the cell quotes the tightest axis, the tooltip lists them all.`;
+          return `<th class="nosort" title="${escapeHtml(tip)}">${label}</th>`;
+        }
+        const sorted = c.key === sortKey ? ' sorted' + (sortAsc ? ' asc' : '') : '';
+        return `<th class="${c.cls || ''}${sorted}" data-key="${c.key}">${label}</th>`;
+      }).join('');
+
+      const body = document.getElementById('sl-body');
+      if (shown.length === 0) {
+        body.innerHTML = `<tr><td colspan="${COLS.length}" class="sl-empty">No signals passed the filters. Loosen Min Time in Market or the Max Drawdown floor, or add more tickers.</td></tr>`;
+      } else {
+        body.innerHTML = shown.map((r, idx) => {
+          const cells = COLS.map(c => {
+            if (c.key === '_sel') return `<td><input type="checkbox" class="sl-sel" data-sel="${idx}" ${selectedRows.has(rowKey(r)) ? 'checked' : ''} title="Select for the combined export"></td>`;
+            if (c.key === '_copy') return `<td><button class="btn sl-copy-btn btn-ghost" data-copy="${idx}" title="Copy as a Composer symphony you can paste into the app">Copy JSON</button></td>`;
+            if (c.key === 'label') {
+              const tag = r.single ? '' : '<span class="sl-combo-tag">AND</span>';
+              return `<td class="sig">${escapeHtml(r.label)}${tag}</td>`;
+            }
+            if (c.key === 'target') return `<td class="tgt">${r.target}</td>`;
+            if (c.key === '_nbhd' || c.key === '_plateau') {
+              // Computed once per row and read twice: plateauFor memoises, so
+              // the second column costs a map lookup, not a second ring.
+              const pl = plateauFor(r, metric);
+              if (!pl) return '<td class="plat"><span style="color:var(--color-disabled)" title="No plateau for this row: either the ranking metric is not a finite number here, or this is a restored snapshot rather than a live run.">-</span></td>';
+              const body = c.key === '_nbhd' ? fmtVal(pl.med, metricFmt)
+                                             : escapeHtml(pl.text);
+              return `<td class="plat" title="${escapeHtml(pl.title)}">${body}</td>`;
+            }
+            return `<td>${fmtVal(r[c.key], c.fmt)}</td>`;
+          });
+          return '<tr>' + cells.join('') + '</tr>';
+        }).join('');
+        body.querySelectorAll('[data-sel]').forEach(cb => {
+          cb.addEventListener('change', () => {
+            const r = shown[parseInt(cb.dataset.sel, 10)];
+            const k = rowKey(r);
+            if (cb.checked) selectedRows.set(k, r); else selectedRows.delete(k);
+            renderCombineBar();
+          });
+        });
+        // attach copy handlers using the sorted+filtered view
+        body.querySelectorAll('[data-copy]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const r = shown[parseInt(btn.dataset.copy, 10)];
+            const json = JSON.stringify(buildComposerSymphony(r), null, 2);
+            navigator.clipboard.writeText(json).then(() => {
+              const old = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = old, 1400);
+            }).catch(() => { btn.textContent = 'Copy failed'; setTimeout(() => btn.textContent = 'Copy JSON', 1400); });
+          });
+        });
+      }
+
+      renderBaselines();
+      renderCombineBar();
+      document.getElementById('sl-count').textContent = `(${total.toLocaleString()})`;
+      const w = sigCache && sigCache.win;
+      const sample = w
+        ? ` Scored over ${w.start} to ${DATES[N - 1]} (${w.len.toLocaleString()} trading days${w.binding ? `, window set by ${w.binding}` : ''}${w.warm ? `, after ${w.warm} days of indicator warm-up so every row is scored on the same days` : ''}).`
+        : '';
+      document.getElementById('sl-meta').textContent = restored
+        ? snapshotNote
+        : (total > DISPLAY_CAP
+            ? `Showing top ${DISPLAY_CAP} of ${total.toLocaleString()} by current sort. Refine with the filter box or a stricter Time-in-Market.`
+            : `${total.toLocaleString()} signals shown.`) + sample;
+
+      head.querySelectorAll('th[data-key]').forEach(th => {
+        if (restored) { th.classList.add('is-inert'); th.title = 'Run a backtest to sort: the full result set is not saved'; return; }
+        th.addEventListener('click', () => {
+          const k = th.dataset.key;
+          if (k === sortKey) sortAsc = !sortAsc; else { sortKey = k; sortAsc = (k === 'label' || k === 'target'); }
+          requestRender();
+        });
+      });
+    }
+
+    // Rendered outside the results table on purpose. These are a fixed
+    // reference, so they must not sort, must not be filtered away, and must not
+    // compete for one of the 100 display slots. Putting them in the tbody would
+    // make all three happen.
+    function renderBaselines() {
+      const el = document.getElementById('sl-baseline');
+      if (!el) return;
+      if (!lastBaselines || !lastBaselines.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+      const cols = COLS.filter(c => c.key !== 'label' && c.key !== 'target' &&
+                                   c.key !== '_copy' && c.key !== '_nbhd' &&
+                                   c.key !== '_plateau');
+      el.style.display = 'block';
+      el.innerHTML =
+        '<div class="sl-baseline-title">Buy &amp; hold benchmarks over the same window</div>' +
+        '<div class="sl-baseline-rows">' +
+        lastBaselines.map(b =>
+          '<div class="sl-baseline-row"><span class="tgt">' + escapeHtml(b.target) +
+          (b.short ? '<em style="text-transform:none;letter-spacing:0">from ' + escapeHtml(b.start) + '</em>' : '') + '</span>' +
+          cols.map(c => '<span><em>' + escapeHtml(c.label) + '</em>' + fmtVal(b[c.key], c.fmt) + '</span>').join('') +
+          '</div>').join('') +
+        '</div>';
+    }
+
+    function renderCombineBar() {
+      const bar = document.getElementById('sl-combine');
+      if (!bar) return;
+      const n = selectedRows.size;
+      bar.style.display = n ? 'block' : 'none';
+      if (!n) return;
+      const tickers = [...new Set([...selectedRows.values()].map(r => r.target))];
+      const tcount = tickers.length;
+      document.getElementById('sl-combine-count').textContent =
+        `${n} signal${n === 1 ? '' : 's'} selected` +
+        (tcount > 1 ? ` across ${tcount} targets` : '');
+      const warn = document.getElementById('sl-combine-warn');
+      warn.hidden = tcount < 2;
+      warn.textContent = tcount < 2 ? '' :
+        `A ladder holds one ticker per day, whichever branch fires first, so this ` +
+        `rotates between ${tickers.join(', ')} rather than holding them together. ` +
+        `Each row's metrics cover its own target alone, not the rotation.`;
+    }
+
+    function initCombineBar() {
+      const copyBtn = document.getElementById('sl-combine-copy');
+      const clearBtn = document.getElementById('sl-combine-clear');
+      if (!copyBtn || !clearBtn) return;
+      copyBtn.addEventListener('click', () => {
+        if (!selectedRows.size) return;
+        const json = JSON.stringify(buildComposerLadder([...selectedRows.values()]), null, 2);
+        navigator.clipboard.writeText(json).then(() => {
+          const old = copyBtn.textContent;
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => copyBtn.textContent = old, 1400);
+        }).catch(() => {
+          copyBtn.textContent = 'Copy failed';
+          setTimeout(() => copyBtn.textContent = 'Copy combined JSON', 1400);
+        });
+      });
+      clearBtn.addEventListener('click', () => {
+        selectedRows.clear();
+        requestRender();
+      });
+    }
+
+    function escapeHtml(s) { return s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+    // ---------- estimate ----------
+    function estimate() {
+      const fams = {};
+      document.querySelectorAll('#sl-families input').forEach(el => fams[el.value] = el.checked);
+      const minP = parseInt((document.getElementById('sl-minp') || {}).value, 10) || 5;
+      // Lockstep with buildSpecs by construction: both call countSpecs /
+      // famSpecCount, so the figure shown here and the figure the run tests
+      // are the same arithmetic, not two copies of it that can drift.
+      // Conditions come from the Signal set only, so the target count does not
+      // enter the spec count (v1.21.1).
+      const n = compares.size;
+      const c = countSpecs(n, fams, activeWindows(minP));
+      const el = document.getElementById('sl-est');
+      if (targets.size === 0 || n === 0) { el.textContent = 'Pick at least one target and one signal ticker to estimate.'; el.className = 'sl-est'; return; }
+      let txt = `~${c.toLocaleString()} signals to test`;
+      let cls = c > SIGNAL_WARN_CAP ? ' stop' : c > SIGNAL_WARN_SOFT ? ' warn' : '';
+      // Show the sample window the current selection implies. The most recently
+      // listed ticker binds it, so name that ticker: a two-year window on an
+      // eight-year axis is usually one chip the user did not mean to include.
+      if (PD && DATES) {
+        const W2 = activeWindows(minP);
+        const w = windowInfo([...targets, ...compares], W2[W2.length - 1]);
+        if (w.len < 30) {
+          txt += ` · not enough shared history (${w.binding || 'selection'})`;
+          cls = ' stop';
+        } else {
+          txt += ` · sample ${w.start} to ${DATES[N - 1]} (${w.len.toLocaleString()} days`;
+          txt += w.warm ? `, ${w.warm} lost to warm-up)` : ')';
+          if (w.binding) {
+            txt += `, limited by ${w.binding}`;
+            if (w.frac < 0.6 && !cls) cls = ' warn';
+          }
+        }
+      }
+      el.textContent = txt;
+      el.className = 'sl-est' + cls;
+    }
+
+    // ---------- selection defaults + persistence ----------
+    // The ticker selection is remembered across visits. Only the two ticker sets
+    // are stored: signal families, CPU load and the section-3 filters all reset
+    // on purpose, since those govern how heavy a run is and should stay a
+    // conscious choice rather than something inherited from a past session.
+    // Settings persist the same way the ticker selection does, in their own
+    // key so that clearing one never disturbs the other. The version suffix is
+    // v1 rather than reusing the ticker key's, because the two can now change
+    // shape independently.
+    const SETTINGS_STORE_KEY = 'composer-atlas.signal-miner.settings.v1';
+
+    // The out-of-the-box state, in one place. The HTML carries the same values
+    // as attributes so the controls are correct before any script runs; this
+    // object is what the Default button and the restore path read. If the two
+    // ever disagree the HTML wins on first paint and this wins on every reset,
+    // which is a confusing bug, so they are checked against each other by the
+    // `defaults` harness assertion.
+    const DEFAULT_SETTINGS = {
+      'sl-combo': '2',
+      'sl-minp': '10',
+      'sl-tim': '15',      // percent
+      'sl-mdd': '69',      // percent, unsigned
+      'sl-quant': '0',
+      'sl-cpu': 'high',
+    };
+    const SETTING_IDS = Object.keys(DEFAULT_SETTINGS);
+
+    const TICKER_STORE_KEY = 'composer-atlas.signal-miner.tickers.v1';
+    const DEFAULT_TARGETS = ['TQQQ'];
+    const DEFAULT_COMPARES = ['QQQ', 'SPY', 'IWM', 'DIA'];
+    let persistReady = false;   // suppresses the write that init's own syncChips would make
+
+    // The ids of the families currently switched on. Stored as a list rather
+    // than a map of every family, so adding a family to FAMILIES later defaults
+    // it to OFF for returning visitors instead of silently switching it on for
+    // everyone mid-session. A new family is a change in run size; it should be
+    // opted into.
+    function currentFamilies() {
+      const el = document.getElementById('sl-families');
+      if (!el) return null;
+      return [...el.querySelectorAll('input')].filter(i => i.checked).map(i => i.value);
+    }
+
+    function saveSettings() {
+      if (!persistReady) return;
+      try {
+        const out = {};
+        for (const id of SETTING_IDS) {
+          const el = document.getElementById(id);
+          if (el) out[id] = el.value;
+        }
+        const fams = currentFamilies();
+        if (fams) out.families = fams;
+        localStorage.setItem(SETTINGS_STORE_KEY, JSON.stringify(out));
+      } catch (e) { /* storage disabled or full: settings just will not persist */ }
+    }
+
+    // Applies a settings object to the controls. Unknown keys are ignored and
+    // missing ones are left alone rather than defaulted, so a stored object
+    // written by an older version cannot blank out a control it never knew
+    // about. Returns nothing: callers decide whether to re-estimate.
+    function applySettings(v) {
+      if (!v) return;
+      if (Array.isArray(v.families)) {
+        // Unknown ids are ignored, so a family removed from FAMILIES cannot
+        // strand a stale entry, and the checkbox list stays the source of truth
+        // for what exists.
+        const want = new Set(v.families);
+        document.querySelectorAll('#sl-families input').forEach(el => {
+          el.checked = want.has(el.value);
+        });
+      }
+      for (const id of SETTING_IDS) {
+        if (typeof v[id] !== 'string') continue;
+        const el = document.getElementById(id);
+        if (!el) continue;
+        // A <select> silently keeps its old value when handed something not in
+        // its option list, which would leave the control disagreeing with what
+        // is stored. Check membership explicitly instead.
+        if (el.tagName === 'SELECT') {
+          if ([...el.options].some(o => o.value === v[id])) el.value = v[id];
+        } else {
+          el.value = v[id];
+        }
+      }
+    }
+
+    function loadSettings() {
+      let raw = null;
+      try { raw = localStorage.getItem(SETTINGS_STORE_KEY); } catch (e) { return null; }
+      if (!raw) return null;
+      try {
+        const v = JSON.parse(raw);
+        return (v && typeof v === 'object') ? v : null;
+      } catch (e) { return null; }
+    }
+
+    function saveSelection() {
+      if (!persistReady) return;
+      try {
+        localStorage.setItem(TICKER_STORE_KEY, JSON.stringify({
+          targets: [...targets], compares: [...compares],
+        }));
+      } catch (e) { /* storage disabled or full: the selection just will not persist */ }
+    }
+
+    // Returns null when nothing usable is stored, so init falls back to the
+    // defaults above. A stored-but-empty selection is honoured rather than
+    // replaced: if someone hit Clear and refreshed, showing the cleared state is
+    // what they asked for. Only a total absence of storage means "first visit".
+    function loadSelection() {
+      let raw = null;
+      try { raw = localStorage.getItem(TICKER_STORE_KEY); } catch (e) { return null; }
+      if (!raw) return null;
+      try {
+        const v = JSON.parse(raw);
+        if (!v || !Array.isArray(v.targets) || !Array.isArray(v.compares)) return null;
+        // Drop anything no longer in the universe, so pruning a ticker from
+        // prices.json can never strand a stale selection in someone's browser.
+        const known = new Set(UNIVERSE.map(u => u[0]));
+        return {
+          targets: v.targets.filter(t => known.has(t)),
+          compares: v.compares.filter(t => known.has(t)),
+        };
+      } catch (e) { return null; }
+    }
+
+    // ---------- UI wiring ----------
+    // Chips are grouped by asset class (the `group` field on each ticker in
+    // prices.json). With 80 tickers a flat row is unusable, and grouping is what
+    // makes the per-group "All" buttons meaningful: "all leveraged" is a sane
+    // run, "all 80" very much is not (see the estimate readout, which warns).
+    const chipEls = { target: new Map(), compare: new Map() };
+    const groupBtns = { target: new Map(), compare: new Map() };
+    let GROUPS = [];          // [[groupName, [[sym, name], ...]], ...]
+    let SHORT = new Set();    // tickers whose history covers <90% of the date axis
+
+    function buildGroups() {
+      const byGroup = new Map();
+      for (const [sym, name, group] of UNIVERSE) {
+        if (!byGroup.has(group)) byGroup.set(group, []);
+        byGroup.get(group).push([sym, name]);
+      }
+      GROUPS = [...byGroup.entries()];
+    }
+
+    // A ticker that only started trading recently (IBIT, ETHA, GDXU...) can post
+    // spectacular metrics off a two-year sample. Flag them rather than hide them.
+    function findShortHistory() {
+      SHORT = new Set();
+      for (const [sym] of UNIVERSE) {
+        const c = PD.tickers[sym].closes;
+        let first = c.findIndex(v => v != null);
+        if (first < 0) first = c.length;
+        if ((c.length - first) / c.length < 0.9) SHORT.add(sym);
+      }
+    }
+
+    function setOf(kind) { return kind === 'target' ? targets : compares; }
+
+    function renderChips() {
+      buildGroups();
+      findShortHistory();
+      document.querySelectorAll('[data-all]').forEach(b => {
+        b.textContent = `Select all ${UNIVERSE.length}`;
+      });
+      for (const kind of ['target', 'compare']) {
+        const host = document.getElementById(kind === 'target' ? 'sl-targets' : 'sl-compares');
+        host.innerHTML = '';
+        chipEls[kind].clear();
+        groupBtns[kind].clear();
+        for (const [group, members] of GROUPS) {
+          const block = document.createElement('div');
+          block.className = 'sl-tgroup';
+
+          const head = document.createElement('div');
+          head.className = 'sl-grouphead';
+          const nm = document.createElement('span');
+          nm.className = 'sl-tgroup-name';
+          nm.textContent = `${group} (${members.length})`;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'sl-sel';
+          btn.textContent = 'All';
+          btn.title = `Toggle all ${members.length} ${group} tickers`;
+          btn.addEventListener('click', () => {
+            const set = setOf(kind);
+            const allOn = members.every(([sym]) => set.has(sym));
+            members.forEach(([sym]) => allOn ? set.delete(sym) : set.add(sym));
+            syncChips();
+          });
+          head.appendChild(nm); head.appendChild(btn);
+          block.appendChild(head);
+          groupBtns[kind].set(group, btn);
+
+          const row = document.createElement('div');
+          row.className = 'sl-chips';
+          for (const [sym, name] of members) {
+            const chip = document.createElement('span');
+            chip.className = 'sl-chip';
+            chip.textContent = sym;
+            chip.title = SHORT.has(sym) ? `${name} (limited history)` : name;
+            chip.addEventListener('click', () => {
+              const set = setOf(kind);
+              set.has(sym) ? set.delete(sym) : set.add(sym);
+              syncChips();
+            });
+            chipEls[kind].set(sym, chip);
+            row.appendChild(chip);
+          }
+          block.appendChild(row);
+          host.appendChild(block);
+        }
+      }
+      // Row-level all / clear.
+      document.querySelectorAll('[data-all]').forEach(b => {
+        b.addEventListener('click', () => {
+          const kind = b.dataset.all, set = setOf(kind);
+          const allOn = UNIVERSE.every(([sym]) => set.has(sym));
+          UNIVERSE.forEach(([sym]) => allOn ? set.delete(sym) : set.add(sym));
+          syncChips();
+        });
+      });
+      document.querySelectorAll('[data-none]').forEach(b => {
+        b.addEventListener('click', () => { setOf(b.dataset.none).clear(); syncChips(); });
+      });
+    }
+
+    function syncChips() {
+      for (const kind of ['target', 'compare']) {
+        const set = setOf(kind);
+        const on = kind === 'target' ? ' on-target' : ' on-compare';
+        for (const [sym, chip] of chipEls[kind]) {
+          chip.className = 'sl-chip' + (set.has(sym) ? on : '') + (SHORT.has(sym) ? ' is-short' : '');
+        }
+        for (const [group, btn] of groupBtns[kind]) {
+          const members = (GROUPS.find(g => g[0] === group) || [null, []])[1];
+          const allOn = members.length && members.every(([sym]) => set.has(sym));
+          btn.classList.toggle('is-on', !!allOn);
+        }
+      }
+      document.getElementById('sl-tgt-count').textContent = targets.size ? `(${targets.size})` : '';
+      document.getElementById('sl-cmp-count').textContent = compares.size ? `(${compares.size})` : '';
+      sigCache = null;   // ticker change alters which signals exist; force a re-run
+      saveSelection();
+      estimate();
+    }
+
+    // Grouped Price / Return / Risk blocks with a per-group All toggle and
+    // row-level Default / Select all / Clear, deliberately the same shape and
+    // the same classes as the ticker chips above, so the two panels behave
+    // alike rather than each inventing its own idiom.
+    function renderFamilies() {
+      const el = document.getElementById('sl-families');
+      el.innerHTML = FAM_GROUPS.map(g => {
+        const members = FAMILIES.filter(f => f.group === g);
+        return `<div class="sl-tgroup">
+          <div class="sl-grouphead">
+            <span class="sl-tgroup-name">${g} (${members.length})</span>
+            <button type="button" class="sl-sel" data-famgroup="${g}">All</button>
+          </div>
+          <div class="sl-fams">` + members.map(f =>
+            `<label class="sl-check" title="${escapeHtml(famHint(f))}"><input type="checkbox" value="${f.id}"${f.on ? ' checked' : ''}>${f.label}</label>`
+          ).join('') + `</div></div>`;
+      }).join('');
+
+      el.querySelectorAll('input').forEach(i => i.addEventListener('change', syncFamilies));
+      el.querySelectorAll('[data-famgroup]').forEach(btn => btn.addEventListener('click', () => {
+        const members = FAMILIES.filter(f => f.group === btn.dataset.famgroup).map(f => f.id);
+        const boxes = [...el.querySelectorAll('input')].filter(i => members.indexOf(i.value) !== -1);
+        const allOn = boxes.every(i => i.checked);
+        boxes.forEach(i => i.checked = !allOn);
+        syncFamilies();
+      }));
+      const setAll = fn => () => { el.querySelectorAll('input').forEach(i => i.checked = fn(i.value)); syncFamilies(); };
+      document.getElementById('sl-fam-all').addEventListener('click', setAll(() => true));
+      document.getElementById('sl-fam-none').addEventListener('click', setAll(() => false));
+      document.getElementById('sl-fam-def').addEventListener('click', setAll(id => !!FAM[id].on));
+      syncFamilies();
+    }
+
+    // Tooltip: what the family actually compares, and how its cost scales.
+    function famHint(f) {
+      const kind = f.kind === 'cmp' && f.same ? 'fast window vs slow window on one ticker; cross-ticker pairs are skipped because comparing dollar prices across tickers is inert'
+                 : f.kind === 'cmp' ? 'two tickers or two windows; cost grows with the square of tickers x windows'
+                 : f.kind === 'self' ? 'one ticker, both sides at the same window'
+                 : 'against a constant; cost grows only linearly with the level count';
+      return `${indText(f.a, 'p')} vs ${f.kind === 'lvl' ? 'a level' : indText(f.b || f.a, 'q')} · ${kind}`;
+    }
+
+    function syncFamilies() {
+      const el = document.getElementById('sl-families');
+      const boxes = [...el.querySelectorAll('input')];
+      const on = boxes.filter(i => i.checked).length;
+      document.getElementById('sl-fam-count').textContent = on ? `(${on}/${boxes.length})` : '';
+      el.querySelectorAll('[data-famgroup]').forEach(btn => {
+        const members = FAMILIES.filter(f => f.group === btn.dataset.famgroup).map(f => f.id);
+        const mine = boxes.filter(i => members.indexOf(i.value) !== -1);
+        btn.classList.toggle('is-on', mine.length > 0 && mine.every(i => i.checked));
+      });
+      sigCache = null;   // family change alters which signals exist; force a re-run
+      saveSettings();
+      estimate();
+    }
+
+    function loadExample() {
+      targets = new Set(['TQQQ', 'TMV']);
+      compares = new Set(['BTAL', 'VIXM', 'SPY', 'TLT', 'DBMF', 'XLP']);
+      // The example's own filters, in the percent units the controls now use.
+      // Unchanged in meaning from when they were written as 0.05 and -0.8.
+      applySettings({ ...DEFAULT_SETTINGS, 'sl-minp': '5', 'sl-tim': '5', 'sl-mdd': '80' });
+      document.querySelectorAll('#sl-families input').forEach(el => el.checked = !!FAM[el.value].on);
+      saveSettings();
+      document.querySelectorAll('#sl-families input').forEach(el => el.checked = !!FAM[el.value].on);
+      syncFamilies();    // also clears sigCache and re-estimates
+      syncChips();
+      document.getElementById('sl-status').textContent = 'Loaded the community V2 example (8 tickers). This is a heavy run; give it a few seconds.';
+    }
+
+    // Restore the out-of-the-box state: the same tickers a first-time visitor
+    // gets, plus every setting back to DEFAULT_SETTINGS. Mirrors loadExample so
+    // the two buttons behave symmetrically. Because settings now persist, this
+    // is also the only way back to the shipped state once someone has changed
+    // something, which makes it a more important button than it used to be.
+    function loadDefaults() {
+      targets = new Set(DEFAULT_TARGETS);
+      compares = new Set(DEFAULT_COMPARES);
+      applySettings(DEFAULT_SETTINGS);
+      document.querySelectorAll('#sl-families input').forEach(el => el.checked = !!FAM[el.value].on);
+      saveSettings();
+      document.querySelectorAll('#sl-families input').forEach(el => el.checked = !!FAM[el.value].on);
+      syncFamilies();    // also clears sigCache and re-estimates
+      syncChips();
+      document.getElementById('sl-status').textContent =
+        'Reset to defaults: ' + DEFAULT_TARGETS.join(', ') + ' against ' + DEFAULT_COMPARES.join(', ') + '.';
+    }
+
+    // ---------- init ----------
+    (async function init() {
+      try { PD = await loadPrices(); }
+      catch (e) { document.getElementById('sl-status').textContent = 'Could not load price data.'; return; }
+      DATES = PD.dates; N = DATES.length;
+      UNIVERSE = Object.keys(PD.tickers).map(sym => [sym, PD.tickers[sym].name, PD.tickers[sym].group || 'Other']);
+
+      renderChips();
+      renderFamilies();
+      initCombineBar();
+
+      const minSel = document.getElementById('sl-minp');
+      minSel.innerHTML = MIN_PERIOD_OPTS.map(p => `<option value="${p}"${p === 10 ? ' selected' : ''}>${p}d</option>`).join('');
+      minSel.addEventListener('change', () => { sigCache = null; estimate(); });
+
+      // Settings are restored HERE: after renderFamilies has built the
+      // checkboxes and after the min-period options exist (a <select> cannot
+      // take a value its options do not contain yet), and before syncChips runs
+      // the first estimate, so the estimate is never computed from a control
+      // the visitor is about to see overwritten.
+      applySettings(loadSettings());
+      syncFamilies();   // repaint the group All buttons and the on/off count
+
+      // Restore the last selection if there is one, otherwise start from the
+      // defaults. persistReady stays false until after this first syncChips so
+      // loading the page never writes back over what was restored.
+      const saved = loadSelection();
+      targets = new Set(saved ? saved.targets : DEFAULT_TARGETS);
+      compares = new Set(saved ? saved.compares : DEFAULT_COMPARES);
+      syncChips();
+      persistReady = true;
+
+      // Show the previous run's saved top rows, if there are any, so a revisit
+      // is not an empty table. Any real run replaces this.
+      const snap = loadResults();
+      if (snap) showSnapshot(snap);
+
+      document.getElementById('sl-run').addEventListener('click', run);
+      document.getElementById('sl-example').addEventListener('click', loadExample);
+      document.getElementById('sl-default').addEventListener('click', loadDefaults);
+      document.getElementById('sl-filter').addEventListener('input', () => { if (lastResults.count) requestRender(250); });
+
+      // Live filters: once a run is cached, changing Min Time in Market, Max
+      // Drawdown floor, prune quantile, or the AND-pairing toggle re-filters the
+      // cached results instantly (debounced), no re-run needed. If there's no
+      // cache yet (or a ticker/family/period change invalidated it), these do
+      // nothing and the user runs the backtest as usual.
+      let filterTimer = null;
+      const scheduleFilter = () => {
+        if (!sigCache) return;
+        clearTimeout(filterTimer);
+        filterTimer = setTimeout(() => applyFilters(false), 250);
+      };
+      ['sl-tim', 'sl-mdd', 'sl-quant', 'sl-combo'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.addEventListener('input', scheduleFilter); el.addEventListener('change', scheduleFilter); }
+      });
+
+      // Every setting persists, including the two that are not live filters:
+      // min period and CPU load both need a re-run to take effect, but a
+      // visitor who set them and refreshed still expects to find them. `change`
+      // rather than `input` for the selects, and both for the number inputs so
+      // a typed value is not lost if the field never loses focus.
+      SETTING_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('change', saveSettings);
+        if (el.tagName !== 'SELECT') el.addEventListener('input', saveSettings);
+      });
+
+      const gl = document.getElementById('sl-glossary-link'); if (gl) gl.href = u('/glossary.html');
+
+      const d = PD.refreshed_at ? PD.refreshed_at.slice(0, 10) : '';
+      const nice = (iso) => {
+        if (!iso) return 'unknown';
+        const dt = new Date(iso);
+        return isNaN(dt) ? iso : dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      };
+      const latestClose = N ? DATES[N - 1] : '';
+      document.getElementById('sl-refreshed-text').textContent =
+        `Data last refreshed ${nice(PD.refreshed_at)} · ${UNIVERSE.length} tickers`;
+      document.getElementById('sl-data-meta').textContent =
+        `Price history: ${UNIVERSE.length} tickers, ${N.toLocaleString()} trading days from ${PD.start} through ${latestClose}. Last refreshed ${d}. Refreshed weekly (Saturdays) from Yahoo Finance daily adjusted closes.`;
+    })();
+  })();
+  </script>
+</body>
+</html>

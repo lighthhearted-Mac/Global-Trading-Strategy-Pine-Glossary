@@ -1,0 +1,1239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/overfit">
+  <link rel="canonical" href="https://composeratlas.com/overfit">
+  <meta property="og:title" content="Overfit Check: Does the Backtest Survive?">
+  <meta property="og:description" content="Paste a symphony and see whether its live record kept the promise of its own backtest, or fell short by more than luck explains.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Paste a symphony and see whether its live record kept the promise of its own backtest, or fell short by more than luck explains.">
+  <title>Overfit Check: Does the Backtest Survive: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .of-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+    .of-panel h2 { color: var(--color-primary); font-size: 1rem; font-weight: 600; margin: 0 0 12px; }
+    .of-panel h3 { color: var(--color-primary); font-size: 0.875rem; font-weight: 600; margin: 20px 0 8px; }
+    .of-note { font-size: 0.8125rem; color: var(--color-secondary); line-height: 1.7; margin-top: 14px; }
+    .of-note code { font-size: 0.75rem; }
+
+    /* The headline number. One figure, stated once, with its own caveat under it. */
+    .of-lede { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+    .of-lede .n { font-family: var(--font-mono); font-size: 3rem; line-height: 1; font-weight: 600; color: var(--color-pink); }
+    .of-lede .lbl { font-size: 1rem; color: var(--color-secondary); max-width: 30ch; }
+
+    table.of-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    table.of-table th, table.of-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border); }
+    table.of-table th { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-disabled); font-weight: 600; }
+    table.of-table td.n, table.of-table th.n { text-align: right; font-family: var(--font-mono); }
+    table.of-table td.n { color: var(--color-primary); }
+    table.of-table tr.hi td { background: var(--color-surface-raised); }
+    table.of-table tr.hi td:first-child { font-weight: 600; }
+    .of-scroll { overflow-x: auto; }
+
+    .of-cols { display: grid; grid-template-columns: 1fr; gap: 20px; }
+    @media (min-width: 720px) { .of-cols { grid-template-columns: 1fr 1fr; } }
+    .of-col { border: 1px solid var(--color-border); border-radius: 10px; padding: 16px; }
+    .of-col h3 { margin-top: 0; }
+    .of-col .tag { display: inline-block; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-bottom: 10px; }
+    .of-col .tag.unbiased { background: var(--color-surface-raised); color: var(--color-green); border: 1px solid var(--color-border); }
+    .of-col .tag.biased { background: var(--color-surface-raised); color: var(--color-yellow); border: 1px solid var(--color-border); }
+
+    /* The score. One number, big, with its 95% range so it is never read as exact. */
+    .of-score { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+    .of-score .num { font-family: var(--font-mono); font-size: 3.5rem; line-height: 1; font-weight: 600; }
+    .of-score .of-band { font-size: 1.125rem; font-weight: 600; margin-bottom: 4px; }
+    .of-score .of-par { font-size: 0.8125rem; color: var(--color-secondary); }
+    .of-s0 { color: var(--color-green); }
+    .of-s1 { color: var(--color-green); }
+    .of-s2 { color: var(--color-yellow); }
+    .of-s3 { color: var(--color-pink); }
+    .of-s4 { color: var(--color-pink); }
+    .of-bar { position: relative; height: 8px; border-radius: 4px; background: var(--color-surface-raised);
+              border: 1px solid var(--color-border); margin: 14px 0 6px; overflow: visible; }
+    .of-bar .fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: currentColor; }
+    /* The 95% range on the score: the honest width of what one live record can say. */
+    .of-bar .range { position: absolute; top: -4px; bottom: -4px; border: 1px solid var(--color-primary);
+                     border-radius: 3px; background: transparent; }
+    .of-bar-key { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--color-disabled); }
+
+    /* The verdict box. It answers "is it overfit?" in words before the score
+       appears. The call is a cone test against the symphony's own backtest:
+       did the live record fall short of what that backtest predicts by more
+       than luck explains? No other symphony enters it. */
+    .of-call { border: 1px solid var(--color-border); border-left-width: 3px; border-radius: 6px;
+               padding: 12px 16px; margin: 16px 0 4px; background: var(--color-surface-raised); }
+    .of-call .of-call-label { font-size: 1.125rem; font-weight: 600; margin-bottom: 4px; }
+    .of-call .of-call-line { font-size: 0.875rem; line-height: 1.6; color: var(--color-secondary); }
+    .of-call .of-call-line strong { color: var(--color-primary); }
+    .of-call.yes { border-left-color: var(--color-pink); }
+    .of-call.yes .of-call-label { color: var(--color-pink); }
+    .of-call.maybe { border-left-color: var(--color-yellow); }
+    .of-call.maybe .of-call-label { color: var(--color-yellow); }
+    .of-call.no { border-left-color: var(--color-green); }
+    .of-call.no .of-call-label { color: var(--color-green); }
+    .of-call.none { border-left-color: var(--color-border-strong); }
+    .of-call.none .of-call-label { color: var(--color-secondary); }
+
+    #of-in {
+      width: 100%; min-height: 74px; resize: vertical; box-sizing: border-box;
+      background: var(--color-bg); color: var(--color-primary);
+      border: 1px solid var(--color-border-strong); border-radius: 8px; padding: 12px 14px;
+      font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6;
+    }
+    #of-in:focus { outline: 2px solid var(--color-blue); outline-offset: -1px; }
+    /* Tier 2. Deliberately quieter than the Tier 1 blocks above it: these are
+       observations, not results, and the styling should not lend them the
+       authority of a number that was tested against 5,095 real outcomes. */
+    .of-struct { margin-top: 1.5rem; border: 1px solid var(--color-border); border-radius: 6px; padding: 1rem 1.1rem; }
+    .of-struct h3 { margin: 0 0 .2rem; font-size: 1.05rem; }
+    .of-struct .of-unval { font-size: .85rem; color: var(--color-text-muted); margin: 0 0 .9rem; }
+    .of-obs { display: flex; gap: .8rem; padding: .6rem 0; border-top: 1px solid var(--color-border); }
+    .of-obs:first-of-type { border-top: 0; }
+    .of-obs-k { flex: 0 0 8.5rem; font-weight: 600; font-size: .9rem; }
+    .of-obs-v { flex: 1; font-size: .92rem; }
+    .of-obs-v .of-flag { color: var(--color-amber, #b45309); font-weight: 600; }
+    .of-obs-v .of-ok { color: var(--color-text-muted); }
+    .of-obs-note { font-size: .85rem; color: var(--color-text-muted); margin-top: .15rem; }
+    .of-label { display: block; font-size: 0.8125rem; font-weight: 600; color: var(--color-primary); margin-bottom: 8px; }
+    .of-hint { font-size: 0.8125rem; color: var(--color-secondary); margin-bottom: 12px; line-height: 1.6; }
+    .of-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+    .of-msg { margin-top: 14px; font-size: 0.875rem; line-height: 1.6; }
+    .of-msg.err { color: var(--color-pink); }
+    .of-msg.info { color: var(--color-secondary); }
+
+    .of-name { font-size: 1rem; color: var(--color-primary); margin-bottom: 4px; }
+    .of-name .sub { color: var(--color-disabled); font-size: 0.75rem; display: block; margin-top: 4px; font-family: var(--font-mono); }
+    .of-row { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--color-border); font-size: 0.875rem; }
+    .of-row:last-child { border-bottom: none; }
+    .of-row .k { color: var(--color-secondary); }
+    .of-row .v { font-family: var(--font-mono); color: var(--color-primary); text-align: right; }
+    .of-row .v.pos { color: var(--color-green); }
+    .of-row .v.neg { color: var(--color-pink); }
+    .of-row .v.none { color: var(--color-disabled); }
+    .of-verdict { font-size: 0.9375rem; line-height: 1.7; color: var(--color-primary); margin: 0 0 14px; }
+    .of-quote { border-left: 2px solid var(--color-border); padding-left: 14px; color: var(--color-secondary); font-size: 0.875rem; line-height: 1.7; }
+  </style>
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+
+      <div style="max-width:680px;margin-bottom:28px">
+        <h1 style="color:var(--color-primary);margin-bottom:8px">Overfit Check</h1>
+        <p style="color:var(--color-secondary);font-size:1.0625rem;line-height:1.6">
+          Overfitting is not a strategy looking strange. It is a strategy fitted to noise, and the
+          only real test is whether it keeps working on days nobody could tune it against. This site
+          records when every symphony's logic was last edited, so that test can actually be run.
+        </p>
+      </div>
+
+      <!-- Tier 1, part two: the lookup. Placed first by owner decision
+           2026-09-07: the population findings are the more important result
+           but they are not what a reader arrives to do. -->
+      <div class="of-panel">
+        <label class="of-label" for="of-in">Check one symphony</label>
+        <p class="of-hint">
+          A symphony URL like <code>https://app.composer.trade/symphony/4aI4kVT5cEc0XJpTLei3/details</code>,
+          a bare ID, or the symphony's raw JSON.
+          <strong>The record check runs entirely in your browser</strong>, against data downloaded
+          with this page. Reading the logic needs the symphony itself, so pasting a URL or ID asks
+          Composer for it, exactly as the
+          <a href="/converter.html">converter</a> does. Paste the JSON instead and nothing leaves
+          your browser at all. Nothing is stored or logged either way.
+        </p>
+        <textarea id="of-in" spellcheck="false" placeholder="Paste a symphony URL or ID..."></textarea>
+        <div class="of-actions">
+          <button id="of-btn" class="btn btn-green">Check it</button>
+          <button id="of-example" class="btn btn-outline">Load example</button>
+          <button id="of-clear" class="btn btn-outline">Clear</button>
+        </div>
+        <div id="of-msg" class="of-msg"></div>
+      </div>
+
+      <div id="of-out" style="display:none"></div>
+
+      <!-- Tier 1, part one: the population result, which is true before anyone
+           pastes anything and holds when the database has never seen theirs. -->
+      <div class="of-panel">
+        <div class="of-lede">
+          <span class="n" id="of-lede-n">-</span>
+          <span class="lbl" id="of-lede-lbl">of symphonies still deliver their backtested annual return once the author stops editing</span>
+        </div>
+        <p class="of-note" id="of-lede-sub"></p>
+      </div>
+
+      <div class="of-panel">
+        <h2>Two ways of asking, and they disagree</h2>
+        <p class="of-note" style="margin-top:0">
+          The same question measured twice, because each measurement has a flaw the other does not.
+          Read them together rather than picking one.
+        </p>
+        <div class="of-cols" id="of-cohorts"></div>
+        <p class="of-note" id="of-cohort-note"></p>
+      </div>
+
+      <div class="of-panel">
+        <h2>A bigger backtest predicts a better future, up to a point</h2>
+        <p class="of-note" style="margin-top:0">
+          Strategies sorted by the return of their <strong>fitted era</strong> alone, restricted to
+          those fitted over five years or more so a short noisy window cannot drive it. Up to
+          roughly <span id="of-peak">+240%</span> a year the relationship is what you would hope:
+          a better backtest really does go on to deliver more. Past that it inverts.
+        </p>
+        <div class="of-scroll"><table class="of-table" id="of-ceiling"></table></div>
+        <p class="of-note" id="of-ceiling-note"></p>
+      </div>
+
+      <div class="of-panel">
+        <h2>Turnover is what predicts a backtest not surviving</h2>
+        <p class="of-note" style="margin-top:0">
+          Every stored field was tested against what actually happened next, holding backtested
+          return roughly constant so the comparison is not just regression to the mean. Turnover won,
+          and nothing else came close. Nobody reaches for turnover when asked about overfitting.
+        </p>
+        <div class="of-scroll"><table class="of-table" id="of-turnover"></table></div>
+        <p class="of-note" id="of-turnover-note"></p>
+      </div>
+
+      <div class="of-panel">
+        <h2>What this cannot see</h2>
+        <div class="of-quote">
+          <ul style="margin:0;padding-left:18px">
+            <li><strong>This is out of sample with respect to editing, not a clean holdout.</strong>
+              It catches the author who kept adjusting until the curve looked right, which is how a
+              Composer symphony usually becomes overfit. It does not catch one fitted in a single
+              pass and never touched again.</li>
+            <li><strong>Turnover is an association, not a cause.</strong> High turnover could mean
+              curve fitting, or it could just mean trading costs and slippage eating the return.
+              Both stories predict the table above. The backtests here are already net of modelled
+              slippage and fees, so this is not simply a backtest ignoring costs, but real-world
+              slippage can still run ahead of the model, and this data cannot separate the two.</li>
+            <li><strong>Return concentration is not used here, deliberately.</strong> The share of
+              return coming from a strategy's best few days is a true and useful thing to know, and
+              it is on every curated strategy page. It does not predict out-of-sample failure: its
+              correlation is near zero and its sign is unstable. Over 80% of all symphonies get more
+              than their entire return from their best 5% of days, so as a flag it fires on four
+              strategies in five and tells you nothing.</li>
+            <li><strong>The verdict uses nothing but the symphony's own record.</strong> It asks
+              whether the live record fell short of what its own backtest predicts by more than luck
+              explains. No other symphony enters it. An earlier version judged each symphony by its
+              distance from par, the typical score of backtests the same size; on this data that
+              distance was mostly noise, and it excused the very fall-back from an extreme backtest
+              that the research literature defines as overfitting. Other symphonies now appear only
+              as base rates, which warn rather than excuse.</li>
+            <li><strong>One live record is a noisy measurement.</strong> A typical score's 95% range
+              is wider than half the scale, which is why every score is printed with its range and
+              in whole numbers, and why "Too early to tell" is a real answer.</li>
+            <li><strong>The score has no weights, and that is what makes it checkable.</strong>
+              It is one measured ratio, <code>100 x (1 - ln(1 + delivered) / ln(1 + fitted))</code>,
+              not a blend of metrics. A composite would invite the exact optimisation this page
+              exists to detect and its weights could never be falsified; a single ratio has nothing
+              to tune, and both of its inputs are printed beside it so you can recover it
+              yourself.</li>
+            <li><strong>Bigger backtests give up more.</strong> How much a backtest gives up rises
+              with how big it was (rank correlation <span id="of-chk-size">+0.48</span> between
+              fitted rate and score). That is not an excuse: in the biggest fifth almost every
+              symphony fell short of its own promise.</li>
+            <li><strong>The score partly restates beating the market.</strong> Ranked against
+              annualized excess return over SPY in the same window, the two correlate at
+              <span id="of-chk-excess">0.70</span>, a higher score going with a worse result against
+              the market. Related, not the same: the score asks whether a strategy kept its own
+              promise, not whether it beat SPY.</li>
+            <li><strong>Every live window so far is a bull market.</strong> They all fall between
+              2022 and 2026, with SPY up strongly throughout. Nothing on this page has yet been seen
+              through a bear market, which is why SPY is printed for both eras.</li>
+            <li><strong>Long-untouched symphonies are survivors.</strong> An author who watches a
+              strategy fail may edit it, which resets its clock, or delete it. Symphonies left alone
+              for years are therefore flattered under any method.</li>
+            <li><strong>This page rates overfitting using measures chosen by the same people who
+              chose which measures to keep.</strong> That is a version of the problem it reports.
+              Saying so is cheap, so it is said.</li>
+          </ul>
+        </div>
+        <p class="of-note" id="of-meta"></p>
+        <p class="of-note" id="of-meta2"></p>
+      </div>
+
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="js/app.js"></script>
+  <script src="data/overfit.js"></script>
+  <script>
+    (function () {
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'Overfit Check' },
+      ]);
+
+      var D = window.OVERFIT_DATA;
+      // Exercises every branch: over a year untouched, has a true out-of-sample
+      // re-run, and has a turnover figure. Its two measures also disagree, which
+      // is the point of showing both.
+      var EXAMPLE_ID = 'MmQbpf2U5TMQFmr9Nt2e';
+
+      function esc(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+      function pct(v, digits) {
+        if (typeof v !== 'number') return null;
+        return (v >= 0 ? '+' : '') + (100 * v).toFixed(digits === undefined ? 1 : digits) + '%';
+      }
+      function pts(v) {
+        if (typeof v !== 'number') return null;
+        return (v >= 0 ? '+' : '') + (100 * v).toFixed(1) + ' pts';
+      }
+      // A backtested rate compounded over several years reaches numbers where a
+      // decimal place is noise and thousands separators are the only thing
+      // keeping it readable. Matches formatLargePct in js/app.js.
+      function pctBig(v) {
+        if (typeof v !== 'number' || !isFinite(v)) return null;
+        if (Math.abs(v) < 10) return pct(v);
+        return (v >= 0 ? '+' : '') +
+          (100 * v).toLocaleString('en-US', { maximumFractionDigits: 0 }) + '%';
+      }
+      // What the backtested annual rate would have compounded to over the same
+      // span. Hypothetical, and labelled as such wherever it is shown: the
+      // backtest earned its rate over its own window, not this one.
+      function compound(rate, days) {
+        if (typeof rate !== 'number' || typeof days !== 'number' || rate <= -1) return null;
+        return Math.pow(1 + rate, days / 365.25) - 1;
+      }
+      function n(v) { return typeof v === 'number' ? v.toLocaleString() : '-'; }
+
+      if (!D) {
+        document.getElementById('of-msg').className = 'of-msg err';
+        document.getElementById('of-msg').textContent =
+          'The data file did not load, so nothing on this page can be shown.';
+        return;
+      }
+
+      // ---- the population result ----
+      var T = D.cohorts.trailing, O = D.cohorts.true_oos;
+      document.getElementById('of-lede-n').textContent = T.delivered_full + '%';
+      document.getElementById('of-lede-sub').innerHTML =
+        'Across <strong>' + n(T.n) + '</strong> symphonies whose logic has gone at least a year ' +
+        'untouched, the median one was backtested at <strong>' + pct(T.median_backtest, 1) +
+        '</strong> a year and actually returned <strong>' + pct(T.median_actual, 1) + '</strong> ' +
+        'over the last twelve months. Roughly a third of what the backtest promised. ' +
+        n(T.delivered_half) + '% delivered at least half, and ' + n(T.positive) +
+        '% at least made money.';
+
+      var cohorts = [
+        {
+          tag: 'unbiased', tagLabel: 'Whole database',
+          title: 'Backtest against the last twelve months',
+          c: T,
+          why: 'Every symphony left alone for a year, weak ones included, so the figure describes ' +
+               'the database as it is. The flaw: the backtest window still overlaps the year being ' +
+               'measured, so this understates the gap.',
+          extra: ''
+        },
+        {
+          tag: 'biased', tagLabel: 'Stronger half only',
+          title: 'Backtest against a true out-of-sample re-run',
+          c: O,
+          why: 'Each of these was re-backtested over its untouched period alone, so the window ' +
+               'contains nothing the author could have fitted to. The flaw: these rows were picked ' +
+               'by backtest score for the Leaderboard, so they are roughly the stronger half of the ' +
+               'database and this is not a statement about all of it.',
+          extra: 'Median untouched window: ' + n(O.median_days) + ' days. ' +
+                 n(O.beat_spy) + '% beat SPY over that window.'
+        }
+      ];
+      document.getElementById('of-cohorts').innerHTML = cohorts.map(function (x) {
+        var c = x.c;
+        return '<div class="of-col">' +
+          '<span class="tag ' + x.tag + '">' + esc(x.tagLabel) + '</span>' +
+          '<h3>' + esc(x.title) + '</h3>' +
+          '<div class="of-row"><span class="k">Symphonies</span><span class="v">' + n(c.n) + '</span></div>' +
+          '<div class="of-row"><span class="k">Median backtested return</span><span class="v">' + pct(c.median_backtest) + '</span></div>' +
+          '<div class="of-row"><span class="k">Median actual return</span><span class="v">' + pct(c.median_actual) + '</span></div>' +
+          '<div class="of-row"><span class="k">Delivered their backtest</span><span class="v ' + (c.delivered_full >= 50 ? 'pos' : 'neg') + '">' + c.delivered_full + '%</span></div>' +
+          '<div class="of-row"><span class="k">Delivered at least half</span><span class="v">' + c.delivered_half + '%</span></div>' +
+          '<div class="of-row"><span class="k">Merely positive</span><span class="v">' + c.positive + '%</span></div>' +
+          '<p class="of-note">' + esc(x.why) + (x.extra ? ' ' + esc(x.extra) : '') + '</p>' +
+          '</div>';
+      }).join('');
+
+      document.getElementById('of-cohort-note').innerHTML =
+        '<strong>The disagreement is the finding.</strong> Measured properly out of sample, only ' +
+        O.delivered_full + '% keep their backtest rather than ' + T.delivered_full + '%. And note ' +
+        'which cohort that is: the stronger half of the database promised ' +
+        pct(O.median_backtest, 0) + ' a year against ' + pct(T.median_backtest, 0) +
+        ' for everyone, and kept a far smaller share of it. Strategies that look better in a ' +
+        'backtest are not merely no better afterwards, they give up more of what they showed you. ' +
+        'They do still end up ahead in absolute terms, at ' + pct(O.median_actual, 1) +
+        ' against ' + pct(T.median_actual, 1) + ', which is the honest other half of that sentence.';
+
+      // ---- the score ----
+      var SD = D.score_distribution || {};
+      var K = D.cone || { z: 1.96, min_trading_days: 63, cash_like_sd: 0.03 };
+
+      // ---- the overfit call: a cone test against its own backtest ------------
+      // docs/PRD.md, "Overfit Method Audit". If the symphony really had the edge
+      // its fitted era shows, its live compounding rate would land inside the
+      // cone 95% of the time. Mirrors cone() in scripts/build_overfit.py; change
+      // both or neither. Par, a median of OTHER symphonies' scores, is retired:
+      // the distance from it was mostly noise, and it excused the very reversion
+      // the research defines as overfitting.
+      function coneCall(r) {
+        if (typeof r.oosArr !== 'number' || typeof r.fitted !== 'number' || r.fitted <= 0 ||
+            r.oosArr <= -1 || typeof r.oosSd !== 'number' || typeof r.oosTdays !== 'number') {
+          return { lab: 'unscored' };
+        }
+        if (r.oosTdays < K.min_trading_days) return { lab: 'short' };
+        if (r.oosSd < K.cash_like_sd) return { lab: 'cash' };
+        var years = r.oosTdays / 252;
+        var gi = Math.log(1 + r.fitted), go = Math.log(1 + r.oosArr);
+        var se = r.oosSd / Math.sqrt(years);
+        var lo = (go - K.z * se) / gi, mid = go / gi, hi = (go + K.z * se) / gi;
+        return {
+          lab: hi < 1 ? 'fell_short' : (lo > 1 ? 'beat' : (lo <= 0 ? 'too_early' : 'consistent')),
+          lo: lo, mid: mid, hi: hi, years: years,
+          coneLo: Math.exp(gi - K.z * se) - 1, coneHi: Math.exp(gi + K.z * se) - 1
+        };
+      }
+      function volText(v) { return typeof v === 'number' ? (100 * v).toFixed(1) + '%' : null; }
+      function keptText(v) { return (100 * v).toFixed(0) + '%'; }
+
+      // Base rates: what par became. Of backtests this size, how many fell short
+      // of their own promise. A prior that warns, not a yardstick that excuses.
+      function fifthOf(table, v) {
+        if (!table || typeof v !== 'number' || !table.fifths.length) return null;
+        var i = 0;
+        while (i < table.bounds.length && v > table.bounds[i]) i++;
+        return i;
+      }
+
+      function callBox(r, c) {
+        var cone = '';
+        if (c.coneLo !== undefined) {
+          cone = 'If it really had the edge its backtest shows (<strong>' + pctBig(r.fitted) +
+            ' a year</strong>), 95% of ' + c.years.toFixed(1) + '-year live records would land ' +
+            'between <strong>' + pctBig(c.coneLo) + '</strong> and <strong>' + pctBig(c.coneHi) +
+            '</strong> a year. It made <strong>' + pct(r.oosArr) + '</strong>. ';
+        }
+        var range = 'It kept about <strong>' + keptText(c.mid) + '</strong> of its backtest\'s ' +
+          'compounding rate (95% range ' + keptText(c.lo) + ' to ' + keptText(c.hi) + ').';
+        var weaker = typeof r.spyFitted === 'number' && typeof r.spyLive === 'number' &&
+          r.spyLive < r.spyFitted - 0.05;
+        var stronger = typeof r.spyFitted === 'number' && typeof r.spyLive === 'number' &&
+          r.spyLive > r.spyFitted + 0.05;
+        var mkt = ' SPY ran ' + pct(r.spyFitted) + ' a year during its backtest and ' +
+          pct(r.spyLive) + ' a year live';
+        if (c.lab === 'fell_short') {
+          return { cls: 'yes', label: 'Overfit: fell short of its own backtest',
+            line: cone + 'That shortfall is <strong>more than luck explains</strong>. ' + range +
+              ' Nobody outside can see how many variants its author tried; what shows from ' +
+              'outside is a backtest that overstated the future, which is what overfitting looks ' +
+              'like.' + (weaker ? mkt + ', so a weaker market is part of this story.' : '') };
+        }
+        if (c.lab === 'consistent') {
+          return { cls: 'no', label: 'Consistent with its backtest so far',
+            line: cone + range + ' Keeping all of it is still within luck, and keeping none of ' +
+              'it is ruled out. That is a record so far, not a promise about what comes next.' +
+              (stronger ? mkt + ', so a stronger market may be flattering it.' : '') };
+        }
+        if (c.lab === 'too_early') {
+          return { cls: 'none', label: 'Too early to tell',
+            line: cone + range + ' That range covers both keeping all of its backtest and ' +
+              'keeping none of it, so this record cannot yet tell the two apart. A longer or ' +
+              'calmer record narrows it.' };
+        }
+        if (c.lab === 'beat') {
+          return { cls: 'no', label: 'Beat its backtest',
+            line: cone + range + ' It did better than its own backtest by more than luck ' +
+              'explains, which is rare.' + (stronger ? mkt + ', so check how much of that was ' +
+              'the market.' : '') };
+        }
+        var why;
+        if (c.lab === 'short') {
+          why = 'Only ' + n(r.oosTdays) + ' trading days have passed since its last logic edit. ' +
+            'The test needs at least ' + n(K.min_trading_days) + ' before even a large shortfall ' +
+            'can be told from a bad stretch.';
+        } else if (c.lab === 'cash') {
+          why = 'It behaves like cash (live volatility ' + volText(r.oosSd) + ' a year), so its ' +
+            'return is mostly the interest rate of the era. Beating or missing its backtest says ' +
+            'nothing about its logic.';
+        } else if (typeof r.days !== 'number') {
+          why = 'There is no recorded date for its last logic edit, so its backtest cannot be ' +
+            'split into a fitted era and an untouched one.';
+        } else if (typeof r.oosArr !== 'number') {
+          why = 'No out-of-sample re-run exists for it. Those are computed weekly for the ' +
+            'strategies that could reach the top of the Leaderboard, so an absence is not a ' +
+            'judgement about it.';
+        } else {
+          why = 'Its fitted era is too short to annualize cleanly, or it promised nothing to ' +
+            'keep, so there is no backtest to test it against.';
+        }
+        return { cls: 'none', label: 'No verdict', line: why + ' That is the honest answer ' +
+          'rather than a weaker one dressed up as a result.' };
+      }
+
+      var BANDS = [
+        { max: 25, cls: 'of-s0', label: 'Held its backtest' },
+        { max: 50, cls: 'of-s1', label: 'Mild decay' },
+        { max: 75, cls: 'of-s2', label: 'Substantial decay' },
+        { max: 95, cls: 'of-s3', label: 'Severe decay' },
+        { max: 101, cls: 'of-s4', label: 'Did not survive' },
+      ];
+      // Whole numbers only. A typical 95% range on this score is wider than half
+      // the scale, so a decimal would claim precision the record does not have.
+      function scoreText(v) { return Math.round(v).toFixed(0); }
+
+      function bandFor(score) {
+        for (var i = 0; i < BANDS.length; i++) if (score < BANDS[i].max) return BANDS[i];
+        return BANDS[BANDS.length - 1];
+      }
+
+      // ---- the ceiling ----
+      var C = D.ceiling || { bins: [] };
+      if (C.bins && C.bins.length) {
+        document.getElementById('of-peak').textContent = pct(C.peak_fitted, 0);
+        document.getElementById('of-ceiling').innerHTML =
+          '<thead><tr><th>Decile</th><th class="n">Fitted era return</th>' +
+          '<th class="n">n</th><th class="n">Then delivered</th></tr></thead><tbody>' +
+          C.bins.map(function (b, i) {
+            var top = (i === C.bins.length - 1);
+            return '<tr' + (top ? ' class="hi"' : '') + '><td>' + (i + 1) + '</td>' +
+              '<td class="n">' + pctBig(b.fitted) + '</td>' +
+              '<td class="n">' + n(b.n) + '</td>' +
+              '<td class="n">' + pct(b.delivered) + '</td></tr>';
+          }).join('') + '</tbody>';
+        document.getElementById('of-ceiling-note').innerHTML =
+          '<strong>The most extreme backtests deliver less than the most modest ones.</strong> ' +
+          'The top decile was fitted at ' + pctBig(C.top_fitted) + ' a year and went on to ' +
+          pct(C.top_delivered) + '; the bottom decile was fitted at ' + pct(C.bottom_fitted) +
+          ' and went on to ' + pct(C.bottom_delivered) + '. The peak sits in between, at ' +
+          pct(C.peak_delivered) + ' for strategies fitted around ' + pctBig(C.peak_fitted) + '. ' +
+          'Read the turning point as approximate: it comes from ranking ' + n(C.n) +
+          ' strategies within this same database, not from a threshold anyone should tune to.';
+      }
+
+      // ---- turnover ----
+      var Q = D.turnover;
+      var rows = Q.quintiles.map(function (q, i) {
+        return '<tr data-q="' + i + '"><td>' + (i + 1) + '</td>' +
+          '<td class="n">' + q.lo.toFixed(1) + ' to ' + q.hi.toFixed(1) + '</td>' +
+          '<td class="n">' + n(q.n) + '</td>' +
+          '<td class="n">' + pct(q.median_backtest) + '</td>' +
+          '<td class="n">' + pct(q.median_actual) + '</td>' +
+          '<td class="n">' + pts(q.median_gap) + '</td></tr>';
+      }).join('');
+      document.getElementById('of-turnover').innerHTML =
+        '<thead><tr><th>Quintile</th><th class="n">Annualized turnover</th><th class="n">n</th>' +
+        '<th class="n">Median backtest</th><th class="n">Median actual</th><th class="n">Gap</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody>';
+
+      var q1 = Q.quintiles[0], q5 = Q.quintiles[Q.quintiles.length - 1];
+      document.getElementById('of-turnover-note').innerHTML =
+        '<strong>The slowest-trading fifth is the only cohort that kept its backtest</strong> (' +
+        pts(q1.median_gap) + '). The fastest-trading fifth promised ' + pct(q5.median_backtest, 1) +
+        ' a year and delivered ' + pct(q5.median_actual, 1) + ', a gap of ' + pts(q5.median_gap) +
+        '. Backtest length, the tell everyone reaches for first, separates far less cleanly. Sorted the same way, the four shortest fifths all give up between 40 and 55 points and barely differ from each other. Only the very longest, ten years and up, keeps its backtest, and it manages that by promising +19.7% a year instead of +62.9%.';
+
+      document.getElementById('of-meta2').innerHTML =
+        '<strong>How the score is calculated.</strong> ' +
+        '<code>100 x (1 - ln(1 + delivered) / ln(1 + fitted))</code>, clamped to 0 and 100, ' +
+        'where both are annualized rates over their own eras. Comparing compounding rates rather ' +
+        'than simple ones stops extreme backtests piling up against 100. 0 means it kept the whole ' +
+        'rate its author was looking at, 100 means it kept none of it. Across ' + n(SD.n) +
+        ' scored strategies the ' +
+        'median is <strong>' + SD.p50 + '</strong>, a quarter score below ' + SD.p25 +
+        ', a quarter above ' + SD.p75 + ', and ' + SD.at_hundred +
+        '% score 100 because they lost money over the untouched window.';
+      var CH = D.checks || {};
+      if (typeof CH.score_vs_fitted === 'number') {
+        document.getElementById('of-chk-size').textContent =
+          (CH.score_vs_fitted >= 0 ? '+' : '') + CH.score_vs_fitted.toFixed(2);
+      }
+      if (typeof CH.score_vs_excess === 'number') {
+        document.getElementById('of-chk-excess').textContent = Math.abs(CH.score_vs_excess).toFixed(2);
+      }
+      document.getElementById('of-meta').innerHTML =
+        'Measured across ' + n(D.pool) + ' usable database rows on ' + esc(D.reference_date) +
+        '. A symphony counts as untouched once its logic has gone ' + n(D.min_oos_days) +
+        ' days without an edit for the two population cohorts above; a single symphony\'s ' +
+        'verdict needs only ' + n(K.min_trading_days) + ' trading days, because its cone says ' +
+        'on its own when the record is too short. Refreshed weekly with the database.';
+
+      // ---- the lookup ----
+      var idx = D.index, pos = null;
+      function lookup(id) {
+        if (!pos) {
+          pos = {};
+          for (var i = 0; i < idx.ids.length; i++) pos[idx.ids[i]] = i;
+        }
+        var i = pos[id];
+        if (i === undefined) return null;
+        return {
+          id: id,
+          name: idx.names[i],
+          arr: idx.backtest_arr[i],
+          t1y: idx.trailing_year[i],
+          days: idx.oos_days[i],
+          turnover: idx.turnover[i],
+          oosArr: idx.true_oos_arr[i],
+          oosExcess: idx.true_oos_excess[i],
+          oosDays: idx.true_oos_days[i],
+          oosCum: idx.true_oos_cumulative[i],
+          oosSpy: idx.true_oos_spy[i],
+          fitted: idx.fitted_arr[i],
+          fittedYears: idx.fitted_years[i],
+          score: idx.score[i],
+          oosSd: idx.oos_sd[i],
+          oosTdays: idx.oos_trading_days[i],
+          spyFitted: idx.spy_fitted[i],
+          spyLive: idx.spy_live[i],
+          fittedSharpe: idx.fitted_sharpe[i],
+          universe: idx.universe[i]
+        };
+      }
+
+      function extractId(s) {
+        var m = String(s).match(/symphony\/([A-Za-z0-9_-]+)/);
+        if (m) return m[1];
+        s = String(s).trim();
+        if (/^[A-Za-z0-9_-]{12,}$/.test(s)) return s;
+        return null;
+      }
+
+      function quintileOf(t) {
+        if (typeof t !== 'number') return null;
+        var b = Q.bounds, i = 0;
+        while (i < b.length && t > b[i]) i++;
+        return i; // 0-based
+      }
+
+      function row(k, v, cls) {
+        return '<div class="of-row"><span class="k">' + esc(k) + '</span><span class="v ' +
+          (cls || '') + '">' + (v === null || v === undefined ? 'no data' : esc(v)) + '</span></div>';
+      }
+
+      function setMsg(html, cls) {
+        var el = document.getElementById('of-msg');
+        el.className = 'of-msg ' + (cls || '');
+        el.innerHTML = html;
+      }
+
+      function render(r) {
+        var out = document.getElementById('of-out');
+        var verdict, html = '';
+
+        // Judge the symphony in words, without inventing a score, and be exact
+        // about WHICH PERIOD each number covers. There are two measures here and
+        // they cover different spans: `t1y` is the last twelve months only,
+        // while `oosArr` covers the whole untouched window. An earlier version
+        // of this verdict read t1y and called it "since the logic edit", which
+        // on a symphony untouched for four years reported a losing year as
+        // though it were a losing four years, contradicting the panel directly
+        // below it. Where a true out-of-sample re-run exists it is the better
+        // measure of "since the edit" and the verdict is built on it; the
+        // twelve-month figure is only ever described as twelve months.
+        var kept = (typeof r.t1y === 'number' && typeof r.arr === 'number')
+          ? r.t1y - r.arr : null;
+        var oosKept = (typeof r.oosArr === 'number' && typeof r.arr === 'number')
+          ? r.oosArr - r.arr : null;
+        var untouched = 'It has gone <strong>' + n(r.days) + ' days</strong> without a logic edit';
+
+        function versusBacktest(actual) {
+          if (actual >= r.arr) {
+            return 'That is <strong>at or above its backtested rate</strong>, which only ' +
+              O.delivered_full + '% of the re-run pool managed.';
+          }
+          if (actual >= 0.5 * r.arr) {
+            return 'That is <strong>more than half</strong> its backtested ' + pct(r.arr) +
+              ' a year, which puts it in the better quarter of the re-run pool.';
+          }
+          if (actual > 0) {
+            return 'That is <strong>well short</strong> of its backtested ' + pct(r.arr) +
+              ' a year, but positive. That is the single most common outcome in this database.';
+          }
+          return 'It <strong>lost money</strong> over that window, against a backtest of ' +
+            pct(r.arr) + ' a year.';
+        }
+
+        // The fitted era is the honest comparator: the FULL backtest runs
+        // through today, so it already contains the untouched window inside it
+        // and comparing the two compares a period against a superset of itself.
+        var c = coneCall(r);
+        var scored = typeof r.score === 'number' && typeof r.fitted === 'number';
+
+        if (typeof r.days !== 'number') {
+          verdict = 'This symphony has no recorded date for its last logic edit, so the only ' +
+            'test on this page cannot be run against it.';
+        } else if (scored && c.lab !== 'short') {
+          // The full case: a real re-run, and enough fitted history to split.
+          verdict = untouched + '. Over the years its author could tune against it returned ' +
+            '<strong>' + pctBig(r.fitted) + ' a year</strong>; over the untouched window since, ' +
+            '<strong>' + pct(r.oosArr) + ' a year</strong> (' + pctBig(r.oosCum) +
+            ' cumulative). ' + versusBacktest(r.oosArr);
+        } else if (r.days < D.min_oos_days) {
+          verdict = 'Its logic was edited <strong>' + n(r.days) + ' days ago</strong>. That is ' +
+            'too recent for a reading of any kind here yet, and that is the honest answer rather ' +
+            'than a weaker one dressed up.';
+        } else if (typeof r.oosArr === 'number') {
+          // Re-run exists, but the fitted era is too short to annualize.
+          verdict = untouched + '. Measured over that whole untouched window it returned ' +
+            '<strong>' + pctBig(r.oosCum) + ' cumulative</strong>, or <strong>' + pct(r.oosArr) +
+            ' a year</strong>. ' + versusBacktest(r.oosArr) +
+            ' Its fitted period is too short to separate cleanly, so there is no score for it.';
+        } else if (kept === null) {
+          verdict = untouched + ', but the return figures needed for the comparison are missing.';
+        } else if (kept >= 0) {
+          verdict = untouched + '. <strong>Over the last twelve months</strong> it matched or beat ' +
+            'its backtested rate, which puts it in the ' + T.delivered_full + '% that manage it. ' +
+            'No out-of-sample re-run exists for it, so this is a twelve-month reading rather than ' +
+            'a verdict on the whole untouched period.';
+        } else if (r.t1y >= 0.5 * r.arr) {
+          verdict = untouched + '. <strong>Over the last twelve months</strong> it delivered more ' +
+            'than half its backtested rate, better than roughly ' +
+            (100 - T.delivered_half).toFixed(0) + '% of the database managed. No out-of-sample ' +
+            're-run exists for it, so this is a twelve-month reading rather than a verdict on the ' +
+            'whole untouched period.';
+        } else if (r.t1y > 0) {
+          verdict = untouched + '. <strong>Over the last twelve months</strong> it stayed ' +
+            'profitable but fell well short of its backtest, the single most common outcome in ' +
+            'this database. No out-of-sample re-run exists for it, so this is a twelve-month ' +
+            'reading rather than a verdict on the whole untouched period.';
+        } else {
+          verdict = untouched + '. <strong>Over the last twelve months</strong> it lost money, ' +
+            'against a backtest of ' + pct(r.arr) + ' a year. No out-of-sample re-run exists for ' +
+            'it, so this is a twelve-month reading and not a verdict on the whole untouched ' +
+            'period, which may have gone differently.';
+        }
+
+        // When the recent year disagrees in sign with the longer record, say so
+        // rather than letting the reader find the contradiction. Applies to
+        // every branch that got an out-of-sample figure, which is why it sits
+        // out here rather than inside one of them.
+        if (typeof r.oosArr === 'number' && typeof r.t1y === 'number' &&
+            typeof r.days === 'number' && r.days >= D.min_oos_days &&
+            (r.t1y < 0) !== (r.oosArr < 0)) {
+          verdict += ' Its <strong>last twelve months run the other way</strong>, at ' +
+            pct(r.t1y) + ', so the recent stretch and the longer record disagree.';
+        }
+
+        html += '<div class="of-panel">' +
+          '<div class="of-name">' + esc(r.name || 'Unnamed symphony') +
+            '<span class="sub">' + esc(r.id) + '</span></div>';
+
+        // The call goes above the score, not below it: it is the answer, and the
+        // score is the working. Every path renders one, including the paths
+        // that cannot reach a verdict, so the question is never left hanging.
+        var call = callBox(r, c);
+        html += '<div class="of-call ' + call.cls + '">' +
+          '<div class="of-call-label">' + call.label + '</div>' +
+          '<div class="of-call-line">' + call.line + '</div></div>';
+
+        if (scored) {
+          var band = bandFor(r.score);
+          var hasRange = c.lo !== undefined;
+          var sLo = hasRange ? Math.max(0, Math.min(100, 100 * (1 - c.hi))) : null;
+          var sHi = hasRange ? Math.max(0, Math.min(100, 100 * (1 - c.lo))) : null;
+          var bi = fifthOf(D.base_rates, r.fitted);
+          var br = bi === null ? null : D.base_rates.fifths[bi];
+          html += '<div class="of-score ' + band.cls + '" style="margin:18px 0 4px">' +
+            '<span class="num">' + scoreText(r.score) + '</span>' +
+            '<span><span class="of-band">' + esc(band.label) + '</span><br>' +
+            '<span class="of-par">Overfit Score, 0 to 100. ' +
+            (hasRange ? '95% range <strong>' + scoreText(sLo) + ' to ' + scoreText(sHi) +
+              '</strong>: one live record cannot pin it closer than that. ' : '') +
+            (br ? 'Of backtests this size, <strong>' + br.fell_short + '%</strong> fell short ' +
+              'of their own promise.' : '') + '</span></span>' +
+            '</div>' +
+            '<div class="of-bar ' + band.cls + '">' +
+              '<span class="fill" style="width:' + Math.max(1, r.score).toFixed(0) + '%"></span>' +
+              (hasRange ? '<span class="range" style="left:' + sLo.toFixed(0) + '%;width:' +
+                Math.max(1, sHi - sLo).toFixed(0) + '%" title="95% range"></span>' : '') +
+            '</div>' +
+            '<div class="of-bar-key"><span>0, kept everything</span>' +
+            '<span>the outline is the 95% range</span><span>100, kept nothing</span></div>';
+        }
+
+        html += '<p class="of-verdict" style="margin-top:16px">' + verdict + '</p></div>';
+
+        // The three eras, which is the comparison the score rests on.
+        html += '<div class="of-panel"><h2>Three windows, and only one of them is a fair test</h2>' +
+          row('Days since the last logic edit', n(r.days)) +
+          '<h3>The full backtest, as Composer reports it</h3>' +
+          row('Annualized return', pctBig(r.arr)) +
+          '<p class="of-note">This window runs through today, so it <strong>already contains the ' +
+          'untouched period below</strong>. It is the number the strategy advertises, and it is ' +
+          'the wrong thing to compare against.</p>' +
+          '<h3>The fitted era, which its author could tune against</h3>' +
+          (scored
+            ? row('Annualized return', pctBig(r.fitted)) +
+              row('Length', r.fittedYears.toFixed(1) + ' years') +
+              row('SPY over the same era, annualized', pct(r.spyFitted))
+            : '<p class="of-note">Could not be separated for this symphony.</p>') +
+          '<h3>The untouched era, which nobody could fit to</h3>' +
+          row('Annualized return', pct(r.oosArr),
+              typeof r.oosArr === 'number' ? (r.oosArr >= 0 ? 'pos' : 'neg') : 'none') +
+          row('Length', typeof r.oosDays === 'number'
+              ? (r.oosDays / 365.25).toFixed(1) + ' years' : null) +
+          row('Volatility, annualized', volText(r.oosSd)) +
+          row('SPY over the same window, annualized', pct(r.spyLive)) +
+          row('Actual return, last twelve months', pct(r.t1y),
+              typeof r.t1y === 'number' ? (r.t1y >= 0 ? 'pos' : 'neg') : 'none') +
+          '<p class="of-note">SPY is printed for both eras so you can see when the market ' +
+          'changed rather than the strategy. Every live window on this site so far falls in the ' +
+          '2022 to 2026 bull market.</p>' +
+          '</div>';
+
+        // The true out-of-sample re-run, when this symphony has one.
+        html += '<div class="of-panel"><h2>The untouched window in full</h2>';
+        if (typeof r.oosArr === 'number') {
+          var btCum = compound(r.arr, r.oosDays);
+          var years = r.oosDays / 365.25;
+          html += '<p class="of-note" style="margin-top:0">A fresh backtest starting the day after ' +
+            'its last logic edit, so nothing in this window was available to fit to.</p>' +
+            row('Untouched window', n(r.oosDays) + ' days (' + years.toFixed(1) + ' years)') +
+            row('Cumulative return over that window', pctBig(r.oosCum),
+                r.oosCum >= 0 ? 'pos' : 'neg') +
+            row('Annualized', pct(r.oosArr), r.oosArr >= 0 ? 'pos' : 'neg') +
+            row('Kept from the backtest, annualized', pts(oosKept),
+                typeof oosKept === 'number' ? (oosKept >= 0 ? 'pos' : 'neg') : 'none') +
+            '<h3>Against what the backtest implied</h3>' +
+            row('Backtested rate compounded over the same span', pctBig(btCum)) +
+            row('Actually delivered', pctBig(r.oosCum), r.oosCum >= 0 ? 'pos' : 'neg') +
+            '<p class="of-note">The first line is <strong>hypothetical</strong>: it is this ' +
+            'symphony\'s backtested ' + pct(r.arr) + ' a year compounded across the same ' +
+            years.toFixed(1) + ' years, not anything it earned. The backtest posted that rate ' +
+            'over its own window. Compounding is why a gap that looks like a rounding error in ' +
+            'annual terms becomes the distance between these two numbers.</p>' +
+            '<h3>Against the market</h3>' +
+            row('SPY over the same window', pctBig(r.oosSpy),
+                typeof r.oosSpy === 'number' ? (r.oosSpy >= 0 ? 'pos' : 'neg') : 'none') +
+            row('Difference', pts(r.oosExcess),
+                typeof r.oosExcess === 'number' ? (r.oosExcess >= 0 ? 'pos' : 'neg') : 'none');
+        } else {
+          html += '<p class="of-note" style="margin-top:0">' +
+            'No out-of-sample re-run exists for this symphony. Those are computed weekly for the ' +
+            'strategies that could reach the top of the Leaderboard, which is roughly the stronger ' +
+            'half of the database, so an absence here is not a judgement about it.</p>';
+        }
+        html += '</div>';
+
+        // Warning signs, one at a time. Never added up: a combined score would
+        // need weights, and weights here could never be checked.
+        var signVals = { fitted_sharpe: r.fittedSharpe, turnover: r.turnover,
+                         universe: r.universe, fitted_years: r.fittedYears };
+        var signRows = '';
+        Object.keys(D.signs || {}).forEach(function (k) {
+          var t = D.signs[k], v = signVals[k], i = fifthOf(t, v);
+          if (i === null) {
+            signRows += row(t.label, null);
+            return;
+          }
+          var f = t.fifths[i];
+          signRows += '<div class="of-row"><span class="k">' + esc(t.label) + ': <strong>' +
+            esc(k === 'universe' ? String(v) : v.toFixed(k === 'turnover' ? 1 : 2)) +
+            '</strong> (fifth ' + (i + 1) + ' of 5)</span><span class="v">' + f.fell_short +
+            '% fell short</span></div>';
+        });
+        html += '<div class="of-panel"><h2>Warning signs, one at a time</h2>' +
+          '<p class="of-note" style="margin-top:0">Measured before a symphony goes live, these ' +
+          'predicted falling short across this database: a higher backtest Sharpe, more turnover, ' +
+          'more tickers it can hold and a shorter backtest all went with bigger shortfalls. Each ' +
+          'row places this symphony in its fifth and says how often symphonies in that fifth fell ' +
+          'short of their own backtest. <strong>They are not added up.</strong> A combined score ' +
+          'would need weights, and weights here could never be checked.</p>' + signRows + '</div>';
+
+        // Turnover placement.
+        html += '<div class="of-panel"><h2>Turnover</h2>';
+        var qi = quintileOf(r.turnover);
+        if (qi === null) {
+          html += '<p class="of-note" style="margin-top:0">No turnover figure is stored for this ' +
+            'symphony, so it cannot be placed against the table below.</p>';
+        } else {
+          var q = Q.quintiles[qi];
+          html += row('Annualized turnover', r.turnover.toFixed(1)) +
+            row('Quintile', 'Q' + (qi + 1) + ' of 5') +
+            row('That quintile typically keeps', pts(q.median_gap),
+                q.median_gap >= 0 ? 'pos' : 'neg') +
+            '<p class="of-note">' +
+            (qi === 0
+              ? 'The slowest-trading fifth, and the only cohort that typically keeps its backtest.'
+              : (qi === Q.quintiles.length - 1
+                 ? 'The fastest-trading fifth, which typically gives up ' + pts(q.median_gap) +
+                   ' against its backtest. That is an association rather than a cause: it could be ' +
+                   'curve fitting or it could be trading costs, and this data cannot tell you which.'
+                 : 'Mid-range turnover. The cohorts either side of this one behave differently ' +
+                   'enough that the placement is worth knowing, but it is a tendency, not a ruling ' +
+                   'on this strategy.')) +
+            '</p>';
+        }
+        html += '</div>';
+
+        out.innerHTML = html;
+        out.style.display = '';
+        var tb = document.getElementById('of-turnover').getElementsByTagName('tbody')[0];
+        for (var i = 0; i < tb.rows.length; i++) tb.rows[i].className = (i === qi ? 'hi' : '');
+      }
+
+      // ---------------------------------------------------------------
+      // Tier 2: the structural read.
+      //
+      // UNVALIDATED BY CONSTRUCTION. None of these measures has been tested
+      // against out-of-sample outcomes, because the database has no structural
+      // complexity field to test against. They are reported as observations
+      // about how a symphony was built. Whether any of them predicts anything
+      // is an open project, named in docs/PRD.md Section 14, V2.4 Tier 2.
+      //
+      // WHY THESE SIX. Each one is a place where a fitted choice leaves a
+      // fingerprint in the tree, and all six are readable from the JSON alone.
+
+      // Conventional indicator levels. A gate ON one of these is a convention;
+      // a gate two points to the side of one is a number somebody chose, and
+      // choosing it is where fitting happens.
+      var CONVENTIONAL = [10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90];
+
+      function walkTree(root) {
+        var o = {
+          depth: 0, ifs: 0, elses: 0, assets: {}, nAssets: 0,
+          thresholds: [], windows: {}, fns: {}, conds: 0
+        };
+        (function rec(node, d) {
+          if (!node || typeof node !== 'object') return;
+          if (d > o.depth) o.depth = d;
+          if (node.step === 'asset' && node.ticker) {
+            if (!o.assets[node.ticker]) { o.assets[node.ticker] = 1; o.nAssets++; }
+          }
+          if (node.step === 'if') o.ifs++;
+          if (node.step === 'if-child') {
+            if (node['is-else-condition?']) { o.elses++; }
+            else {
+              o.conds++;
+              // A threshold is only a free parameter when it is a fixed number.
+              // Comparing two indicators to each other has no tunable constant
+              // in it, so counting one there would overstate the parameter count.
+              if (node['rhs-fixed-value?'] && node['rhs-val'] != null) {
+                var v = parseFloat(node['rhs-val']);
+                if (v === v) {
+                  o.thresholds.push({
+                    v: v, fn: node['lhs-fn'] || '', tkr: node['lhs-val'] || ''
+                  });
+                }
+              }
+              if (node['lhs-fn']) o.fns[node['lhs-fn']] = 1;
+              // A window can arrive under either key depending on the node.
+              var w = node['lhs-window-days'];
+              if (w == null && node['lhs-fn-params']) w = node['lhs-fn-params'].window;
+              if (w != null) { w = parseFloat(w); if (w === w) o.windows[w] = (o.windows[w] || 0) + 1; }
+              var w2 = node['rhs-window-days'];
+              if (w2 == null && node['rhs-fn-params']) w2 = node['rhs-fn-params'].window;
+              if (w2 != null) { w2 = parseFloat(w2); if (w2 === w2) o.windows[w2] = (o.windows[w2] || 0) + 1; }
+            }
+          }
+          var kids = node.children;
+          if (kids && kids.length) for (var i = 0; i < kids.length; i++) rec(kids[i], d + 1);
+        })(root, 0);
+        return o;
+      }
+
+      // Free parameters: every fixed threshold, plus every DISTINCT window. A
+      // window reused across ten branches was chosen once, so counting it ten
+      // times would inflate the number; a threshold repeated at ten different
+      // values was chosen ten times.
+      function freeParams(o) {
+        return o.thresholds.length + Object.keys(o.windows).length;
+      }
+
+      function nearDuplicates(list) {
+        // Thresholds within 3 points of each other, on the same indicator, in
+        // different branches. Two gates at 28 and 30 on the same measure are one
+        // idea expressed twice; the gap between them is unlikely to be a real
+        // boundary and is very likely to be a fitted one.
+        var out = [];
+        var by = {};
+        for (var i = 0; i < list.length; i++) {
+          var k = list[i].fn || 'x';
+          (by[k] = by[k] || []).push(list[i].v);
+        }
+        Object.keys(by).forEach(function (k) {
+          var vs = by[k].slice().sort(function (a, b) { return a - b; });
+          for (var i = 1; i < vs.length; i++) {
+            if (vs[i] !== vs[i - 1] && vs[i] - vs[i - 1] <= 3) {
+              out.push(vs[i - 1] + ' and ' + vs[i]);
+            }
+          }
+        });
+        return out;
+      }
+
+      function offConvention(list) {
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+          var v = list[i].v;
+          // Only judge bounded oscillators. A moving-average price threshold or
+          // a percentage return has no convention to be off, so calling it
+          // "unusual" would be inventing a standard that does not exist.
+          if (!/relative-strength-index/.test(list[i].fn)) continue;
+          var near = false;
+          for (var j = 0; j < CONVENTIONAL.length; j++) if (v === CONVENTIONAL[j]) near = true;
+          if (!near) out.push(v);
+        }
+        return out;
+      }
+
+      function obs(k, v, note) {
+        return '<div class="of-obs"><div class="of-obs-k">' + k + '</div>' +
+               '<div class="of-obs-v">' + v +
+               (note ? '<div class="of-obs-note">' + note + '</div>' : '') +
+               '</div></div>';
+      }
+
+      function renderStructure(sym, yrs) {
+        var o = walkTree(sym);
+        if (!o.conds && !o.nAssets) return '';
+        var fp = freeParams(o);
+        var wins = Object.keys(o.windows).map(Number).sort(function (a, b) { return a - b; });
+        var dup = nearDuplicates(o.thresholds);
+        var odd = offConvention(o.thresholds);
+
+        var h = '<div class="of-struct"><h3>How this symphony is built</h3>' +
+          '<p class="of-unval">These are observations about construction, not a verdict. ' +
+          'Unlike the record check above, <strong>none of them has been tested against what ' +
+          'symphonies actually go on to do</strong>, because nothing in the database records how ' +
+          'complicated a tree is. Read them as questions worth asking about the logic, not as ' +
+          'evidence it will fail.</p>';
+
+        // 1. Free parameters against sample length.
+        var fpv = '<strong>' + fp + '</strong> tunable number' + (fp === 1 ? '' : 's') +
+          ': ' + o.thresholds.length + ' fixed threshold' + (o.thresholds.length === 1 ? '' : 's') +
+          ' and ' + wins.length + ' distinct lookback window' + (wins.length === 1 ? '' : 's') + '.';
+        var fpn = '';
+        if (typeof yrs === 'number' && yrs > 0 && fp > 0) {
+          var per = yrs / fp;
+          fpn = 'Its author was fitting against about <strong>' + yrs.toFixed(1) +
+                ' years</strong> of history, so roughly <strong>' + per.toFixed(1) +
+                ' years</strong> of evidence behind each number that was chosen. Every tunable ' +
+                'number is a chance to fit the past; more of them against the same history means ' +
+                'each one is supported by less of it.';
+        } else {
+          fpn = 'Every tunable number is a chance to fit the past. There is no backtest length ' +
+                'here to weigh the count against, so this is a count and not a ratio.';
+        }
+        h += obs('Free parameters', fpv, fpn);
+
+        // 2. Threshold specificity.
+        if (odd.length) {
+          h += obs('Threshold choice',
+            '<span class="of-flag">' + odd.length + ' RSI gate' + (odd.length === 1 ? '' : 's') +
+            '</span> sit off the conventional levels: ' + esc(odd.join(', ')) + '.',
+            'Conventional RSI levels are 30 and 70, sometimes 20 and 80. A gate at ' + esc(String(odd[0])) +
+            ' is not a convention, it is a number somebody selected. That is not wrong on its own, ' +
+            'but a threshold chosen to a single point is the most common place a backtest gets ' +
+            'fitted, and it is worth knowing whether the logic still works one point either side.');
+        } else if (o.thresholds.length) {
+          h += obs('Threshold choice',
+            '<span class="of-ok">RSI gates sit on conventional levels.</span>',
+            'Nothing here looks tuned to a specific number, which is the cheaper explanation ' +
+            'when a backtest looks good.');
+        }
+
+        // 3. Near-duplicate thresholds.
+        if (dup.length) {
+          h += obs('Near-duplicate gates',
+            '<span class="of-flag">' + dup.length + '</span> pair' + (dup.length === 1 ? '' : 's') +
+            ' of thresholds sit within three points of each other on the same indicator: ' +
+            esc(dup.join('; ')) + '.',
+            'Two gates a couple of points apart are usually one idea expressed twice. The gap ' +
+            'between them is unlikely to be a real boundary in the market and is very likely to be ' +
+            'a boundary in this particular history.');
+        }
+
+        // 4. Unexplained window differences.
+        if (wins.length > 1) {
+          var close = [];
+          for (var i = 1; i < wins.length; i++) {
+            if (wins[i] - wins[i - 1] <= 5) close.push(wins[i - 1] + ' and ' + wins[i]);
+          }
+          h += obs('Lookback windows',
+            wins.length + ' distinct window' + (wins.length === 1 ? '' : 's') + ': ' +
+            esc(wins.join(', ')) + ' days.' +
+            (close.length ? ' <span class="of-flag">' + close.length + ' pair' +
+              (close.length === 1 ? ' sits' : 's sit') + ' within five days of each other</span> (' +
+              esc(close.join('; ')) + ').' : ''),
+            close.length
+              ? 'Two windows a few days apart usually have no story behind them. If there is no ' +
+                'reason a 70-day lookback should behave differently from a 75-day one, the ' +
+                'difference came from the backtest rather than from an idea about markets.'
+              : 'Windows far apart from each other are more likely to be deliberate choices about ' +
+                'different time horizons than artifacts of tuning.');
+        }
+
+        // 5. Branches against distinct assets.
+        if (o.conds) {
+          var ratio = o.nAssets ? (o.conds / o.nAssets) : 0;
+          h += obs('Branches and assets',
+            '<strong>' + o.conds + '</strong> condition' + (o.conds === 1 ? '' : 's') +
+            ' routing between <strong>' + o.nAssets + '</strong> distinct asset' +
+            (o.nAssets === 1 ? '' : 's') + '.',
+            ratio >= 3
+              ? 'That is roughly ' + ratio.toFixed(1) + ' decisions per asset. A tree can only ' +
+                'ever end up holding one of ' + o.nAssets + ' things, so a large number of ' +
+                'conditions in front of a small number of outcomes means many branches resolve to ' +
+                'the same holding by different routes.'
+              : 'The number of decisions is close to the number of things it can hold, which is ' +
+                'the simpler shape.');
+        }
+
+        // 6. Depth.
+        h += obs('Nesting depth',
+          '<strong>' + o.depth + '</strong> levels at the deepest point.',
+          o.depth >= 12
+            ? 'A deep tree is harder to audit than a shallow one, and the deepest branches are ' +
+              'reached on the fewest days, so they are supported by the least data.'
+            : 'Shallow enough to read end to end, which is the practical test that matters.');
+
+        h += '</div>';
+        return h;
+      }
+
+      // Accept a raw JSON paste. Returns the symphony object or null.
+      function parseSymphony(raw) {
+        var t = String(raw).trim();
+        if (t.charAt(0) !== '{') return null;
+        try {
+          var d = JSON.parse(t);
+          // The API wraps the tree; a copied export may be the tree itself.
+          if (d && d.symphony && d.symphony.step) return d.symphony;
+          if (d && d.step) return d;
+          if (d && d.result && d.result.step) return d.result;
+          return null;
+        } catch (e) { return null; }
+      }
+
+      function showStructure(sym, yrs) {
+        var html = renderStructure(sym, yrs);
+        if (!html) return false;
+        var out = document.getElementById('of-out');
+        out.innerHTML += html;
+        out.style.display = '';
+        return true;
+      }
+
+      function check() {
+        var raw = document.getElementById('of-in').value;
+        document.getElementById('of-out').style.display = 'none';
+        if (!raw.trim()) { setMsg('Paste a symphony URL or ID first.', 'err'); return; }
+        // A pasted tree is Tier 2 only: there is no ID to look up, so the
+        // record check cannot run and the panel says so rather than rendering
+        // an empty space where a result would be.
+        var pasted = parseSymphony(raw);
+        if (pasted) {
+          setMsg('', '');
+          var out2 = document.getElementById('of-out');
+          out2.innerHTML = '';
+          out2.style.display = '';
+          showStructure(pasted, null);
+          setMsg('Read the logic from the JSON you pasted. <strong>The record check did not ' +
+                 'run</strong>: that one needs a symphony ID so it can look up what this symphony ' +
+                 'actually did after its author stopped editing it. Paste the URL or ID to get ' +
+                 'both.', 'info');
+          return;
+        }
+        var id = extractId(raw);
+        if (!id) {
+          setMsg('Could not find a symphony ID in that input, and it is not valid symphony JSON.', 'err');
+          return;
+        }
+        var r = lookup(id);
+        if (!r) {
+          setMsg('<code>' + esc(id) + '</code> is not in this database, so there is nothing to ' +
+                 'compare it against. This check works by looking up what a symphony actually did ' +
+                 'after its author stopped editing it, which needs a recorded history. You can ' +
+                 '<a href="' + u('/database.html') + '">search the database</a> for it, or read ' +
+                 'the population findings below, which hold regardless.', 'info');
+          return;
+        }
+        setMsg('', '');
+        render(r);
+        fetchStructure(id, r.fittedYears);
+      }
+
+      // Best effort, and it is allowed to fail. The Composer endpoint does not
+      // send CORS headers for every caller, which is why converter.html offers
+      // a manual paste fallback; the same fallback is offered here. A failure
+      // must not disturb the record check that has already rendered, so this
+      // touches nothing except its own panel and its own message.
+      function fetchStructure(id, yrs) {
+        var url = 'https://api.composer.trade/api/v0.1/symphonies/' + id +
+                  '/score?score_version=v1';
+        fetch(url)
+          .then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+          })
+          .then(function (d) {
+            var sym = (d && d.symphony && d.symphony.step) ? d.symphony
+                    : (d && d.step) ? d : null;
+            if (!sym) throw new Error('Unexpected response shape');
+            showStructure(sym, typeof yrs === 'number' ? yrs : null);
+          })
+          .catch(function (err) {
+            setMsg('The record check above is complete. Reading <em>how</em> this symphony is ' +
+                   'built needs the logic itself, and the browser could not fetch it (' +
+                   esc(err.message) + '), which is normally a CORS restriction rather than a ' +
+                   'problem with the symphony. <a href="' + esc(url) + '" target="_blank" ' +
+                   'rel="noopener noreferrer">Open the raw JSON</a>, copy it, and paste it above ' +
+                   'to get the structural read too.', 'info');
+          });
+      }
+
+      document.getElementById('of-btn').addEventListener('click', check);
+      document.getElementById('of-example').addEventListener('click', function () {
+        document.getElementById('of-in').value =
+          'https://app.composer.trade/symphony/' + EXAMPLE_ID + '/details';
+        check();
+      });
+      document.getElementById('of-clear').addEventListener('click', function () {
+        document.getElementById('of-in').value = '';
+        document.getElementById('of-out').style.display = 'none';
+        setMsg('', '');
+        var tb = document.getElementById('of-turnover').getElementsByTagName('tbody')[0];
+        for (var i = 0; i < tb.rows.length; i++) tb.rows[i].className = '';
+      });
+      document.getElementById('of-in').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); check(); }
+      });
+    })();
+  </script>
+</body>
+</html>

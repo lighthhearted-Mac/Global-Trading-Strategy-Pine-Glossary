@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/nodes">
+  <link rel="canonical" href="https://composeratlas.com/nodes">
+  <meta property="og:title" content="Composer Symphony Node Counter">
+  <meta property="og:description" content="Count the nodes in a Composer.trade symphony. Paste a symphony URL and get the node total with a breakdown by node type.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Count the nodes in a Composer.trade symphony. Paste a symphony URL and get the node total with a breakdown by node type.">
+  <title>Nodes: Composer Symphony Node Counter: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .nd-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+    .nd-label { display: block; font-size: 0.8125rem; font-weight: 600; color: var(--color-primary); margin-bottom: 8px; }
+    .nd-hint { font-size: 0.8125rem; color: var(--color-secondary); margin-bottom: 12px; line-height: 1.6; }
+    #nd-in {
+      width: 100%; min-height: 92px; resize: vertical; box-sizing: border-box;
+      background: var(--color-bg); color: var(--color-primary);
+      border: 1px solid var(--color-border-strong); border-radius: 8px; padding: 12px 14px;
+      font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6;
+    }
+    #nd-in:focus { outline: 2px solid var(--color-blue); outline-offset: -1px; }
+    .nd-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+    .nd-msg { margin-top: 14px; font-size: 0.875rem; line-height: 1.6; }
+    .nd-msg.err { color: var(--color-pink); }
+    .nd-msg.info { color: var(--color-secondary); }
+    .nd-msg a { color: var(--color-blue); word-break: break-all; }
+
+    .nd-total { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+    .nd-total .n { font-family: var(--font-mono); font-size: 3rem; line-height: 1; font-weight: 600; color: var(--color-green); }
+    .nd-total .lbl { font-size: 1rem; color: var(--color-secondary); }
+    .nd-name { font-size: 0.9375rem; color: var(--color-primary); margin-top: 10px; }
+    .nd-name .sub { color: var(--color-disabled); font-size: 0.8125rem; display: block; margin-top: 4px; font-family: var(--font-mono); }
+
+    table.nd-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    table.nd-table th, table.nd-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border); }
+    table.nd-table th { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-disabled); font-weight: 600; }
+    table.nd-table td.n { text-align: right; font-family: var(--font-mono); color: var(--color-primary); }
+    table.nd-table span.step { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-disabled); }
+    table.nd-table tr.total td { border-bottom: none; font-weight: 600; color: var(--color-primary); padding-top: 12px; }
+    table.nd-table tr.excluded td { color: var(--color-disabled); }
+    .nd-note { font-size: 0.8125rem; color: var(--color-secondary); line-height: 1.7; margin-top: 14px; }
+    .nd-note code { font-size: 0.75rem; }
+    .nd-quote { border-left: 2px solid var(--color-border); padding-left: 14px; color: var(--color-secondary); font-size: 0.875rem; line-height: 1.7; }
+    .nd-quote ul { margin: 8px 0 0 0; padding-left: 18px; }
+    .nd-head h2 { color: var(--color-primary); font-size: 1rem; font-weight: 600; margin: 0 0 12px; }
+  </style>
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+
+      <div style="max-width:680px;margin-bottom:28px">
+        <h1 style="color:var(--color-primary);margin-bottom:8px">Nodes</h1>
+        <p style="color:var(--color-secondary);font-size:1.0625rem;line-height:1.6">
+          Paste a Composer.trade symphony <strong>URL</strong> and get its node count, with a
+          breakdown of where the nodes come from. Composer does not show this number in the
+          platform, and it is the number the pricing tiers are counted against.
+        </p>
+      </div>
+
+      <div class="nd-panel">
+        <label class="nd-label" for="nd-in">Symphony</label>
+        <p class="nd-hint">
+          A symphony URL like <code>https://app.composer.trade/symphony/4aI4kVT5cEc0XJpTLei3/details</code>,
+          a bare ID, or raw JSON from the <code>/score</code> endpoint.
+        </p>
+        <textarea id="nd-in" spellcheck="false" placeholder="Paste a symphony URL..."></textarea>
+        <div class="nd-actions">
+          <button id="btn-count" class="btn btn-green">Count nodes</button>
+          <button id="btn-example" class="btn btn-outline">Load example</button>
+          <button id="btn-clear" class="btn btn-outline">Clear</button>
+        </div>
+        <div id="nd-msg" class="nd-msg"></div>
+      </div>
+
+      <div id="nd-out" style="display:none">
+        <div class="nd-panel">
+          <div class="nd-total">
+            <span class="n" id="nd-count">0</span>
+            <span class="lbl" id="nd-count-label">nodes</span>
+          </div>
+          <div class="nd-name" id="nd-name"></div>
+        </div>
+
+        <div class="nd-panel">
+          <div class="nd-head"><h2>Breakdown</h2></div>
+          <table class="nd-table"><tbody id="nd-rows"></tbody></table>
+          <p class="nd-note" id="nd-note"></p>
+        </div>
+      </div>
+
+      <div class="nd-panel">
+        <div class="nd-head"><h2>What counts as a node</h2></div>
+        <div class="nd-quote">
+          Composer support, relayed 2026-08-17: the platform does not show an exact node count
+          yet, and in the meantime this is what counts as a node.
+          <ul>
+            <li>Each asset (stock or ETF)</li>
+            <li>Each IF statement (conditional logic)</li>
+            <li>Each FILTER block</li>
+            <li>Each GROUP container</li>
+            <li>Each weighting method block</li>
+          </ul>
+        </div>
+        <p class="nd-note">
+          The count runs higher than most people expect, because an asset counts every time it
+          appears. A filter or a weighting block over six tickers is six asset nodes plus the block
+          itself, and reusing that same set inside several IF branches counts it again each time.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="js/app.js"></script>
+  <script>
+    (function () {
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'Nodes' },
+      ]);
+
+      var SCORE_URL = function (id) {
+        return 'https://api.composer.trade/api/v0.1/symphonies/' + id + '/score?score_version=v1';
+      };
+      var EXAMPLE_URL = 'https://app.composer.trade/symphony/4aI4kVT5cEc0XJpTLei3/details';
+
+      // Composer's API answers with HTTP 200 but sends no access-control-allow-origin
+      // header, so a browser cannot read the response directly. Same relay chain the
+      // ETF Cloner uses, tried in order, with a paste-the-JSON fallback if all of them
+      // are down. The direct fetch is tried first so this starts working on its own the
+      // day Composer adds the header.
+      var RELAYS = [
+        { name: 'direct', wrap: function (t) { return t; } },
+        { name: 'cors.sh', wrap: function (t) { return 'https://proxy.cors.sh/' + t; } },
+        { name: 'allorigins', wrap: function (t) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(t); } },
+        { name: 'codetabs', wrap: function (t) { return 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(t); } }
+      ];
+
+      // step -> the category Composer's definition puts it in. Anything matching wt-*
+      // is a weighting block; the prefix is matched rather than a fixed list, so a
+      // weighting method this repo has not seen still lands in the right row.
+      var CATEGORY = {
+        'asset':  { label: 'Assets', order: 1 },
+        'if':     { label: 'IF statements', order: 2 },
+        'filter': { label: 'FILTER blocks', order: 3 },
+        'group':  { label: 'GROUP containers', order: 4 },
+        'wt':     { label: 'Weighting blocks', order: 5 },
+        'other':  { label: 'Unrecognised steps', order: 6 }
+      };
+      // Structural steps that are not nodes. `root` is the symphony itself. `if-child`
+      // is the THEN/ELSE branch container Composer generates: every `if` has exactly
+      // two, so counting them would treble the conditional logic.
+      var NOT_A_NODE = { 'root': 'the symphony itself', 'if-child': 'THEN/ELSE branch containers' };
+
+      var msgEl = document.getElementById('nd-msg');
+      var outEl = document.getElementById('nd-out');
+
+      function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+      function setMsg(html, cls) {
+        msgEl.className = 'nd-msg ' + (cls || '');
+        msgEl.innerHTML = html || '';
+      }
+      function categoryOf(step) {
+        if (CATEGORY[step]) return step;
+        if (step && step.indexOf('wt-') === 0) return 'wt';
+        return 'other';
+      }
+
+      // ---- counting ----
+      function count(root) {
+        var counted = {}, skipped = {}, unknown = {}, maxDepth = 0;
+        function walk(node, d) {
+          if (!node || typeof node !== 'object') return;
+          var step = node.step;
+          // Depth is counted in nodes, not in JSON levels. The raw tree is deeper
+          // than the symphony reads, because every IF adds an if-child level that
+          // nobody sees in the editor.
+          if (step) {
+            if (NOT_A_NODE[step]) {
+              skipped[step] = (skipped[step] || 0) + 1;
+            } else {
+              var cat = categoryOf(step);
+              counted[cat] = (counted[cat] || 0) + 1;
+              if (cat === 'other') unknown[step] = (unknown[step] || 0) + 1;
+              d += 1;
+              if (d > maxDepth) maxDepth = d;
+            }
+          }
+          var kids = node.children || [];
+          for (var i = 0; i < kids.length; i++) walk(kids[i], d);
+        }
+        walk(root, 0);
+        var total = 0;
+        for (var k in counted) total += counted[k];
+        return { counted: counted, skipped: skipped, unknown: unknown,
+                 total: total, maxDepth: maxDepth };
+      }
+
+      // ---- render ----
+      function render(sym) {
+        var r = count(sym);
+
+        document.getElementById('nd-count').textContent = r.total.toLocaleString();
+        document.getElementById('nd-count-label').textContent = r.total === 1 ? 'node' : 'nodes';
+
+        var tickers = {}, nTickers = 0;
+        (function collect(n) {
+          if (!n || typeof n !== 'object') return;
+          if (n.step === 'asset' && n.ticker && !tickers[n.ticker]) { tickers[n.ticker] = 1; nTickers++; }
+          var kids = n.children || [];
+          for (var i = 0; i < kids.length; i++) collect(kids[i]);
+        })(sym);
+
+        document.getElementById('nd-name').innerHTML =
+          '<strong>' + esc(sym.name || 'Untitled symphony') + '</strong>' +
+          '<span class="sub">' + esc(sym.id || '') +
+          (nTickers ? '  &middot;  ' + nTickers + ' distinct ticker' + (nTickers === 1 ? '' : 's') : '') +
+          '  &middot;  ' + r.maxDepth + ' levels deep</span>';
+
+        var order = Object.keys(CATEGORY).sort(function (a, b) {
+          return CATEGORY[a].order - CATEGORY[b].order;
+        });
+        var html = '<tr><th>Node type</th><th style="text-align:right">Count</th></tr>';
+        order.forEach(function (cat) {
+          var n = r.counted[cat] || 0;
+          if (!n) return;
+          var label = CATEGORY[cat].label;
+          if (cat === 'other') label += ' (' + esc(Object.keys(r.unknown).join(', ')) + ')';
+          html += '<tr><td>' + label + '</td><td class="n">' + n.toLocaleString() + '</td></tr>';
+        });
+        html += '<tr class="total"><td>Total nodes</td><td class="n">' + r.total.toLocaleString() + '</td></tr>';
+        Object.keys(r.skipped).forEach(function (step) {
+          html += '<tr class="excluded"><td>Not counted: ' + esc(NOT_A_NODE[step]) +
+                  ' <span class="step">' + esc(step) + '</span></td><td class="n">' +
+                  r.skipped[step].toLocaleString() + '</td></tr>';
+        });
+        document.getElementById('nd-rows').innerHTML = html;
+
+        var note = 'Two things in the JSON are structure rather than nodes and are left out: ' +
+          '<code>root</code>, which is the symphony itself, and <code>if-child</code>, the ' +
+          'THEN/ELSE branch container Composer writes underneath every IF. Every IF has exactly ' +
+          'two of them, so counting them would treble the conditional logic.';
+        if (Object.keys(r.unknown).length) {
+          note += ' <strong>This symphony also uses a step this tool has not seen before (' +
+            esc(Object.keys(r.unknown).join(', ')) + ').</strong> It is counted as one node each, ' +
+            'which may be wrong.';
+        }
+        document.getElementById('nd-note').innerHTML = note;
+
+        outEl.style.display = 'block';
+      }
+
+      // ---- input ----
+      function looksLikeJson(s) { return /^[\[{]/.test(s.trim()); }
+
+      function extractId(s) {
+        var m = s.match(/symphony\/([A-Za-z0-9_-]+)/);
+        if (m) return m[1];
+        s = s.trim();
+        if (/^[A-Za-z0-9_-]{12,}$/.test(s)) return s;
+        return null;
+      }
+
+      function normalizeSymphony(parsed) {
+        if (parsed && parsed.step) return parsed;
+        if (Array.isArray(parsed)) {
+          for (var i = 0; i < parsed.length; i++) if (parsed[i] && parsed[i].step) return parsed[i];
+        } else if (parsed && typeof parsed === 'object') {
+          var keys = Object.keys(parsed);
+          for (var j = 0; j < keys.length; j++) {
+            var v = parsed[keys[j]];
+            if (v && v.step) return v;
+          }
+        }
+        return null;
+      }
+
+      function fetchSymphony(id) {
+        var target = SCORE_URL(id);
+        var i = 0;
+        // A relay that reaches Composer passes its status through, so a 404 here is
+        // Composer saying the symphony does not exist rather than the relay failing.
+        // Worth telling apart: the two have completely different fixes.
+        var missing = false;
+        setMsg('Fetching symphony <code>' + esc(id) + '</code> from Composer...', 'info');
+
+        function attempt() {
+          if (i >= RELAYS.length) {
+            if (missing) {
+              setMsg(
+                'Composer has no symphony with the ID <code>' + esc(id) + '</code>. Check the ' +
+                'URL, and note that a private or deleted symphony answers the same way as one ' +
+                'that never existed.',
+                'err'
+              );
+              return;
+            }
+            setMsg(
+              'Could not reach Composer from the browser. Composer&rsquo;s API does not send the ' +
+              'CORS header a browser needs, and the public relays this page falls back to are ' +
+              'not answering either. Open the raw JSON in a new tab, copy all of it, and paste ' +
+              'it in the box above:<br><a href="' + esc(target) + '" target="_blank" rel="noopener noreferrer">' +
+              esc(target) + '</a>',
+              'err'
+            );
+            return;
+          }
+          var relay = RELAYS[i++];
+          if (relay.name !== 'direct') {
+            setMsg('Composer blocked the direct request. Retrying through <code>' +
+              esc(relay.name) + '</code>...', 'info');
+          }
+          fetch(relay.wrap(target))
+            .then(function (res) {
+              if (res.status === 404) missing = true;
+              if (!res.ok) throw new Error(relay.name + ' HTTP ' + res.status);
+              return res.text();
+            })
+            .then(function (txt) {
+              if (!txt || txt.charAt(0) !== '{') throw new Error(relay.name + ' returned non-JSON');
+              var sym = normalizeSymphony(JSON.parse(txt));
+              if (!sym) throw new Error('no symphony tree in the response');
+              setMsg('', '');
+              render(sym);
+            })
+            .catch(function () { attempt(); });
+        }
+        attempt();
+      }
+
+      function run() {
+        var raw = document.getElementById('nd-in').value;
+        if (!raw.trim()) { setMsg('Paste a symphony URL first.', 'err'); return; }
+
+        if (looksLikeJson(raw)) {
+          var parsed;
+          try { parsed = JSON.parse(raw); }
+          catch (e) { setMsg('That is not valid JSON: ' + esc(e.message), 'err'); return; }
+          var sym = normalizeSymphony(parsed);
+          if (!sym) { setMsg('Could not find a symphony tree (no "step" field) in that JSON.', 'err'); return; }
+          setMsg('', '');
+          render(sym);
+          return;
+        }
+
+        var id = extractId(raw);
+        if (!id) { setMsg('Could not find a symphony ID in that input.', 'err'); return; }
+        fetchSymphony(id);
+      }
+
+      document.getElementById('btn-count').addEventListener('click', run);
+      document.getElementById('nd-in').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); }
+      });
+      document.getElementById('btn-example').addEventListener('click', function () {
+        document.getElementById('nd-in').value = EXAMPLE_URL;
+        run();
+      });
+      document.getElementById('btn-clear').addEventListener('click', function () {
+        document.getElementById('nd-in').value = '';
+        setMsg('', '');
+        outEl.style.display = 'none';
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,472 @@
+﻿namespace StockSharp.Algo.Storages;
+
+/// <summary>
+/// The client for access to the history server.
+/// </summary>
+public class RemoteStorageClient : Disposable
+{
+	// A transport writes a message as it is handed one and expects them one after another, the way a connector
+	// hands them over. Requests made at once from several threads would be written into each other.
+	private sealed class OneAtATimeAdapter(IMessageAdapter innerAdapter) : MessageAdapterWrapper(innerAdapter)
+	{
+		private readonly AsyncLock _sendLock = new();
+
+		public override async ValueTask SendInMessageAsync(Message message, CancellationToken cancellationToken)
+		{
+			using (await _sendLock.LockAsync(cancellationToken))
+				await base.SendInMessageAsync(message, cancellationToken);
+		}
+
+		public override async ValueTask<IMessageAdapter> CloneAsync(CancellationToken cancellationToken)
+			=> new OneAtATimeAdapter(await InnerAdapter.CloneAsync(cancellationToken));
+	}
+
+	private readonly IMessageAdapter _adapter;
+	private readonly int _securityBatchSize;
+
+	// Requests run at once - a source asks for the dates of every kind of data it downloads together - and a
+	// transport refuses to be connected a second time while the first connect is still under way.
+	private readonly AsyncLock _connectLock = new();
+	private volatile bool _isConnected;
+
+	// Cancelled when the connection is lost, for the requests in flight at that moment: a transport that
+	// reconnects sends again what is still subscribed, and a request for what is stored is not that.
+	private readonly Lock _lostLock = new();
+	private CancellationTokenSource _lost = new();
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="RemoteStorageClient"/>.
+	/// </summary>
+	/// <param name="adapter">Message adapter.</param>
+	/// <param name="securityBatchSize">The new instruments request block size.</param>
+	public RemoteStorageClient(IMessageAdapter adapter, int securityBatchSize)
+	{
+		if (securityBatchSize <= 0)
+			throw new ArgumentOutOfRangeException(nameof(securityBatchSize), securityBatchSize, LocalizedStrings.InvalidValue);
+
+		if (adapter is null)
+			throw new ArgumentNullException(nameof(adapter));
+
+		_adapter = new OneAtATimeAdapter(new SubscriptionMessageAdapter(adapter)) { OwnInnerAdapter = true };
+		_adapter.NewOutMessageAsync += OnTransportMessage;
+
+		_securityBatchSize = securityBatchSize;
+	}
+
+	/// <inheritdoc />
+	protected override void DisposeManaged()
+	{
+		_adapter.NewOutMessageAsync -= OnTransportMessage;
+		_adapter.Dispose();
+		base.DisposeManaged();
+	}
+
+	private ValueTask OnTransportMessage(Message message, CancellationToken cancellationToken)
+	{
+		if (message is not ConnectionLostMessage)
+			return default;
+
+		CancellationTokenSource lost;
+
+		using (_lostLock.EnterScope())
+		{
+			lost = _lost;
+			_lost = new();
+		}
+
+		lost.Cancel();
+
+		return default;
+	}
+
+	/// <summary>
+	/// Get all available instruments as async stream.
+	/// </summary>
+	/// <returns>Available instruments.</returns>
+	public IAsyncEnumerable<SecurityId> GetAvailableSecuritiesAsync()
+	{
+		async IAsyncEnumerable<SecurityId> Impl([EnumeratorCancellation]CancellationToken cancellationToken = default)
+		{
+			var (msgs, _) = await DoAsync<SecurityMessage>(new SecurityLookupMessage { OnlySecurityId = true }, cancellationToken);
+
+			foreach (var s in msgs)
+				yield return s.SecurityId;
+		}
+
+		return Impl();
+	}
+
+	/// <summary>
+	/// Download securities by the specified criteria.
+	/// </summary>
+	/// <param name="criteria">Message security lookup for specified criteria.</param>
+	/// <param name="securityProvider">The provider of information about instruments.</param>
+	/// <returns>The sequence of found instruments.</returns>
+	public IAsyncEnumerable<SecurityMessage> LookupSecuritiesAsync(SecurityLookupMessage criteria, ISecurityProvider securityProvider)
+	{
+		if (criteria == null)
+			throw new ArgumentNullException(nameof(criteria));
+
+		if (securityProvider is null)
+			throw new ArgumentNullException(nameof(securityProvider));
+
+		async IAsyncEnumerable<SecurityMessage> Impl([EnumeratorCancellation] CancellationToken cancellationToken = default)
+		{
+			var existingIds = new HashSet<SecurityId>();
+
+			await foreach (var s in securityProvider.LookupAllAsync().WithEnforcedCancellation(cancellationToken))
+			{
+				existingIds.Add(s.Id.ToSecurityId());
+			}
+
+			if (criteria.SecurityId != default || criteria.SecurityIds.Length > 0)
+			{
+				var newSecurityIds = new HashSet<SecurityId>();
+
+				void tryAdd(SecurityId secId)
+				{
+					if (!existingIds.Contains(secId))
+						newSecurityIds.Add(secId);
+				}
+
+				if (criteria.SecurityId != default)
+					tryAdd(criteria.SecurityId);
+
+				foreach (var secId in criteria.SecurityIds)
+					tryAdd(secId);
+
+				if (newSecurityIds.Count > 0)
+				{
+					criteria = criteria.TypedClone();
+					criteria.SecurityId = default;
+					criteria.SecurityIds = [.. newSecurityIds];
+
+					var (newSecurities, _) = await DoAsync<SecurityMessage>(criteria, cancellationToken);
+
+					foreach (var security in newSecurities)
+						yield return security;
+				}
+			}
+			else
+			{
+				criteria = criteria.TypedClone();
+				criteria.OnlySecurityId = true;
+
+				var (securities, isFull) = await DoAsync<SecurityMessage>(criteria, cancellationToken);
+
+				if (isFull)
+				{
+					var newSecurities = securities
+						.Where(s => !existingIds.Contains(s.SecurityId))
+						.ToArray();
+
+					foreach (var security in newSecurities)
+						yield return security;
+				}
+				else
+				{
+					var newSecurityIds = securities
+						.Select(s => s.SecurityId)
+						.Where(id => !existingIds.Contains(id))
+						.ToArray();
+
+					var count = 0;
+
+					foreach (var batch in newSecurityIds.Chunk(_securityBatchSize))
+					{
+						var (batchRes, _) = await DoAsync<SecurityMessage>(new SecurityLookupMessage { SecurityIds = batch }, cancellationToken);
+
+						foreach (var security in batchRes)
+							yield return security;
+
+						count += batch.Length;
+					}
+				}
+			}
+		}
+		
+		return Impl();
+	}
+
+	/// <summary>
+	/// Save securities.
+	/// </summary>
+	/// <param name="securities">Securities.</param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns><see cref="ValueTask"/></returns>
+	public async ValueTask SaveSecuritiesAsync(IEnumerable<SecurityMessage> securities, CancellationToken cancellationToken)
+	{
+		if (securities is null)
+			throw new ArgumentNullException(nameof(securities));
+
+		foreach (var message in securities)
+			await _adapter.SendInMessageAsync(message, cancellationToken);
+	}
+
+	/// <summary>
+	/// Download boards by the specified criteria.
+	/// </summary>
+	/// <param name="criteria">Message board lookup for specified criteria.</param>
+	/// <returns>The sequence of found boards.</returns>
+	public IAsyncEnumerable<BoardMessage> LookupBoardsAsync(BoardLookupMessage criteria)
+	{
+		if (criteria is null)
+			throw new ArgumentNullException(nameof(criteria));
+
+		return Impl();
+
+		async IAsyncEnumerable<BoardMessage> Impl([EnumeratorCancellation] CancellationToken cancellationToken = default)
+		{
+			var (boards, _) = await DoAsync<BoardMessage>(criteria, cancellationToken);
+
+			foreach (var board in boards)
+			{
+				cancellationToken.ThrowIfCancellationRequested();
+				yield return board;
+			}
+		}
+	}
+
+	/// <summary>
+	/// Get all available data types.
+	/// </summary>
+	/// <param name="securityId">Instrument identifier.</param>
+	/// <param name="format">Format type.</param>
+	/// <returns>Data types.</returns>
+	public IAsyncEnumerable<DataType> GetAvailableDataTypesAsync(SecurityId securityId, StorageFormats format)
+	{
+		return Impl();
+
+		async IAsyncEnumerable<DataType> Impl([EnumeratorCancellation] CancellationToken cancellationToken = default)
+		{
+			var (msgs, _) = await DoAsync<DataTypeInfoMessage>(new DataTypeLookupMessage
+			{
+				SecurityId = securityId,
+				Format = (int)format,
+			}, cancellationToken);
+
+			foreach (var m in msgs.Select(m => m.FileDataType).Distinct())
+			{
+				cancellationToken.ThrowIfCancellationRequested();
+				yield return m;
+			}
+		}
+	}
+
+	/// <summary>
+	/// Verify connection to the server.
+	/// Connects and then disconnects to test connectivity.
+	/// </summary>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns><see cref="ValueTask"/></returns>
+	public async ValueTask VerifyAsync(CancellationToken cancellationToken)
+	{
+		await _adapter.ConnectAsync(cancellationToken);
+
+		try
+		{
+			await _adapter.DisconnectAsync(cancellationToken);
+		}
+		catch
+		{
+		}
+	}
+
+	/// <summary>
+	/// To get all the dates for which market data are recorded.
+	/// </summary>
+	/// <param name="securityId">Security ID.</param>
+	/// <param name="dataType">Data type info.</param>
+	/// <param name="format">Storage format.</param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns>Dates.</returns>
+	public async ValueTask<IEnumerable<DateTime>> GetDatesAsync(SecurityId securityId, DataType dataType, StorageFormats format, CancellationToken cancellationToken)
+	{
+		var (msgs, _) = await DoAsync<DataTypeInfoMessage>(new DataTypeLookupMessage
+		{
+			SecurityId = securityId,
+			RequestDataType = dataType,
+			Format = (int)format,
+			IncludeDates = true,
+		}, cancellationToken);
+
+		return [.. msgs.SelectMany(i => i.Dates).OrderBy().Distinct()];
+	}
+
+	/// <summary>
+	/// To save data in the format of StockSharp storage.
+	/// </summary>
+	/// <param name="securityId">Security ID.</param>
+	/// <param name="dataType">Data type info.</param>
+	/// <param name="format">Storage format.</param>
+	/// <param name="date">Date.</param>
+	/// <param name="stream"></param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns><see cref="ValueTask"/></returns>
+	public ValueTask SaveStreamAsync(SecurityId securityId, DataType dataType, StorageFormats format, DateTime date, Stream stream, CancellationToken cancellationToken)
+	{
+		if (stream is null)
+			throw new ArgumentNullException(nameof(stream));
+
+		return _adapter.SendInMessageAsync(new RemoteFileCommandMessage
+		{
+			Command = CommandTypes.Update,
+			Scope = CommandScopes.File,
+			SecurityId = securityId,
+			FileDataType = dataType,
+			From = date,
+			To = date.AddDays(1),
+			Format = (int)format,
+			Body = stream.To<byte[]>(),
+		}, cancellationToken);
+	}
+
+	/// <summary>
+	/// To load data in the format of StockSharp storage.
+	/// </summary>
+	/// <param name="securityId">Security ID.</param>
+	/// <param name="dataType">Data type info.</param>
+	/// <param name="format">Storage format.</param>
+	/// <param name="date">Date.</param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns>Data in the format of StockSharp storage. If no data exists, <see cref="Stream.Null"/> will be returned.</returns>
+	public async ValueTask<Stream> LoadStreamAsync(SecurityId securityId, DataType dataType, StorageFormats format, DateTime date, CancellationToken cancellationToken)
+	{
+		var (results, _) = await DoAsync<RemoteFileMessage>(new RemoteFileCommandMessage
+		{
+			Command = CommandTypes.Get,
+			Scope = CommandScopes.File,
+			SecurityId = securityId,
+			FileDataType = dataType,
+			From = date,
+			To = date.AddDays(1),
+			Format = (int)format,
+		}, cancellationToken);
+
+		return results.FirstOrDefault()?.Body.To<Stream>() ?? Stream.Null;
+	}
+
+	/// <summary>
+	/// To remove market data on specified date from the storage.
+	/// </summary>
+	/// <param name="securityId">Security ID.</param>
+	/// <param name="dataType">Data type info.</param>
+	/// <param name="format">Storage format.</param>
+	/// <param name="date">Date.</param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns><see cref="ValueTask"/></returns>
+	public ValueTask DeleteAsync(SecurityId securityId, DataType dataType, StorageFormats format, DateTime date, CancellationToken cancellationToken)
+	{
+		return _adapter.SendInMessageAsync(new RemoteFileCommandMessage
+		{
+			Command = CommandTypes.Remove,
+			Scope = CommandScopes.File,
+			SecurityId = securityId,
+			FileDataType = dataType,
+			Format = (int)format,
+			From = date,
+			To = date.AddDays(1),
+		}, cancellationToken);
+	}
+
+	private async ValueTask EnsureConnectedAsync(CancellationToken cancellationToken)
+	{
+		if (_isConnected)
+			return;
+
+		using (await _connectLock.LockAsync(cancellationToken))
+		{
+			if (_isConnected)
+				return;
+
+			await _adapter.ConnectAsync(cancellationToken);
+			_isConnected = true;
+		}
+	}
+
+	private async ValueTask<(TResult[] results, bool isFull)> DoAsync<TResult>(ITransactionIdMessage request, CancellationToken cancellationToken = default)
+		where TResult : Message
+	{
+		if (request is null)
+			throw new ArgumentNullException(nameof(request));
+
+		// if request is not a subscription message - just send and return empty
+		if (request is not ISubscriptionMessage)
+		{
+			await _adapter.SendInMessageAsync((Message)request, cancellationToken);
+			return ([], false);
+		}
+
+		// create subscription from request
+		var subscrMsg = ((ISubscriptionMessage)request).TypedClone();
+
+		await EnsureConnectedAsync(cancellationToken);
+
+		var result = new List<Message>();
+		var isFull = false;
+		var isAnswered = false;
+
+		CancellationToken lost;
+
+		using (_lostLock.EnterScope())
+			lost = _lost.Token;
+
+		using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lost);
+
+		try
+		{
+			await foreach (var msg in _adapter.SubscribeAsync<Message>(subscrMsg).WithEnforcedCancellation(waiting.Token))
+			{
+				if (msg is SubscriptionFinishedMessage finishedMsg)
+				{
+					if (finishedMsg.Body.Length > 0)
+					{
+						result.Clear();
+
+						if (typeof(TResult) == typeof(SecurityMessage))
+						{
+							await foreach (var item in finishedMsg.Body.ExtractSecuritiesAsync().WithEnforcedCancellation(cancellationToken))
+								result.Add(item);
+
+							isFull = true;
+						}
+						else if (typeof(TResult) == typeof(BoardMessage))
+						{
+							await foreach (var item in finishedMsg.Body.ExtractBoardsAsync().WithEnforcedCancellation(cancellationToken))
+								result.Add(item);
+
+							isFull = true;
+						}
+					}
+
+					isAnswered = true;
+					break;
+				}
+				else if (msg is SubscriptionOnlineMessage || msg is TimeMessage)
+				{
+					isAnswered = true;
+					break;
+				}
+				else
+				{
+					if (msg is not TimeMessage)
+						result.Add(msg);
+				}
+			}
+		}
+		catch (OperationCanceledException) when (lost.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+		{
+			// The wait was ended by the lost connection, not by the caller: said below.
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			throw new InvalidOperationException(LocalizedStrings.SomeConnectionFailed, ex);
+		}
+
+		// What came before the connection was lost is not the answer: the rest of it never will come.
+		if (!isAnswered && lost.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+			throw new InvalidOperationException(LocalizedStrings.ConnectionLost);
+
+		return (result.OfType<TResult>().ToArray(), isFull);
+	}
+}

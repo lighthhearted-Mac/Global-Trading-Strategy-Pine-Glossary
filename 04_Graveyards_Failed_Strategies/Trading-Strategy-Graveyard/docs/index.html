@@ -1,0 +1,1091 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="35 pre-registered backtests. 29 kills. Tools that stop your backtest from lying to you.">
+<meta name="theme-color" content="#F6F7F3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131614" media="(prefers-color-scheme: dark)">
+<title>The Falsification Kit — tools that kill bad backtests</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="0.9em" font-size="90">🪦</text></svg>'>
+<meta property="og:title" content="The Falsification Kit">
+<meta property="og:description" content="35 pre-registered backtests. 29 kills. Tools that stop your backtest from lying to you.">
+<meta property="og:url" content="https://strategygraveyard.com">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --paper: #F6F7F3;
+    --ink: #1A1E1B;
+    --graphite: #50564F;
+    --faint: #A9AEA8;
+    --rule: #DADDD6;
+    --kill: #B0372B;
+    --kill-soft: rgba(176, 55, 43, 0.07);
+    --pass: #2E6B44;
+    --pass-soft: rgba(46, 107, 68, 0.08);
+    --card: #FFFFFF;
+    --mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+    --serif: "Spectral", Georgia, "Times New Roman", serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #131614; --ink: #E4E6E1; --graphite: #A8AFA9; --faint: #6A716B;
+      --rule: #2B2F2C; --kill: #DA5C4C; --kill-soft: rgba(218,92,76,0.12);
+      --pass: #5CA97A; --pass-soft: rgba(92,169,122,0.12); --card: #1A1E1B;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #F6F7F3; --ink: #1A1E1B; --graphite: #50564F; --faint: #A9AEA8;
+    --rule: #DADDD6; --kill: #B0372B; --kill-soft: rgba(176,55,43,0.07);
+    --pass: #2E6B44; --pass-soft: rgba(46,107,68,0.08); --card: #FFFFFF;
+  }
+  :root[data-theme="dark"] {
+    --paper: #131614; --ink: #E4E6E1; --graphite: #A8AFA9; --faint: #6A716B;
+    --rule: #2B2F2C; --kill: #DA5C4C; --kill-soft: rgba(218,92,76,0.12);
+    --pass: #5CA97A; --pass-soft: rgba(92,169,122,0.12); --card: #1A1E1B;
+  }
+
+  * { box-sizing: border-box; }
+  .nb { white-space: nowrap; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17.5px;
+    line-height: 1.68;
+    margin: 0;
+  }
+  ::selection { background: var(--kill-soft); color: var(--kill); }
+
+  .doc { max-width: 46rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  @media (min-width: 1140px) {
+    .doc { border-left: 1px solid var(--rule); padding-left: 2.8rem; padding-right: 0; }
+    /* Margin annotations: anchored inside their heading, projected into the margin,
+       so they always align with the heading's first line. */
+    .eyebrow {
+      position: absolute;
+      right: calc(100% + 3.2rem);
+      top: 0.45em;
+      width: 11rem;
+      margin: 0;
+      text-align: right;
+    }
+  }
+
+  /* ---------- file header ---------- */
+  .filehead {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--graphite);
+    border-bottom: 1px solid var(--rule);
+    padding: 1.1rem 0 0.85rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.8rem;
+  }
+  .filehead b { color: var(--ink); font-weight: 600; }
+
+  /* margin tabs: lowercase mono annotations, the case-file exhibit taxonomy.
+     Each lives inside its heading (block on narrow screens, projected into the
+     left margin on wide ones). */
+  .eyebrow {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    font-style: normal;
+    letter-spacing: 0.02em;
+    line-height: 1.6;
+    color: var(--graphite);
+    margin: 0 0 0.7rem;
+  }
+  .eyebrow b { color: var(--kill); font-weight: 600; }
+  h1, h2 { position: relative; }
+  .doc > h2 { margin-top: 3.7rem; }
+
+  h1 {
+    font-size: clamp(2.15rem, 6vw, 3.35rem);
+    line-height: 1.06;
+    margin: 1.9rem 0 1.15rem;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    text-wrap: balance;
+  }
+  h1 em { font-style: italic; font-weight: 700; }
+  h1 .keep { white-space: nowrap; }
+  h2 {
+    font-size: 1.42rem;
+    margin: 0 0 0.9rem;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+  .lede { font-size: 1.11rem; }
+  .muted { color: var(--graphite); }
+  strong { font-weight: 600; }
+  a { color: inherit; text-decoration-color: var(--faint); text-underline-offset: 3px; transition: text-decoration-color 120ms ease; }
+  a:hover { text-decoration-color: var(--kill); }
+  a:focus-visible, .btn:focus-visible { outline: 2px solid var(--kill); outline-offset: 3px; border-radius: 2px; }
+
+  /* ---------- verdict chips ---------- */
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    padding: 0.15rem 0.5rem;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .chip.fail { color: var(--kill); background: var(--kill-soft); border: 1px solid var(--kill); }
+  .chip.pass { color: var(--pass); background: var(--pass-soft); border: 1px solid var(--pass); }
+  .chip.hero-stamp { display: inline-block; transform: rotate(-2deg); font-size: 0.8rem; vertical-align: 0.45em; margin-left: 0.4rem; }
+
+  /* ---------- the gate ledger strip ---------- */
+  .ledger { margin: 2.4rem 0 0.5rem; }
+  .ledger-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .slot { flex: 1 1 0; min-width: 0; text-align: center; }
+  .slot .box {
+    border: 1px solid var(--rule);
+    background: var(--card);
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(0.7rem, 2.2vw, 1.05rem);
+    line-height: 1;
+    user-select: none;
+  }
+  .slot.fail .box { color: var(--kill); background: var(--kill-soft); border-color: color-mix(in srgb, var(--kill) 35%, var(--rule)); }
+  .slot.pass .box { color: var(--paper); background: var(--pass); border-color: var(--pass); }
+  .slot.bench .box { color: var(--pass); background: var(--pass-soft); border-color: var(--pass); }
+  .slot.split .box {
+    color: var(--ink);
+    background: linear-gradient(135deg, var(--kill-soft) 50%, var(--pass-soft) 50%);
+    border-color: var(--graphite);
+  }
+  .slot.pend .box { color: var(--graphite); background: var(--card); border-style: dashed; }
+  .slot .idx {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.56rem;
+    min-height: 1em;
+    color: var(--faint);
+    margin-top: 0.3rem;
+    letter-spacing: 0.04em;
+  }
+  .ledger-notes {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    margin-top: 0.55rem;
+  }
+  .ledger-notes .note {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    line-height: 1.45;
+    color: var(--graphite);
+    text-align: center;
+    flex: 0 0 calc((100% - 4px * 24) / 25 * 9 + 4px * 8);
+    border-top: 1px solid var(--rule);
+    padding-top: 0.35rem;
+  }
+  .ledger-notes .note b { color: var(--ink); font-weight: 600; display: block; }
+  .ledger-tally {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--graphite);
+    margin: 1.1rem 0 0;
+    line-height: 1.9;
+  }
+  .ledger-tally b { font-weight: 700; color: var(--ink); }
+  .ledger-tally .k { color: var(--kill); }
+  .ledger-tally .g { color: var(--pass); }
+  .boardnote { font-family: var(--mono); font-size: 0.72rem; color: var(--graphite); margin: 0.4rem 0 0; }
+
+  @media (max-width: 560px) {
+    .ledger-row { flex-wrap: wrap; gap: 4px; }
+    .slot { flex: 0 0 calc((100% - 4px * 9) / 10); }
+    .ledger-notes { display: block; }
+    .ledger-notes .note { display: inline-block; margin-right: 1rem; text-align: left; border-top: none; padding-top: 0; }
+    .ledger-notes .note b { display: inline; }
+    .ledger-notes .note b::after { content: " — "; color: var(--faint); }
+  }
+
+  /* ---------- the distance chart ---------- */
+  .chart {
+    border: 1px solid var(--rule);
+    background: var(--card);
+    padding: 1.5rem 1.4rem 1.1rem;
+    margin: 1.6rem 0 0.5rem;
+  }
+  .chart-title { font-family: var(--mono); font-size: 0.72rem; font-weight: 600; color: var(--ink); margin: 0 0 0.2rem; }
+  .chart-sub { font-family: var(--mono); font-size: 0.66rem; color: var(--graphite); margin: 0 0 1.3rem; }
+  .crow { display: grid; grid-template-columns: 11.5rem 1fr; align-items: center; gap: 0.9rem; padding: 0.34rem 0; }
+  .crow .clabel { font-family: var(--mono); font-size: 0.68rem; line-height: 1.4; color: var(--graphite); text-align: right; }
+  .crow .clabel b { color: var(--ink); font-weight: 600; display: block; }
+  .track { position: relative; height: 22px; }
+  /* continuous vertical reference lines drawn per-track so they stack into full-height rules */
+  .track::before, .track::after {
+    content: "";
+    position: absolute; top: 0; bottom: 0; width: 1px;
+  }
+  .track::before { left: 42.9%; background: var(--rule); }              /* PF 1.00 breakeven */
+  .track::after { left: 85.7%; background: var(--kill); opacity: 0.85; } /* PF 1.30 gate */
+  .dot {
+    position: absolute; top: 50%;
+    width: 11px; height: 11px;
+    margin: -5.5px 0 0 -5.5px;
+    border-radius: 50%;
+    background: var(--kill);
+    box-shadow: 0 0 0 2px var(--card);
+  }
+  .dot.hollow { background: var(--card); border: 2px solid var(--kill); width: 10px; height: 10px; margin: -5px 0 0 -5px; }
+  .dval {
+    position: absolute; top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--mono); font-size: 0.62rem; font-weight: 600;
+    color: var(--graphite);
+    white-space: nowrap;
+    margin-left: 9px;
+    background: var(--card);
+    padding: 0 3px;
+  }
+  .dval.flip { margin-left: 0; margin-right: 9px; transform: translate(-100%, -50%); }
+  .decay {
+    position: absolute; top: 50%; height: 2px; margin-top: -1px;
+    background: repeating-linear-gradient(90deg, var(--kill) 0 3px, transparent 3px 6px);
+    opacity: 0.7;
+  }
+  .caxis { display: grid; grid-template-columns: 11.5rem 1fr; gap: 0.9rem; margin-top: 0.5rem; }
+  .caxis .scale { position: relative; height: 2.4rem; font-family: var(--mono); font-size: 0.62rem; color: var(--graphite); }
+  .caxis .tick { position: absolute; top: 0.25rem; transform: translateX(-50%); text-align: center; line-height: 1.5; }
+  .caxis .tick small { display: block; font-size: 0.56rem; color: var(--faint); }
+  .caxis .tick.gate { color: var(--kill); font-weight: 700; }
+  .caxis .tick.gate small { color: var(--kill); font-weight: 400; }
+  .chart-note { font-family: var(--mono); font-size: 0.66rem; color: var(--graphite); border-top: 1px solid var(--rule); margin-top: 1rem; padding-top: 0.8rem; line-height: 1.7; }
+
+  @media (max-width: 620px) {
+    .crow { grid-template-columns: 1fr; gap: 0.15rem; padding: 0.55rem 0; }
+    .crow .clabel { text-align: left; }
+    .crow .clabel b { display: inline; }
+    .crow .clabel b::after { content: " · "; color: var(--faint); }
+    .caxis { grid-template-columns: 1fr; }
+    .chart { padding: 1.2rem 1rem 0.9rem; }
+    .xs-hide { display: none; }
+  }
+
+  /* ---------- tables ---------- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); margin: 1.4rem 0 0.5rem; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 34rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    background: var(--card);
+  }
+  th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.64rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--graphite);
+    padding: 0.65rem 0.95rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  td {
+    padding: 0.6rem 0.95rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.55;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--kill-soft); }
+  tr:has(.chip.pass):hover td { background: var(--pass-soft); }
+  .tablenote { font-family: var(--mono); font-size: 0.72rem; color: var(--graphite); }
+
+  /* ---------- the three artifacts ---------- */
+  .artifacts { margin: 1.7rem 0 0.4rem; border-top: 1px solid var(--rule); }
+  .artifact {
+    display: grid;
+    grid-template-columns: 10rem 1fr;
+    gap: 1.4rem;
+    padding: 1.5rem 0 1.4rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .artifact .figure {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(1.5rem, 4vw, 1.9rem);
+    line-height: 1.05;
+    color: var(--kill);
+    letter-spacing: -0.01em;
+  }
+  .artifact .figure small {
+    display: block;
+    font-size: 0.62rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--graphite);
+    margin-top: 0.45rem;
+  }
+  .artifact .body p { margin: 0 0 0.5rem; font-size: 0.97rem; }
+  .artifact .body p:last-child { margin: 0; }
+  .artifact .rule-line {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--pass);
+    font-weight: 600;
+  }
+  .artifact .rule-line::before { content: "→ "; color: var(--faint); }
+  @media (max-width: 620px) {
+    .artifact { grid-template-columns: 1fr; gap: 0.6rem; }
+    .artifact .figure small { display: inline; margin-left: 0.5rem; }
+  }
+
+  /* ---------- tiers ---------- */
+  .tiers { display: grid; gap: 1.1rem; margin: 1.7rem 0 0.4rem; }
+  @media (min-width: 720px) { .tiers { grid-template-columns: 1fr 1fr 1fr; align-items: stretch; } }
+  .tier {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    padding: 1.35rem 1.3rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    position: relative;
+    transition: border-color 140ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .tier:hover { border-color: var(--graphite); }
+  @media (prefers-reduced-motion: no-preference) {
+    .tier:hover { transform: translateY(-2px); }
+  }
+  .tier.headline { border-color: var(--ink); box-shadow: 4px 4px 0 0 var(--rule); }
+  .tier .tname { font-family: var(--mono); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--graphite); }
+  .tier .price { font-family: var(--mono); font-size: 1.85rem; font-weight: 700; line-height: 1.1; }
+  .tier .price small { font-size: 0.7rem; font-weight: 400; color: var(--graphite); letter-spacing: 0.04em; }
+  .tier ul { margin: 0; padding: 0; list-style: none; font-size: 0.9rem; }
+  .tier li { padding: 0.36rem 0 0.36rem 1.1rem; position: relative; border-bottom: 1px dotted var(--rule); }
+  .tier li:last-child { border-bottom: none; }
+  .tier li::before { content: "·"; position: absolute; left: 0.2rem; color: var(--faint); font-weight: 700; }
+  .tier .status {
+    margin-top: auto;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    color: var(--graphite);
+    border-top: 1px solid var(--rule);
+    padding-top: 0.85rem;
+  }
+  .stamp-notyet {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--kill);
+    border: 1.5px solid var(--kill);
+    border-radius: 2px;
+    padding: 0.2rem 0.55rem;
+    transform: rotate(-2.5deg);
+    background: var(--kill-soft);
+  }
+  .btn {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    padding: 0.6rem 1.05rem;
+    margin-top: 0.35rem;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+  .btn:hover { background: var(--ink); color: var(--paper); }
+  .btn.primary { background: var(--ink); color: var(--paper); }
+  .btn.primary:hover { background: var(--kill); border-color: var(--kill); }
+
+  /* ---------- not shipped ---------- */
+  .notship {
+    border: 1px solid var(--kill);
+    background: var(--kill-soft);
+    padding: 1.4rem 1.5rem 1.15rem;
+    margin: 1.5rem 0;
+  }
+  .notship h2 { color: var(--kill); font-size: 1.1rem; }
+  .notship ul { margin: 0; padding-left: 1.1rem; font-size: 0.94rem; }
+  .notship li { margin-bottom: 0.45rem; }
+
+  .rulebreak { border: none; border-top: 1px solid var(--rule); margin: 3.4rem 0 0; }
+
+  /* pull quote: hanging quote mark */
+  blockquote {
+    margin: 2.6rem 0;
+    padding: 0 0 0 2.7rem;
+    position: relative;
+    font-size: 1.32rem;
+    font-style: italic;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  blockquote::before {
+    content: "\201C";
+    position: absolute;
+    left: 0;
+    top: -0.55rem;
+    font-family: var(--serif);
+    font-style: normal;
+    font-size: 3.4rem;
+    line-height: 1;
+    color: var(--kill);
+  }
+
+  .comments { border: 1px solid var(--rule); background: var(--card); padding: 1rem 1.2rem; margin: 1.4rem 0 0.4rem; }
+  .comments .utterances { max-width: 100%; }
+
+  .foot {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--graphite);
+    border-top: 1px solid var(--rule);
+    margin-top: 3.6rem;
+    padding-top: 1.2rem;
+    line-height: 1.75;
+  }
+
+  /* ---------- motion ---------- */
+  @media (prefers-reduced-motion: no-preference) {
+    .filehead { animation: settle 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+    h1, .lede { animation: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .lede { animation-delay: 0.08s; }
+    .chip.fail.hero-stamp { animation: stamp 0.32s cubic-bezier(0.16, 1, 0.3, 1) 0.5s both; }
+    .slot .box { animation: stampin 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(0.65s + var(--i) * 38ms); }
+    .ledger-notes, .ledger-tally, .boardnote { animation: settle 0.5s ease 1.5s both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    @keyframes settle { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes stamp {
+      from { transform: scale(1.9) rotate(-5deg); opacity: 0; }
+      to { transform: scale(1) rotate(-2deg); opacity: 1; }
+    }
+    @keyframes stampin {
+      from { transform: scale(1.45); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="doc">
+
+  <div class="filehead">
+    <span>doc: <b>FALSIFICATION_KIT.md</b></span>
+    <span>status: <b>pre-registered · checkout live 2026-07-27</b></span>
+    <span>performance promises: <b>0</b></span>
+  </div>
+
+  <h1><span class="eyebrow"><b>case file</b> · origin</span>Backtesting tools with a <span class="keep"><em>body count</em>.<span class="chip fail hero-stamp">×27 FAILED</span></span></h1>
+
+  <p class="lede">I have run 35 pre-registered backtests of retail trading strategies.
+  The pass/fail criteria were written down <em>before</em> each test, and the goalposts
+  stayed welded in place after. Twenty-seven died, among them the strongest raw edge this
+  pipeline ever measured, killed by friction alone. Two passed and still didn't get my
+  money, because a tiebreaker written in advance said they hadn't earned it. Every
+  strategy died in the pipeline before it touched a live account: total tuition paid to
+  the market, <strong>$0</strong>.</p>
+
+  <p class="lede">This kit is that pipeline. It will not make you money.
+  <strong>It stops your backtest from lying to you about making money</strong>, which,
+  if you trade, is the same thing wearing work clothes.</p>
+
+  <div class="ledger">
+    <div class="ledger-row" role="img" aria-label="The gate ledger: 31 pre-registered gates in chronological order. Gates 1 through 16 all failed. Gate 17 passed. Gate 18 passed but was benched by its pre-registered tiebreaker. Gate 19 was a split decision. Gates 20 through 25 all failed. Gate 26, the reader-proposed Japan test, was a split verdict: survived its governing window by five basis points, trod water over the full 23 years. Gates 27 through 31 all failed: the three structural-payment families — merger arbitrage, prediction-market arbitrage, paid order flow — and two operator-proposed momentum designs. Gate 32, an outside collaborator's trading playbook mechanized, failed — its zones were indistinguishable from random. Gate 33, the same collaborator's trend spec inside a prop-firm evaluation, was the record's second split pass. Gate 34, that spec on FTMO's real cost structure, failed on overnight financing alone. Gate 35, the swap-free firm variant, split on a single payout-policy clause.">
+      <div class="slot fail"><span class="box" style="--i:0">×</span><span class="idx">01</span></div>
+      <div class="slot fail"><span class="box" style="--i:1">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:2">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:3">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:4">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:5">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:6">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:7">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:8">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:9">×</span><span class="idx">10</span></div>
+      <div class="slot fail"><span class="box" style="--i:10">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:11">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:12">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:13">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:14">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:15">×</span><span class="idx">16</span></div>
+      <div class="slot pass"><span class="box" style="--i:16">✓</span><span class="idx">17</span></div>
+      <div class="slot bench"><span class="box" style="--i:17">✓</span><span class="idx">18</span></div>
+      <div class="slot split"><span class="box" style="--i:18">◐</span><span class="idx">19</span></div>
+      <div class="slot fail"><span class="box" style="--i:19">×</span><span class="idx">20</span></div>
+      <div class="slot fail"><span class="box" style="--i:20">×</span><span class="idx">21</span></div>
+      <div class="slot fail"><span class="box" style="--i:21">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:22">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:23">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:24">×</span><span class="idx">25</span></div>
+      <div class="slot split"><span class="box" style="--i:25">◐</span><span class="idx">26</span></div>
+      <div class="slot fail"><span class="box" style="--i:26">×</span><span class="idx">27</span></div>
+      <div class="slot fail"><span class="box" style="--i:27">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:28">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:29">×</span><span class="idx"></span></div>
+      <div class="slot fail"><span class="box" style="--i:30">×</span><span class="idx">31</span></div>
+      <div class="slot fail"><span class="box" style="--i:31">×</span><span class="idx">32</span></div>
+      <div class="slot split"><span class="box" style="--i:32">◐</span><span class="idx">33</span></div>
+      <div class="slot fail"><span class="box" style="--i:33">×</span><span class="idx"></span></div>
+      <div class="slot split"><span class="box" style="--i:34">◐</span><span class="idx">35</span></div>
+    </div>
+    <div class="ledger-notes" aria-hidden="true">
+      <span class="note"><b>gates 17–25</b><span class="nb">pass</span> · <span class="nb">benched</span> · <span class="nb">split</span> · <span class="nb">6 kills, 5 in one day</span></span>
+      <span class="note"><b>gates 27–31</b><span class="nb">the collector's-side sweep</span> · <span class="nb">5 kills in 30 hours</span></span>
+      <span class="note"><b>gates 32–35</b><span class="nb">the wrapper arc</span> · <span class="nb">2 kills · 2 splits</span></span>
+    </div>
+    <p class="ledger-tally"><b>35</b> gates · <b class="k">29</b> kills ·
+    <b class="g">1</b> pass · <b class="g">2</b> certified, then benched by their own
+    pre-registered tiebreaker · <b>3</b> split verdicts (Japan + the wrapper arc) · <b>$0</b> lost live</p>
+    <p class="boardnote">counted from the public gate files; every number on this page is in the repo</p>
+  </div>
+
+  <h2><span class="eyebrow"><b>exhibit a</b> · the kills</span>Every family, measured against the gate it pre-registered.</h2>
+  <p class="muted">Each of these looked plausible. Several looked <em>great</em>, right
+  up until honest fills, split-adjusted data, and a de-survivorship universe were
+  applied. The picture first, then the ledger; full writeups are free in the repo.</p>
+
+  <div class="chart">
+    <p class="chart-title">DISTANCE FROM THE GATE — best honest profit factor per family</p>
+    <p class="chart-sub">fast-strategy gate, pre-registered: PF ≥ 1.30 at the stated cost · every dot is a documented result</p>
+
+    <div class="cplot" role="img" aria-label="Dot plot: best honest profit factor per strategy family versus the pre-registered gate of 1.30. All ten families plotted fall below the gate; most fall at or below breakeven at 1.00. The catalyst-gap family shows its primary result of 1.23 decaying to 0.93 on the untouched holdout sample. The pairs family sits at 1.06 after costs despite the strongest gross edge on record. Insider clusters came closest at 1.17. Exact values are in the table below.">
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>Mean reversion (RSI-2)</b>@ 0.25%/side</span>
+      <span class="track"><span class="dot" style="left:10%"></span><span class="dval" style="left:10%">0.77</span></span>
+    </div>
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>ORB long+short</b>"Sharpe 2.4" paper · <span class="nb">@ 0.10%/side</span></span>
+      <span class="track"><span class="dot" style="left:21.4%"></span><span class="dval" style="left:21.4%">0.85</span></span>
+    </div>
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>190-name mover universe</b>@ zero cost</span>
+      <span class="track"><span class="dot" style="left:30%"></span><span class="dval" style="left:30%">0.91</span></span>
+    </div>
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>Momentum scalp</b>@ zero cost, best window</span>
+      <span class="track"><span class="dot" style="left:38.6%"></span><span class="dval" style="left:38.6%">0.97</span></span>
+    </div>
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>Penny stocks</b>@ a fantasy 0.1% cost</span>
+      <span class="track"><span class="dot" style="left:42.9%"></span><span class="dval" style="left:42.9%">1.00</span></span>
+    </div>
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>Trend (Donchian, broad)</b>@ 0.25%/side</span>
+      <span class="track"><span class="dot" style="left:50%"></span><span class="dval" style="left:50%">1.05</span></span>
+    </div>
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>Pairs stat-arb (GGR)</b>gross 2.23! · <span class="nb">@ 0.10%/side/leg</span></span>
+      <span class="track"><span class="dot" style="left:51.4%"></span><span class="dval" style="left:51.4%">1.06</span></span>
+    </div>
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>Insider clusters (Form 4)</b>60d hold · <span class="nb">@ 0.25%/side</span></span>
+      <span class="track"><span class="dot" style="left:67.1%"></span><span class="dval" style="left:67.1%">1.17</span></span>
+    </div>
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>Earnings drift (real 8-Ks)</b>@ 0.25%/side</span>
+      <span class="track"><span class="dot" style="left:58.6%"></span><span class="dval" style="left:58.6%">1.11</span></span>
+    </div>
+    <div class="crow" aria-hidden="true">
+      <span class="clabel"><b>Catalyst gaps</b>primary → untouched holdout</span>
+      <span class="track">
+        <span class="decay" style="left:32.9%; width:42.8%"></span>
+        <span class="dot hollow" style="left:75.7%"></span><span class="dval flip" style="left:74%">1.23<span class="xs-hide"> primary</span></span>
+        <span class="dot" style="left:32.9%"></span><span class="dval" style="left:32.9%">0.93<span class="xs-hide"> holdout</span></span>
+      </span>
+    </div>
+
+    <div class="caxis" aria-hidden="true">
+      <span></span>
+      <span class="scale">
+        <span class="tick" style="left:0%">0.70</span>
+        <span class="tick" style="left:42.9%">1.00<small>breakeven</small></span>
+        <span class="tick gate" style="left:85.7%">1.30<small>the gate</small></span>
+      </span>
+    </div>
+    </div>
+
+    <p class="chart-note">Not one family reached the line. The catalyst pair is the
+    expensive lesson: a passing primary sample (hollow dot) collapsing to negative
+    expectancy on the holdout it never touched. The pairs dot is the newest and
+    sharpest: PF 2.23 at zero cost — still the strongest gross edge in all 35 gates —
+    landing at 1.06 once each hedged round trip pays the spread four times. Exact
+    figures, verdicts, and causes of death: table below.</p>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <tr><th>strategy family</th><th>best honest result</th><th>verdict</th></tr>
+      <tr><td>Momentum scalping (213-trade window)</td><td>49% win, ±1.18%: a fair coin</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Opening-range breakout, long+short ("Sharpe 2.4" paper)</td><td>PF 0.82–0.85 @ 0.10%/side</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Catalyst gaps (≥5% + volume)</td><td>PF 1.23 primary, <strong>0.93 holdout</strong></td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Earnings drift (real SEC 8-K dates)</td><td>PF 1.11, worse than random gaps (1.29)</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Mean reversion (RSI-2)</td><td>PF 0.77 @ 0.25%/side</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>News sentiment (19.5k articles, LLM-scored)</td><td>made every config worse</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Crypto funding carry</td><td>real mechanism, ~0.4% net in 2026</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Cross-asset trend, monthly (Faber, zero tuned params)</td><td>8.1% CAGR, −1.1% in 2022 · reader-forced 2008 extension: 5.9% over 18.4y, −1.5% in 2008 — pass holds, repriced</td><td><span class="chip pass">PASS</span></td></tr>
+      <tr><td>Same rule, sampled daily</td><td>7.31%; whipsaw ate it</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Options premium selling (5 pro income ETFs + CBOE's own indices)</td><td>every fund's Sharpe below its own underlying</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Turn-of-month window (T-4..T+3)</td><td>Sharpe 0.44 vs SPY 0.73; 42% of returns in 29% of days</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Factor ETFs (MTUM/VLUE/QUAL/USMV, EW + 12-1 rotation)</td><td>Sharpe 0.87 / 0.84 vs SPY 0.90</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Pairs stat-arb (GGR distance, liquid, long-short)</td><td><strong>gross PF 2.23</strong> → 1.06 @ 0.10%/side/leg</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Insider-cluster buying (2+ insiders, $200k+, SEC Form 4)</td><td>PF 1.17 @ 0.25%/side — vs 1.23 gross: friction wasn't the murderer</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Candlestick patterns (engulfing / hammer / piercing, 43,624 signals)</td><td>pooled PF 0.95 @ 0.25%/side; the hammer is a literal coin flip (1.00)</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Cash-merger arbitrage (789 deals hand-built from SEC filings, breaks paid in full)</td><td>4.03% CAGR vs a cash+3 bar of 4.32%: clears it only at exactly zero cost</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Prediction-market cross-venue arb (17 identical-resolution Kalshi/Polymarket pairs)</td><td>+2.2%/yr on deployed capital, less than T-bills (3.62%)</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Paid order flow / maker rebates (receipts only, no simulated fills)</td><td>net −0.17 to −0.23¢/share at retail tier; first positive payment starts at $10M/month</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Unified everything-rotation (1,365 stocks + 13 ETFs, one momentum pool)</td><td>7.14% vs SPY's 11.53%; ETFs entered the top-10 in 0 of 55 months</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Trend overlay on a momentum index fund</td><td>halved the drawdown, cost 3.4pp/yr vs a 2pp cap</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>"Smart money concepts" M15, mechanized (7,087 forex trades)</td><td>PF 0.951 before costs; inside a 20-seed random band</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>Cross-asset trend inside a prop-firm eval (outside spec)</td><td>Sharpe 0.82; static rules: 78% funded, +$19k EV — trailing+consistency rules: dead</td><td><span class="chip split">SPLIT</span></td></tr>
+      <tr><td>The same spec on FTMO's actual terms</td><td>overnight financing alone: Sharpe 0.78 → 0.11</td><td><span class="chip fail">FAIL</span></td></tr>
+      <tr><td>The same spec, swap-free firm class</td><td>76% funded, +$22k EV — unless the 40% consistency rule applies: 66–69% of payouts denied</td><td><span class="chip split">SPLIT</span></td></tr>
+    </table>
+  </div>
+  <p class="tablenote">PF = profit factor. The pattern: nearly every DIRECTIONAL price-derived signal is ~PF 1.05–1.10 gross, and retail friction eats it whole. The market-neutral exception measured 2.23 gross and died anyway: hedged trades pay friction twice on a smaller move.</p>
+
+  <div class="chart">
+    <p class="chart-title">GATE 20 · OPTIONS PREMIUM SELLING: THE LAST MAINSTREAM FAMILY</p>
+    <p class="chart-sub">tested twice over: 5 professional covered-call/put-write ETFs, then CBOE's own benchmark indices (real traded SPX option prices back to 1990)</p>
+    <p style="font-size:0.97rem; margin-bottom:0.6rem;">Every income fund had a <strong>worse Sharpe than the index it writes
+    options on</strong>. QQQ made 21.6%/yr over QYLD's decade; QYLD kept 10% of it with
+    70% of the drawdown. But the 33-year index record is the real exhibit: a mechanism
+    dying in public.</p>
+    <div class="tablewrap" style="margin-top:0.9rem;">
+      <table style="min-width:26rem;">
+        <tr><th>index (vs SPY, Sharpe)</th><th>pre-2012</th><th>post-2012</th></tr>
+        <tr><td>BXM covered-call</td><td><strong>+0.20 vs +0.16 · beats</strong></td><td>+0.61 vs +0.90 · lags</td></tr>
+        <tr><td>PUT put-write</td><td><strong>+0.24 vs +0.06 · beats</strong></td><td>+0.70 vs +0.90 · lags</td></tr>
+        <tr><td>BXMD 30-delta buy-write</td><td><strong>+0.50 vs +0.33 · beats</strong></td><td>+0.73 vs +0.90 · lags</td></tr>
+      </table>
+    </div>
+    <p class="chart-note">The volatility premium WAS real; the academic papers were
+    written on the pre-2012 sample. Then it got institutionalized, and the edge went to
+    whoever collects the flow. Same life-cycle as crypto funding carry (2021: ~22% →
+    2026: ~0.4%), two decades slower. The crash tell: in 2020 these indices fell HARDER
+    than SPY (BXM −54.6% annualized vs −32.4%). Short vol is short the gap: insurance
+    that pays out in drizzle and fails in the flood. Full writeup and both prediction
+    audits in the repo.</p>
+  </div>
+
+  <div class="chart">
+    <p class="chart-title">GATE 17 · A READER RAN AT THE ONLY PASS</p>
+    <p class="chart-sub">the challenge: "2022 is your easy case wearing a hard case's clothes — one inflation shock made trend rotate to cash exactly when cash started paying. Extend through 2008 or don't fund it."</p>
+    <p style="font-size:0.97rem; margin-bottom:0.6rem;">He was right about the gap, wrong about the mechanics (the
+    cash fix used the real monthly T-bill path, not a flat 4–5% — audited: it moved 2022
+    by +0.21pp, and legitimately). So the same frozen rules ran again, <strong>extended back to
+    January 2008</strong>, same day. Pre-2016 prices cross-checked against the original source
+    to 4.6bps.</p>
+    <div class="tablewrap" style="margin-top:0.9rem;">
+      <table style="min-width:26rem;">
+        <tr><th>regime</th><th>this strategy</th><th>SPY</th></tr>
+        <tr><td>2008 zero-rate bear</td><td><strong>−1.5%</strong> (bond sleeves carried it, not cash)</td><td>−36.8%</td></tr>
+        <tr><td>2011–2016 ZIRP grind</td><td><strong>5.1 yrs below T-bills</strong>, 4 yrs underwater — the real max drawdown lives here</td><td>compounding 13–32%/yr</td></tr>
+        <tr><td>2022 dual bear</td><td><strong>−1.1%</strong></td><td>−18.2%</td></tr>
+        <tr><td>full 18.4 years</td><td>5.85% CAGR · Sharpe 0.69 · maxDD −12.1%</td><td>11.29% · 0.63 · −46.3%</td></tr>
+      </table>
+    </div>
+    <p class="chart-note">The pass holds — every pre-registered readout on the extended
+    sample cleared — with one flag kept on the record: against the gate's literal
+    CAGR ≥ 6% bar, 5.85% is a thin fail (the bar's written rationale was T-bills + 3,
+    which it clears at 4.37%). The price changed: no year worse than −1.6%, but you can
+    sit five years underperforming T-bills, and the realistic failure mode is quitting
+    in year three of the grind, not a crash. Sizing now keys off these numbers, not the
+    friendly 2017–2026 ones. The one strategy that survived this pipeline got its
+    victory lap cancelled by a stranger with a calendar — and the record is better
+    for it.</p>
+    <p class="chart-note">Round two: the same reader then challenged the flag itself —
+    if the bar was 6%, a 5.85% is a fail, and re-deriving the bar from its rationale
+    after seeing the number is goalpost-moving. The receipts held (the T-bills+3
+    derivation was registered in the same line as the number, before any run; the
+    extension's formula bar went into the script before that run executed) — but the
+    structural point landed: a bare number with a parenthetical rationale is two bars
+    waiting to diverge, and the gate should never have allowed both readings. That's
+    now a permanent rule in the gate templates: bars derived from a rationale are
+    written as formulas, with which form governs stated up front. $0 is funded under
+    either reading.</p>
+    <p class="chart-note">Round three: this note used to claim a 90/10 SPY blend
+    "dominates the pure strategy on every tracked metric." The same reader killed
+    that too. The 2008 column — tracked all along, just not mentioned — has pure at
+    −1.5% and 90/10 at −5.5%: the blend triples the loss in the exact year that
+    proves the mechanism. A finer weight grid shows 90/10 isn't even the drawdown
+    minimum (92.5/7.5 is), and on a crash-flavored metric (worst rolling 12 months)
+    pure wins (−9.0% vs −10.3%) — blend weight is a parameter, the frontier is an
+    in-sample scan, and rules 7 and 8 of this page apply to their author. What
+    survives as description: the Sharpe hump is smooth and broad (0.69 → 0.77, no
+    knife-edge), and a token 2.5% SPY sleeve cuts years-below-T-bills from 5.1 to
+    3.6 — his own diagnosis ("filling the exact hole") as a number. The weight axis
+    trades crash pain against grind pain; the frontier describes the dial and cannot
+    pick the point. And his sharpest contribution stands unanswered by the data: the
+    regime where both legs fail at once — entering a bear from zero rates — appears
+    nowhere in 18 years of sample. Japan sat in it for twenty. Sizing humility has
+    to price what the record cannot.</p>
+    <p class="chart-note">Round four: he proposed the test himself, so it became
+    Gate 26 — The Japan Test, run to his design. Borrow the regime you can’t
+    manufacture: Nikkei, synthetic 10-year JGB total return, gold in yen, call-rate
+    cash, frozen Faber rules, entry January 1990 — the month after the bubble top.
+    Governing window 1999–2012: both legs dead on entry. Result: <em>survived by
+    0.05 percentage points</em> — CAGR 3.17% against a formula bar of cash+3pp =
+    3.12%, a margin inside data noise and called that on the record — and over the
+    full 23 years it did exactly what he said it would: trod water (1.76% vs cash
+    1.27%, 15.8 years below cash). The eyeball finding is the keeper: equal-weight
+    buy-and-hold of the same sleeves beat the trend rule by 1.6pp/yr in ZIRP — every
+    whipsaw parks in an asset paying nothing — so the overlay subtracted return and
+    bought drawdown instead (−10.0% max vs −15.9% basket, −62.8% Nikkei). The
+    margin that survived came from the one sleeve that doesn’t run on interest
+    rates: gold in yen, up 4.9x. His kicker is now the pre-registered meaning: in
+    this regime the 20% sizing rule stops being humility and becomes the actual
+    finding. Prediction audit: the house predicted treads-water and missed by the
+    same five basis points; his registered calls — underperforms its own basket,
+    treads water against cash+3 — scored correct and 5bp-from-correct. Those calls
+    arrived after the numbers were already live on this page; they’re logged with
+    that exact timestamp, not dressed as pre-registration, and scored anyway,
+    because he asked to be held to a bar in public. A pre-registration that only
+    counts when the clock is convenient isn’t one. His verdict
+    is now the meaning on record, in his words: <em>not a return engine that
+    happens to survive bears — a drawdown engine that gives up return in flat
+    regimes to buy survival in violent ones.</em> It survives everywhere because
+    it isn’t trying to win everywhere. Adopted with it: regime-transplant gates
+    now bar against the basket’s own buy-and-hold too, and under that bar the
+    overlay’s ZIRP verdict is a clean fail — the same sentence. Full receipts in
+    the repo’s <code>japan_experiment/</code>. Co-author: <strong>Zestyclose</strong>.</p>
+  </div>
+
+  <div class="chart">
+    <p class="chart-title">GATES 27–31 · THE COLLECTOR'S SIDE OF THE COUNTER</p>
+    <p class="chart-sub">the standing thesis after 26 gates: our slippage is somebody's revenue. the winners collect structural payments instead of predicting price, so the last five gates went at the collecting side directly, in one 30-hour sweep</p>
+    <p style="font-size:0.97rem; margin-bottom:0.6rem;">Every family measured the same
+    thing from a different angle: <strong>the payment is always real, and it is always
+    priced to leave nothing above cash-compensation at retail scale.</strong></p>
+    <div class="tablewrap" style="margin-top:0.9rem;">
+      <table style="min-width:26rem;">
+        <tr><th>the payment</th><th>measured</th><th>what's left at retail</th></tr>
+        <tr><td>Merger-arb spread (deal-break insurance)</td><td>4.03% CAGR, 789 deals</td><td>bar was 4.32%; clears it only at zero cost</td></tr>
+        <tr><td>Cross-venue prediction-market gap</td><td>gaps &gt;1¢ in 50–95% of hours</td><td>round trip costs 2.5–4¢; nets +2.2%/yr &lt; T-bills</td></tr>
+        <tr><td>Maker rebates / order flow</td><td>receipted fee schedules, every venue</td><td>−0.17¢/share; positive pay starts ~$10M/month</td></tr>
+      </table>
+    </div>
+    <p class="chart-note">The merger-arb gate is the operator-vs-machine story: the
+    operator registered an unhedged PASS four days before the run; the machine put it
+    at 65% fail. The deal set was built from SEC filings announcement-first so the
+    broken deals stayed in, and the famous tail turned out survivable (10% of deals
+    broke, mean −2.9%, book max drawdown −5.5%). What killed it was quieter: the
+    spread is priced almost exactly at cash+3 gross, and even 0.05%/side pushes it
+    under. The 2019+ holdout was never opened; the frozen protocol seals it on a
+    primary fail. Five validity rounds ran before any number was believed — the first
+    three sims printed 7%, 27%, and 17%, each destroyed by its own eyeball audit
+    (fictional payouts, acquirer tickers mis-cast as targets, a rebalancing rule
+    quietly harvesting bid-ask bounce as alpha). The full defect ledger ships in the
+    repo's <code>merger_arb_experiment/DEVIATIONS.md</code>, because a hostile reader
+    should get the knife with the body.</p>
+    <p class="chart-note">The prediction-market gate found a second body on the way
+    down: measured raw, the arb "returns" +29%/yr, and every fat entry sits in a
+    market's first 72 hours, where one venue's price is a bookless print that collapses
+    30 cents on no news. No historical order-book exists to prove any of it was ever
+    executable. Price without a book is not a quote; that readout ships as an
+    unverifiable upper bound, and the mature-market number, the one you could
+    actually have, pays less than the T-bills the capital would sit in. One venue
+    also now charges a 5% taker fee on the exact markets measured: the toll booth
+    raised its price mid-study.</p>
+    <p class="chart-note">The coda is the week's real lesson. The operator asked to
+    beat the index by chasing momentum, so momentum got the full treatment: a
+    hand-rolled top-10 rotation over 1,365 stocks and 13 cross-asset ETFs in one pool
+    (his design: the defensive ETFs were supposed to take over in bears; in 55
+    months, including all of 2022, not one ETF ever out-ranked the ten hottest
+    stocks), then a trend overlay on the index fund that already does momentum
+    properly. Hand-roll: 7.14%/yr with a −41% drawdown. Professionally-run
+    concentrated academic momentum: 12.4%, worse than the plain index. The boring
+    S&amp;P momentum index fund the whole exercise tried to beat: 19.5%/yr for a
+    decade, live. The overlay halved its drawdown and paid 3.4pp/yr for the
+    privilege against a 2pp cap written in advance. Every step toward "better" (more
+    concentration, faster signals, cleverer math) made it worse, monotonically.
+    The one keeper the hunt ever surfaced is a 13-basis-point product you buy and
+    leave alone, and the machine's final advice on it was about sizing, not signals.
+    All five gate files, predictions, and verdicts:
+    <code>merger_arb_experiment/</code> · <code>predmarket_arb_experiment/</code> ·
+    <code>orderflow_experiment/</code> · <code>stock_rotation_experiment/</code> ·
+    <code>spmo_overlay_experiment/</code>.</p>
+  </div>
+
+  <div class="chart">
+    <p class="chart-title">GATES 32–35 · THE WRAPPER ARC</p>
+    <p class="chart-sub">an outside collaborator — a prop-firm trader — brought two strategies and a thesis: trade the firm's capital through a challenge account. all of it went through the gate</p>
+    <p style="font-size:0.97rem; margin-bottom:0.6rem;">The arc is the record in
+    miniature: <strong>his playbook died, his spec produced the record's second pass,
+    and the wrapper turned out to be priced like everything else.</strong></p>
+    <p class="chart-note">The playbook first. "Smart money concepts" on 15-minute
+    charts, mechanized with literature-default parameters and every rule frozen in
+    writing: 7,087 trades, five years, two currency pairs — profit factor 0.951
+    BEFORE costs, and statistically indistinguishable from random entries at matched
+    frequency, risk and exits. The zones are decoration. Then his trend spec — the
+    surprise. Faber-class cross-asset trend, vol-targeted, run through evaluation
+    rulesets on the real 2008–2026 path: Sharpe 0.82 at honest costs, 78% funded
+    probability with ~$19k expected value per attempt against STATIC-drawdown rules.
+    Against trailing-drawdown-plus-consistency rulesets it fails every cell — trend
+    profits are lumpy, and consistency rules exist to deny exactly that shape. The
+    firm's rule sheet, not the strategy, is the constraint.</p>
+    <p class="chart-note">Then the transfer test, and the cleanest attribution table
+    in the record. Moving the spec onto FTMO's actual platform: dropping the bond leg
+    (no bond CFDs) cost 0.05 of Sharpe; switching to single-name oil cost nothing;
+    modeling the overnight financing a months-holding CFD book actually pays took it
+    from 0.78 to 0.11. The venue's own swap charge is the entire death — the same
+    kill as merger arbitrage, one venue closer to home. Swap-free static-drawdown
+    firms exist and restore the passing regime on their published rules (76% funded,
+    +$22k EV) — unless one ambiguous consistency clause in the payout policy applies,
+    in which case two-thirds of payout cycles get denied. As of this writing the
+    build waits on that sentence, in writing, from the firm. A companion rules study
+    priced the wrapper itself: the published rule sheet is beatable by a coin flip
+    (1-in-3 passes at zero edge, all the value in the funded-stage payout option),
+    which is exactly why challenge passes are not receipts. The standing bar for any
+    prop-firm claim: funded PAYOUT history over months. Files:
+    <code>smc_experiment/</code> · <code>trendprop_experiment/</code> ·
+    <code>propfirm_experiment/</code>.</p>
+  </div>
+
+  <div class="chart">
+    <p class="chart-title">THE KILL-SIDE AUDIT · TURNING THE GAUNTLET ON OUR OWN TOMBSTONES</p>
+    <p class="chart-sub">2026-07-29, prompted by the operator's question: "could the graveyard be artifacting kills?" — the record's skepticism had only ever been spent against passes; nobody had audited a loser tail</p>
+    <p style="font-size:0.97rem; margin-bottom:0.6rem;">Criteria frozen before looking
+    (what would count as an overturned kill), then: top-10 losers of three closed
+    gates verified against independent price data, and every failed gate's cost
+    ladder collated. <strong>Published whichever way it landed.</strong></p>
+    <div class="tablewrap" style="margin-top:0.9rem;">
+      <table style="min-width:26rem;">
+        <tr><th>question</th><th>answer</th></tr>
+        <tr><td>Any kill overturned?</td><td>No. ORB 0/10 loser flags; mean reversion 1/10; trend-follow 2/10; corrections move PF by &lt;0.01 against 1.30 bars.</td></tr>
+        <tr><td>Any fabricated losses?</td><td>TWO — BHVN's "−91%" (Pfizer acquired Biohaven at $148.50; the ticker passed, gapless, to a ~$9 spinco) and CCXI's "−80%" (a hold jumped a 1,209-day delisting gap onto a relisted successor). Ticker splices fabricate losses exactly like they fabricate wins.</td></tr>
+        <tr><td>How cost-fragile are the kills?</td><td>Less than the auditor predicted: 10 of 18 failed gates fail even at ZERO cost. Exactly one kill is cleanly cost-conditional — pairs, which passes its bars at 0.05%/side/leg.</td></tr>
+      </table>
+    </div>
+    <p class="chart-note">The disclosure that matters, on the record: the kills share
+    infrastructure — one cost model (calibrated from this pipeline's measured live
+    slippage, always taker execution), one fill simulator, largely one data stack.
+    Kills that die of friction weaken TOGETHER if the cost model is wrong for your
+    execution; they are correlated verdicts, not 29 independent confirmations. Every
+    results file publishes its full cost ladder so the count you trust is the one
+    you recompute at your own costs. If your execution is materially better than
+    retail taker, the pairs gate is the tombstone to re-run first. New standing
+    rules from the audit: gap-scan and splice-screen every cached universe, and
+    eyeball the top-10 losers with the same ritual as the winners — both tails,
+    every gate. Full audit: <code>kill_audit/</code> in the repo.</p>
+  </div>
+
+  <blockquote>A backtest is a witness with every incentive to lie to you.
+  Interrogate it like one.</blockquote>
+
+  <h2><span class="eyebrow"><b>exhibit b</b> · the artifacts</span>Three ways a backtest lies, from this file.</h2>
+  <p class="muted">These aren't hypotheticals. Each one is an artifact my own pipeline
+  produced, believed for a while, and then caught. Each one became a rule in the free
+  checklist.</p>
+
+  <div class="artifacts">
+    <div class="artifact">
+      <span class="figure">+4,890%<small>one fabricated "winner"</small></span>
+      <div class="body">
+        <p><strong>The split artifact.</strong> Raw price bars plus a 1:25 reverse split
+        inside the hold window turned a $0.17 stock into the trade of the decade. It
+        never happened. A strategy "passed validation" for six days on trades like this
+        before the split-adjusted rerun killed it.</p>
+        <p class="rule-line">rule: split-adjusted bars only, no exceptions</p>
+      </div>
+    </div>
+    <div class="artifact">
+      <span class="figure">−15%<small>where a −5% "stop" really fills</small></span>
+      <div class="body">
+        <p><strong>The fantasy fill.</strong> A backtest that fills your stop at the stop
+        price is fiction: names that gap through a −5% stop routinely close down 10 to 15%.
+        Half my "edges" were fill fantasies that evaporated under a checked-at-close,
+        filled-at-close model.</p>
+        <p class="rule-line">rule: model the fill you actually get, not the one you want</p>
+      </div>
+    </div>
+    <div class="artifact">
+      <span class="figure">PF 3.96<small>printed twice, both fake</small></span>
+      <div class="body">
+        <p><strong>The false-positive machine.</strong> A slot-capped portfolio simulation
+        printed profit factor 3.96 by accidentally cherry-picking under 10% of its own
+        trades. It did this twice, on two unrelated strategies, before the pattern was
+        caught and banned from the pipeline.</p>
+        <p class="rule-line">rule: slot-capped stats are a false-positive generator</p>
+      </div>
+    </div>
+  </div>
+
+  <h2><span class="eyebrow"><b>exhibit c</b> · the receipts</span>Don't take this page's word for it.</h2>
+  <p class="muted">Every verdict above traces to a gate file written before its test ran.
+  The receipts, directly:</p>
+  <div class="tablewrap">
+    <table>
+      <tr><th>artifact</th><th>what it is</th></tr>
+      <tr><td><a href="https://github.com/cmatthwilkes-debug/trading-strategy-graveyard#readme">The full graveyard writeup</a></td><td>all 35 gates, every number, the three expensive lessons</td></tr>
+      <tr><td><a href="https://github.com/cmatthwilkes-debug/trading-strategy-graveyard#gates-17-20-the-passes-the-benchings-and-the-last-family">Gates 17–25: passes, benchings, and the resumed hunt</a></td><td>the first PASS (and its reader-forced 2008 extension), the benched survivors, the falsified predictions (mine included), the 33-year options autopsy, and the strongest gross edge on record dying of friction</td></tr>
+      <tr><td>The artifact-hunting checklist</td><td>the free tier: every rule priced by the disaster that created it <span class="tablenote">(landing in the repo this week)</span></td></tr>
+    </table>
+  </div>
+
+  <h2><span class="eyebrow">the instrument</span>Three tiers. One is free forever.</h2>
+
+  <div class="tiers">
+    <div class="tier">
+      <span class="tname">The Checklist</span>
+      <span class="price">$0 <small>in the repo now</small></span>
+      <ul>
+        <li>The artifact-hunting checklist: every rule priced by the disaster that created it</li>
+        <li>Every gate writeup, full numbers</li>
+        <li>Works for manual backtesters too, no code required</li>
+      </ul>
+      <span class="status">LIVE · free forever</span>
+      <a class="btn primary" href="https://github.com/cmatthwilkes-debug/trading-strategy-graveyard">Read the graveyard →</a>
+    </div>
+
+    <div class="tier headline">
+      <span class="tname">The Gauntlet</span>
+      <span class="price">$54</span>
+      <ul>
+        <li>Honest-fill simulator: gap-through stops, cost ladders, close-fill discipline</li>
+        <li>Pre-registered gate templates (the goalpost welder)</li>
+        <li>De-survivorship universe builder + split-adjusted bar cache</li>
+        <li>The ETF gate harness: the code behind the only two passes</li>
+        <li>SEC EDGAR earnings fetcher, funding-rate carry simulator</li>
+        <li>3 runnable case studies with real output</li>
+      </ul>
+      <span class="status">LIVE · checkout via Lemon Squeezy</span>
+      <a class="btn primary" href="https://strategygraveyard.lemonsqueezy.com/checkout/buy/58f27a79-ecd5-4242-85c6-c515e6ebd1b5">Get The Gauntlet &rarr;</a>
+    </div>
+
+    <div class="tier">
+      <span class="tname">The Field Manual</span>
+      <span class="price">$139</span>
+      <ul>
+        <li>Everything in The Gauntlet</li>
+        <li>"10 ways your backtest is lying to you" with the fix code</li>
+        <li>Live slippage instrumentation (signal price vs. real fill)</li>
+        <li>Simulator smoke-test suite: test your tester first</li>
+        <li>Risk-control armor modules + the data proving they're load-bearing</li>
+        <li>In-play relative-volume screener, with its own falsification attached</li>
+        <li>Decision-shadow-logger: measure a filter before you trust it</li>
+      </ul>
+      <span class="status">LIVE · checkout via Lemon Squeezy</span>
+      <a class="btn primary" href="https://strategygraveyard.lemonsqueezy.com/checkout/buy/108e2440-1e47-455d-a491-a56a5b697933">Get The Field Manual &rarr;</a>
+    </div>
+  </div>
+
+  <h2><span class="eyebrow">the protocol</span>This launch is gated like everything else.</h2>
+  <p>I pre-registered the launch the way I pre-register backtests: the paid tiers would
+  ship only if people demonstrably wanted them. No fake scarcity, no countdown timer;
+  the incentive ran the other way &mdash; packaging the kit properly took real weekends,
+  and I'd only spend them on real demand.</p>
+  <p><strong>Resolution (2026-07-27):</strong> the demand signal was real but modest
+  &mdash; a four-round public audit of the flagship pass, a free-tier tester, workshop
+  build requests &mdash; and honesty requires saying I called the gate rather than a
+  counter tripping it. The packaging got finished, the store cleared review, and the
+  stamps above are now live checkout links. If nobody buys, that verdict joins the
+  ledger like every other one. The checklist tier stays free either way, and
+  <a href="https://github.com/cmatthwilkes-debug/trading-strategy-graveyard">stars and issues</a>
+  still steer what gets built next.</p>
+
+  <div class="notship">
+    <h2>What's deliberately NOT in the box</h2>
+    <ul>
+      <li><strong>No trading bot.</strong> Nothing in the kit can be wired to a live account out of the box; it tests and measures only.</li>
+      <li><strong>No signals or strategy picks.</strong> The one strategy that passed my gates is decades-old public literature, disclosed free in the writeups. Charging for a free PDF is the vendor move this kit exists to embarrass.</li>
+      <li><strong>No LLM trading module.</strong> I tested news-sentiment trading three ways, including full-text LLM scoring of 19,500 articles, and it failed every time. Selling it anyway would contradict the case study sitting next to it.</li>
+      <li><strong>No performance promises.</strong> Past testing rigor is not future profit, and nothing here is financial advice.</li>
+    </ul>
+  </div>
+
+  <hr class="rulebreak" />
+
+  <h2><span class="eyebrow">the vote</span>Would you use it? Say so below.</h2>
+  <p class="muted">Comments here are powered by GitHub: each one is filed as an issue
+  on the graveyard repo, which means <strong>posting a comment goes on the
+  public record</strong>. Say what you'd use, what's missing, or why the whole thing is
+  wrong. Arguments count as interest.</p>
+
+  <div class="comments">
+    <script src="https://utteranc.es/client.js"
+            repo="cmatthwilkes-debug/trading-strategy-graveyard"
+            issue-term="Falsification Kit interest thread"
+            label="demand-gate"
+            theme="preferred-color-scheme"
+            crossorigin="anonymous"
+            async>
+    </script>
+    <noscript>
+      <p class="muted">Comments need JavaScript enabled.</p>
+    </noscript>
+    <p class="tablenote">Widget not loading (some previews block it)?
+      <a href="https://github.com/cmatthwilkes-debug/trading-strategy-graveyard/issues/new?labels=demand-gate&title=Kit%20interest%3A%20">Post directly as a GitHub issue →</a>
+    </p>
+  </div>
+
+  <hr class="rulebreak" />
+
+  <h2 id="workshop"><span class="eyebrow">the workshop</span>Ask me to build something.</h2>
+  <p>The best result on this page exists because a stranger demanded it. The Gate 17
+  extension — the one that repriced my only pass — started as a reader's challenge:
+  <em>"2022 is your easy case. Extend through 2008 or don't fund it."</em> He was right,
+  the run happened the same day, and the record got better by getting worse. That worked
+  well enough to become a standing offer.</p>
+  <p><strong>Bring me a mechanism and it gets the gate treatment:</strong> pass/fail
+  criteria pre-registered before the run, honest fills, real costs, and the result
+  published here — pass or kill — with credit to you. Or request a testing tool:
+  tell me which backtest lie it should catch, and it goes on the kit backlog.</p>
+  <p class="muted">Ground rules, so nobody's time gets wasted: nothing that trades a
+  live account gets built, ever. No signals sold back to you. Requests and results are
+  public — that's the quality control. "It backtests well" is not a mechanism; tell me
+  who's on the other side of the trade and why they're paying you, and your idea jumps
+  the queue. I pick what gets built and promise no deadlines. Paid data needs a budget
+  conversation before anything runs.</p>
+  <p>
+    <a class="btn primary" href="https://github.com/cmatthwilkes-debug/trading-strategy-graveyard/issues/new?template=build-request.yml">Request a build →</a>
+    &nbsp; <span class="tablenote">Files as a public GitHub issue — the queue is public by design.</span>
+  </p>
+
+  <hr class="rulebreak" />
+
+  <h2><span class="eyebrow">provenance</span>Who's selling this?</h2>
+  <p>One retail trader who spent months building a bot, watched honest testing kill
+  every strategy it ran, and kept the machine that did the killing. The graveyard
+  writeups converted the skeptics first, including the ones who showed up to argue.
+  The receipts are public, the code produced them, and when my own pre-registered
+  prediction got falsified by my own gate last week, that went in the repo too.</p>
+  <p class="muted">Questions, arguments, or a strategy you want dead?
+  <a href="https://github.com/cmatthwilkes-debug/trading-strategy-graveyard/issues/new?template=build-request.yml">File a build request</a>
+  or open an issue on the repo. Arguing in public is the quality-assurance process.</p>
+
+  <div class="foot">
+    <p>© 2026 · strategygraveyard.com · The Falsification Kit · Educational software
+    and research writeups. Not financial advice. No performance claims made or implied.
+    Backtested results are historical simulations and do not predict future returns.
+    The kit tests strategies; it does not provide, recommend, or execute them.</p>
+  </div>
+
+</div>
+
+</body>
+</html>

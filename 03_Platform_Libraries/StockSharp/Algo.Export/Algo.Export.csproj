@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\props\common_target_net.props" />
+  <ItemGroup>
+    <PackageReference Include="Ecng.Data" Version="$(EcngVer)" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Algo.Indicators\Algo.Indicators.csproj" />
+  </ItemGroup>
+</Project>

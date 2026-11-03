@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/glossary">
+  <link rel="canonical" href="https://composeratlas.com/glossary">
+  <meta property="og:title" content="Glossary of Systematic Investing Terms">
+  <meta property="og:description" content="Definitions, formulas, and worked context for the indicators, risk metrics, and strategy concepts used across this site, written for people who are not quants.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Definitions, formulas, and worked context for the indicators, risk metrics, and strategy concepts used across this site, written for people who are not quants.">
+  <title>Glossary: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+      <div id="content">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="data/strategies.js"></script>
+  <script src="data/glossary.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async function () {
+      const slug = new URLSearchParams(window.location.search).get('slug');
+
+      if (!slug) {
+        // ---- Listing view ----
+        const [glossary, strategies] = await Promise.all([loadGlossary(), loadStrategies()]);
+        const sorted = [...glossary].sort((a, b) => {
+          if (a.category !== b.category) return a.category.localeCompare(b.category);
+          return a.name.localeCompare(b.name);
+        });
+        function strategyCount(concept) {
+          return strategies.filter(s => s.tags && s.tags.some(t => concept.related_tags.includes(t))).length;
+        }
+        // Fixed order, not alphabetical: a reader meets indicators first in a
+        // strategy page, and sorting the CATEGORIES by name would lead with
+        // Asset Class, the least likely reason anyone opened the glossary.
+        const CATEGORY_ORDER = ['indicator', 'risk-metric', 'strategy-concept', 'asset-class'];
+        const present = CATEGORY_ORDER.filter(c => sorted.some(x => x.category === c));
+        // Anything with a category nobody listed above still gets a group.
+        // Dropping it would remove the concept from the page silently, with no
+        // error to notice.
+        const extra = [...new Set(sorted.map(c => c.category))]
+          .filter(c => !CATEGORY_ORDER.includes(c));
+        const groups = [...present, ...extra];
+
+        const label = c => CATEGORY_LABELS[c] || c;
+        const groupOf = c => sorted.filter(x => x.category === c);
+
+        const jump = groups.map(c => `
+          <a href="#cat-${c}">${label(c)}<span class="wiki-jump-count">${groupOf(c).length}</span></a>
+        `).join('');
+
+        const body = groups.map(c => {
+          const items = groupOf(c).map(x => {
+            const n = strategyCount(x);
+            const meta = n > 0
+              ? `<span class="wiki-entry-meta">${n} ${n === 1 ? 'strategy' : 'strategies'}</span>`
+              : '<span class="wiki-entry-meta"></span>';
+            const href = u('/glossary.html?slug=' + x.slug);
+            return `
+              <div class="wiki-entry">
+                <p class="wiki-entry-name"><a href="${href}">${escapeHtml(x.name)}</a></p>
+                <p class="wiki-entry-desc">${escapeHtml(x.description)}</p>
+                ${meta}
+              </div>
+            `;
+          }).join('');
+          return `
+            <section class="wiki-group" id="cat-${c}">
+              <div class="wiki-group-head">
+                <h2>${label(c)}</h2>
+                <span class="wiki-group-count">${groupOf(c).length} ${groupOf(c).length === 1 ? 'concept' : 'concepts'}</span>
+              </div>
+              ${items}
+            </section>
+          `;
+        }).join('');
+
+        document.getElementById('content').innerHTML = `
+          <div style="max-width:640px;margin-bottom:4px">
+            <h1 style="color:var(--color-primary);margin-bottom:8px">Glossary</h1>
+            <p style="color:var(--color-secondary);font-size:1.0625rem">
+              Every indicator, risk metric and strategy concept used across the site, defined in
+              plain English with its formula and the strategies that rely on it.
+            </p>
+          </div>
+          <nav class="wiki-jump" aria-label="Jump to a category">
+            <span class="wiki-jump-label">Jump to</span>
+            ${jump}
+          </nav>
+          ${body}
+        `;
+        return;
+      }
+
+      // ---- Detail view ----
+      const [glossary, strategies] = await Promise.all([loadGlossary(), loadStrategies()]);
+      const concept = glossary.find(x => x.slug === slug);
+
+      if (!concept) {
+        document.getElementById('content').innerHTML = `
+          <div class="empty-state">
+            <p class="empty-eyebrow">Not Found</p>
+            <h1 class="empty-title">Concept not found</h1>
+            <p class="empty-desc text-secondary">No concept with slug "${slug}".</p>
+            <div class="empty-actions">
+              <a href="${u('/glossary.html')}" class="btn btn-green">Browse Glossary</a>
+            </div>
+          </div>`;
+        return;
+      }
+
+      document.title = `${concept.name}: Composer Atlas Glossary`;
+      document.querySelector('meta[name="description"]').setAttribute('content', concept.description);
+
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'Glossary', href: u('/glossary.html') },
+        { label: concept.name },
+      ]);
+
+      const categoryLabels = {
+        'indicator': 'Indicator',
+        'risk-metric': 'Risk Metric',
+        'asset-class': 'Asset Class',
+        'strategy-concept': 'Strategy Concept',
+      };
+      const badgeCls = 'badge-' + concept.category;
+      const categoryLabel = categoryLabels[concept.category] || concept.category;
+
+      const formulaHtml = concept.formula
+        ? `<div class="formula-box">
+            <p class="formula-label">Formula</p>
+            <p class="formula-value">${concept.formula}</p>
+          </div>`
+        : '';
+
+      function renderTable(table) {
+        if (!table) return '';
+        const headers = table.headers.map(h => `<th>${h}</th>`).join('');
+        const rows = table.rows.map(row =>
+          `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`
+        ).join('');
+        return `<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+      }
+
+      const sectionsHtml = (concept.sections || []).map(section => {
+        const paragraphs = section.paragraphs.map(p => `<p>${p}</p>`).join('');
+        const table = section.table ? renderTable(section.table) : '';
+        return `
+          <div style="margin-bottom:28px">
+            <h2>${section.title}</h2>
+            ${paragraphs}
+            ${table}
+          </div>`;
+      }).join('');
+
+      const related = strategies.filter(s =>
+        s.tags && s.tags.some(t => concept.related_tags.includes(t))
+      );
+      const relatedHtml = related.length > 0
+        ? `<div>
+            <h2 style="color:var(--color-primary);font-size:1rem;font-weight:600;margin-bottom:8px">Related Strategies</h2>
+            <div class="strategy-list-compact">
+              ${related.map(renderStrategyListItem).join('')}
+            </div>
+          </div>`
+        : '';
+
+      const otherConcepts = glossary.filter(c => c.slug !== slug).slice(0, 6);
+      const otherConceptsHtml = otherConcepts.length > 0
+        ? `<div style="margin-top:32px">
+            <h2 style="color:var(--color-primary);font-size:1rem;font-weight:600;margin-bottom:8px">More Concepts</h2>
+            <div class="strategy-list-compact">
+              ${otherConcepts.map(c => `
+                <a href="${u('/glossary.html?slug=' + c.slug)}" class="strategy-list-item">
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.name}</span>
+                  <span class="badge badge-${c.category}" style="font-size:0.6875rem;flex-shrink:0">${categoryLabels[c.category] || c.category}</span>
+                </a>`).join('')}
+            </div>
+          </div>`
+        : '';
+
+      document.getElementById('content').innerHTML = `
+        <div class="grid-2">
+          <div class="detail-main">
+            <div style="margin-bottom:32px">
+              <span class="badge ${badgeCls}" style="margin-bottom:12px;display:inline-flex">${categoryLabel}</span>
+              <h1 style="color:var(--color-primary);font-size:clamp(1.5rem,3vw,2rem);margin-bottom:12px">${concept.name}</h1>
+              <p style="color:var(--color-secondary);font-size:1rem;line-height:1.7">${concept.description}</p>
+              ${formulaHtml}
+            </div>
+            <div class="prose">
+              ${sectionsHtml}
+            </div>
+          </div>
+          <div class="detail-sidebar">
+            <div class="detail-sidebar-sticky">
+              ${relatedHtml}
+              ${otherConceptsHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    })().catch(err => {
+      document.getElementById('content').innerHTML = `
+        <div class="error-state">
+          <h2>Failed to load concept</h2>
+          <p>${err.message}</p>
+          <a href="${u('/glossary.html')}" class="btn btn-outline" style="margin-top:16px">Back to Glossary</a>
+        </div>`;
+    });
+  </script>
+</body>
+</html>

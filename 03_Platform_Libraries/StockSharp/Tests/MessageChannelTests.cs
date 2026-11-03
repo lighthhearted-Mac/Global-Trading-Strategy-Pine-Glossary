@@ -1,0 +1,747 @@
+namespace StockSharp.Tests;
+
+/// <summary>
+/// Common tests for all <see cref="IMessageChannel"/> implementations.
+/// Uses DataRow to test both InMemoryMessageChannel and AsyncMessageChannel.
+/// </summary>
+[TestClass]
+public class MessageChannelTests : BaseTestClass
+{
+	public enum ChannelType
+	{
+		InMemory,
+		Async,
+	}
+
+	private static IMessageChannel CreateChannel(ChannelType type, Action<Exception> errorHandler = null)
+	{
+		errorHandler ??= _ => { };
+
+		return type switch
+		{
+			ChannelType.InMemory => new InMemoryMessageChannel(
+				new MessageByOrderQueue(),
+				"TestChannel",
+				errorHandler),
+			ChannelType.Async => new AsyncMessageChannel(
+				new PassThroughMessageAdapter(new IncrementalIdGenerator()) { MaxParallelMessages = 1 }),
+			_ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+		};
+	}
+
+	#region Basic State Operations
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public void Open_ChangesStateToStarted(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+
+		channel.Open();
+
+		channel.State.AssertEqual(ChannelStates.Started);
+	}
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public void Close_ChangesStateToStopped(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		channel.Open();
+
+		channel.Close();
+
+		channel.State.AssertEqual(ChannelStates.Stopped);
+	}
+
+	/// <summary>
+	/// Note: AsyncMessageChannel doesn't have Disabled property, so this test only runs for InMemory.
+	/// </summary>
+	[TestMethod]
+	public void InMemoryChannel_Disabled_PreventsOpening()
+	{
+		var channel = new InMemoryMessageChannel(new MessageByOrderQueue(), "TestChannel", _ => { });
+		channel.Disabled = true;
+
+		channel.Open();
+
+		channel.State.AssertEqual(ChannelStates.Stopped);
+		channel.Dispose();
+	}
+
+	#endregion
+
+	#region Send Message Operations
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public async Task SendInMessageAsync_WhenClosed_DropsMessage(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		var processed = new List<Message>();
+		var freshProcessed = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var oldMessage = CreateTimeMessage(DateTime.UtcNow);
+		var freshMessage = CreateTimeMessage(DateTime.UtcNow.AddSeconds(1));
+
+		channel.NewOutMessageAsync += (msg, ct) =>
+		{
+			processed.Add(msg);
+			if (ReferenceEquals(msg, freshMessage))
+				freshProcessed.TrySetResult(true);
+			return default;
+		};
+
+		await channel.SendInMessageAsync(oldMessage, CancellationToken);
+
+		channel.Open();
+		if (channelType == ChannelType.Async)
+			await channel.SendInMessageAsync(new ConnectMessage(), CancellationToken);
+
+		await channel.SendInMessageAsync(freshMessage, CancellationToken);
+		await freshProcessed.Task.WithCancellation(CancellationToken);
+
+		processed.Contains(oldMessage).AssertFalse();
+		processed.Contains(freshMessage).AssertTrue();
+	}
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public async Task SendInMessageAsync_WhenOpen_ProcessesMessage(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		var processed = AsyncHelper.CreateTaskCompletionSource<Message>();
+
+		channel.NewOutMessageAsync += (msg, ct) =>
+		{
+			// For AsyncMessageChannel, first message is ConnectMessage
+			if (msg is ConnectMessage)
+				processed.TrySetResult(msg);
+			// For InMemoryMessageChannel, it's TimeMessage
+			else if (msg is TimeMessage)
+				processed.TrySetResult(msg);
+			return default;
+		};
+
+		channel.Open();
+
+		// AsyncMessageChannel requires ConnectMessage first
+		if (channelType == ChannelType.Async)
+		{
+			var message = new ConnectMessage();
+			await channel.SendInMessageAsync(message, CancellationToken);
+			var result = await processed.Task.WithCancellation(CancellationToken);
+			result.AssertEqual(message);
+		}
+		else
+		{
+			var message = CreateTimeMessage(DateTime.UtcNow);
+			await channel.SendInMessageAsync(message, CancellationToken);
+			var result = await processed.Task.WithCancellation(CancellationToken);
+			result.AssertEqual(message);
+		}
+	}
+
+	#endregion
+
+	#region Suspend/Resume
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public async Task Suspend_PausesProcessing(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		var connected = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var messageProcessed = AsyncHelper.CreateTaskCompletionSource<bool>();
+
+		channel.NewOutMessageAsync += (msg, ct) =>
+		{
+			if (msg is ConnectMessage)
+				connected.TrySetResult(true);
+			else if (msg is TimeMessage)
+				messageProcessed.TrySetResult(true);
+			return default;
+		};
+
+		channel.Open();
+		await channel.SendInMessageAsync(new ConnectMessage(), CancellationToken);
+		await connected.Task.WithCancellation(CancellationToken);
+
+		channel.Suspend();
+		channel.State.AssertEqual(ChannelStates.Suspended);
+
+		await channel.SendInMessageAsync(CreateTimeMessage(DateTime.UtcNow), CancellationToken);
+		await Task.Delay(300, CancellationToken);
+		messageProcessed.Task.IsCompleted.AssertFalse();
+
+		channel.Resume();
+		await messageProcessed.Task.WithCancellation(CancellationToken);
+	}
+
+	/// <summary>
+	/// A channel suspended by the handler of one of its messages stops there. By the time the handler
+	/// returns the next message is already in the queue and the channel is still going through that
+	/// queue: it must not hand the message over because it had started before the suspend.
+	/// </summary>
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	[Timeout(30_000, CooperativeCancellation = true)]
+	public async Task Suspend_FromAHandler_KeepsTheNextMessageUntilResume(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		var suspended = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var messageProcessed = AsyncHelper.CreateTaskCompletionSource<bool>();
+
+		channel.NewOutMessageAsync += (msg, ct) =>
+		{
+			switch (msg)
+			{
+				case ConnectMessage:
+					channel.Suspend();
+					var sent = channel.SendInMessageAsync(CreateTimeMessage(DateTime.UtcNow), ct);
+					suspended.TrySetResult(true);
+					return sent;
+
+				case TimeMessage:
+					messageProcessed.TrySetResult(true);
+					break;
+			}
+
+			return default;
+		};
+
+		channel.Open();
+		await channel.SendInMessageAsync(new ConnectMessage(), CancellationToken);
+		await suspended.Task.WithCancellation(CancellationToken);
+
+		await Task.Delay(300, CancellationToken);
+		messageProcessed.Task.IsCompleted.AssertFalse("a suspended channel must not hand over the next message");
+
+		channel.Resume();
+		await messageProcessed.Task.WithCancellation(CancellationToken);
+	}
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public void Suspend_ChangesStateToSuspended(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		channel.Open();
+
+		channel.Suspend();
+
+		channel.State.AssertEqual(ChannelStates.Suspended);
+	}
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public void Resume_ChangesStateToStarted(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		channel.Open();
+		channel.Suspend();
+
+		channel.Resume();
+
+		channel.State.AssertEqual(ChannelStates.Started);
+	}
+
+	#endregion
+
+	#region Clear
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public async Task Clear_RemovesPendingMessages(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		var processedCount = 0;
+		var gate = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var firstNonConnectProcessed = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var connected = AsyncHelper.CreateTaskCompletionSource<bool>();
+
+		channel.NewOutMessageAsync += async (msg, ct) =>
+		{
+			if (msg is ConnectMessage)
+			{
+				connected.TrySetResult(true);
+				return;
+			}
+
+			if (Interlocked.Increment(ref processedCount) == 1)
+			{
+				firstNonConnectProcessed.TrySetResult(true);
+				await gate.Task;
+			}
+		};
+
+		channel.Open();
+
+		// AsyncMessageChannel requires ConnectMessage first
+		if (channelType == ChannelType.Async)
+		{
+			await channel.SendInMessageAsync(new ConnectMessage(), CancellationToken);
+			await connected.Task.WithCancellation(CancellationToken);
+		}
+
+		// Send multiple messages
+		var baseTime = DateTime.UtcNow;
+		for (int i = 0; i < 10; i++)
+		{
+			await channel.SendInMessageAsync(CreateTimeMessage(baseTime.AddSeconds(i)), CancellationToken);
+		}
+
+		// Wait for first to start processing
+		await firstNonConnectProcessed.Task.WithCancellation(CancellationToken);
+
+		// Clear pending messages
+		channel.Clear();
+
+		// Release first message
+		gate.TrySetResult(true);
+
+		await Task.Delay(200, CancellationToken);
+
+		processedCount.AssertEqual(1);
+	}
+
+	#endregion
+
+	#region Error Handling
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public async Task ErrorInHandler_DoesNotStopChannel(ChannelType channelType)
+	{
+		var errorCaught = AsyncHelper.CreateTaskCompletionSource<Exception>();
+		var secondMessageProcessed = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var connected = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var messageCount = 0;
+
+		IMessageChannel channel;
+		if (channelType == ChannelType.InMemory)
+		{
+			channel = new InMemoryMessageChannel(
+				new MessageByOrderQueue(),
+				"TestChannel",
+				ex => errorCaught.TrySetResult(ex));
+		}
+		else
+		{
+			var adapter = new PassThroughMessageAdapter(new IncrementalIdGenerator())
+			{
+				MaxParallelMessages = 1,
+				FaultDelay = TimeSpan.Zero,
+			};
+			channel = new AsyncMessageChannel(adapter);
+		}
+
+		using var _ = (IDisposable)channel;
+
+		channel.NewOutMessageAsync += (msg, ct) =>
+		{
+			if (msg is ConnectMessage)
+			{
+				connected.TrySetResult(true);
+				return default;
+			}
+
+			var count = Interlocked.Increment(ref messageCount);
+			if (count == 1)
+				throw new InvalidOperationException("Test error");
+			if (count == 2)
+				secondMessageProcessed.TrySetResult(true);
+			return default;
+		};
+
+		channel.Open();
+
+		// AsyncMessageChannel requires ConnectMessage first
+		if (channelType == ChannelType.Async)
+		{
+			await channel.SendInMessageAsync(new ConnectMessage(), CancellationToken);
+			await connected.Task.WithCancellation(CancellationToken);
+		}
+
+		await channel.SendInMessageAsync(CreateTimeMessage(DateTime.UtcNow), CancellationToken);
+		await channel.SendInMessageAsync(CreateTimeMessage(DateTime.UtcNow.AddSeconds(1)), CancellationToken);
+
+		// Second message should still be processed after error in first
+		await secondMessageProcessed.Task.WithCancellation(CancellationToken);
+
+		channel.State.AssertEqual(ChannelStates.Started);
+
+		if (channelType == ChannelType.InMemory)
+			((await errorCaught.Task.WithCancellation(CancellationToken)) is InvalidOperationException)
+				.AssertTrue();
+	}
+
+	#endregion
+
+	#region Clone
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public void Clone_CreatesIndependentChannel(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		channel.Open();
+
+		using var clone = channel.Clone();
+
+		clone.AssertNotNull();
+		clone.AssertNotEqual(channel);
+		clone.State.AssertEqual(ChannelStates.Stopped); // Clone starts closed
+	}
+
+	#endregion
+
+	#region Concurrent Operations
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public async Task ConcurrentSend_AllMessagesProcessed(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+		var processedMessages = new System.Collections.Concurrent.ConcurrentBag<Message>();
+		var allProcessed = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var connected = AsyncHelper.CreateTaskCompletionSource<bool>();
+		const int messageCount = 50;
+
+		channel.NewOutMessageAsync += (msg, ct) =>
+		{
+			if (msg is ConnectMessage)
+			{
+				connected.TrySetResult(true);
+				return default;
+			}
+
+			processedMessages.Add(msg);
+			if (processedMessages.Count == messageCount)
+				allProcessed.TrySetResult(true);
+			return default;
+		};
+
+		channel.Open();
+
+		// AsyncMessageChannel requires ConnectMessage first
+		if (channelType == ChannelType.Async)
+		{
+			await channel.SendInMessageAsync(new ConnectMessage(), CancellationToken);
+			await connected.Task.WithCancellation(CancellationToken);
+		}
+
+		// Send messages concurrently
+		var baseTime = DateTime.UtcNow;
+		var tasks = Enumerable.Range(0, messageCount)
+			.Select(i => channel.SendInMessageAsync(CreateTimeMessage(baseTime.AddMilliseconds(i)), CancellationToken).AsTask());
+		await Task.WhenAll(tasks);
+
+		await allProcessed.Task.WithCancellation(CancellationToken);
+
+		processedMessages.Count.AssertEqual(messageCount);
+	}
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public async Task RapidOpenClose_NoDeadlock(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+
+		for (int i = 0; i < 10; i++)
+		{
+			channel.Open();
+			await channel.SendInMessageAsync(CreateTimeMessage(DateTime.UtcNow), CancellationToken);
+			channel.Close();
+		}
+
+		// If we get here without hanging, test passes
+	}
+
+	#endregion
+
+	#region Reopen
+
+	[TestMethod]
+	[DataRow(ChannelType.InMemory)]
+	[DataRow(ChannelType.Async)]
+	public async Task Reopen_WorksAfterClose(ChannelType channelType)
+	{
+		using var channel = CreateChannel(channelType);
+
+		var connectCount = 0;
+		var connected = AsyncHelper.CreateTaskCompletionSource<bool>();
+
+		channel.NewOutMessageAsync += (message, token) =>
+		{
+			if (message is ConnectMessage)
+			{
+				Interlocked.Increment(ref connectCount);
+				connected.TrySetResult(true);
+			}
+			return default;
+		};
+
+		// First open
+		channel.Open();
+		await channel.SendInMessageAsync(new ConnectMessage(), CancellationToken);
+		await connected.Task.WithCancellation(CancellationToken);
+		connectCount.AssertEqual(1);
+
+		// Close
+		channel.Close();
+		channel.State.AssertEqual(ChannelStates.Stopped);
+
+		// Reopen
+		connected = AsyncHelper.CreateTaskCompletionSource<bool>();
+		channel.Open();
+		await channel.SendInMessageAsync(new ConnectMessage(), CancellationToken);
+		await connected.Task.WithCancellation(CancellationToken);
+		connectCount.AssertEqual(2);
+	}
+
+	#endregion
+
+	#region Helper Methods
+
+	private static TimeMessage CreateTimeMessage(DateTime localTime)
+	{
+		return new TimeMessage { LocalTime = localTime };
+	}
+
+	private static ExecutionMessage CreateExecutionMessage(DateTime localTime)
+	{
+		return new ExecutionMessage
+		{
+			LocalTime = localTime,
+			DataTypeEx = DataType.Ticks,
+			TradePrice = 100,
+			TradeVolume = 1
+		};
+	}
+
+	private static OrderRegisterMessage CreateOrderMessage(DateTime localTime)
+	{
+		return new OrderRegisterMessage
+		{
+			LocalTime = localTime,
+			TransactionId = localTime.Ticks,
+			SecurityId = new SecurityId { SecurityCode = "TEST", BoardCode = BoardCodes.Test },
+			Price = 100,
+			Volume = 1
+		};
+	}
+
+	private static IMessageChannel CreateInMemoryChannel(IMessageQueue queue)
+	{
+		return new InMemoryMessageChannel(queue, "TestChannel", _ => { });
+	}
+
+	private static async Task<Message[]> ProcessBufferedByLocalTime(IReadOnlyList<Message> messages, CancellationToken cancellationToken)
+	{
+		if (messages.Count == 0)
+			return [];
+
+		using var channel = CreateInMemoryChannel(new MessageByLocalTimeQueue());
+		var processedMessages = new List<Message>();
+		var blockerEntered = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var releaseBlocker = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var allProcessed = AsyncHelper.CreateTaskCompletionSource<bool>();
+		var blocker = CreateTimeMessage(messages[0].LocalTime);
+
+		channel.NewOutMessageAsync += async (msg, ct) =>
+		{
+			if (ReferenceEquals(msg, blocker))
+			{
+				blockerEntered.TrySetResult(true);
+				await releaseBlocker.Task.WithCancellation(ct);
+				return;
+			}
+
+			lock (processedMessages)
+			{
+				processedMessages.Add(msg);
+				if (processedMessages.Count == messages.Count)
+					allProcessed.TrySetResult(true);
+			}
+		};
+
+		channel.Open();
+		await channel.SendInMessageAsync(blocker, cancellationToken);
+		await blockerEntered.Task.WithCancellation(cancellationToken);
+
+		try
+		{
+			foreach (var message in messages)
+				await channel.SendInMessageAsync(message, cancellationToken);
+		}
+		finally
+		{
+			releaseBlocker.TrySetResult(true);
+		}
+
+		await allProcessed.Task.WithCancellation(cancellationToken);
+
+		lock (processedMessages)
+			return [.. processedMessages];
+	}
+
+	#endregion
+
+	#region InMemoryChannel Queue Ordering
+
+	[TestMethod]
+	[Timeout(5_000, CooperativeCancellation = true)]
+	public async Task InMemoryChannel_MessagesByLocalTimeQueue_ProcessedInTimeOrder()
+	{
+		var baseTime = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+		var msg1 = CreateTimeMessage(baseTime.AddSeconds(3)); // Latest
+		var msg2 = CreateTimeMessage(baseTime.AddSeconds(1)); // Earliest
+		var msg3 = CreateTimeMessage(baseTime.AddSeconds(2)); // Middle
+
+		var processedMessages = await ProcessBufferedByLocalTime([msg1, msg2, msg3], CancellationToken);
+
+		// Should be processed in LocalTime order
+		processedMessages[0].AssertSame(msg2); // Earliest
+		processedMessages[1].AssertSame(msg3); // Middle
+		processedMessages[2].AssertSame(msg1); // Latest
+	}
+
+	[TestMethod]
+	public async Task InMemoryChannel_MessagesByOrderQueue_ProcessedInFIFOOrder()
+	{
+		using var channel = CreateInMemoryChannel(new MessageByOrderQueue());
+		var processedMessages = new List<Message>();
+		var allProcessed = AsyncHelper.CreateTaskCompletionSource<bool>();
+
+		channel.NewOutMessageAsync += (msg, ct) =>
+		{
+			lock (processedMessages)
+			{
+				processedMessages.Add(msg);
+				if (processedMessages.Count == 3)
+					allProcessed.TrySetResult(true);
+			}
+			return default;
+		};
+
+		channel.Open();
+
+		var baseTime = DateTime.UtcNow;
+		var msg1 = CreateTimeMessage(baseTime.AddSeconds(3)); // Latest time, first sent
+		var msg2 = CreateTimeMessage(baseTime.AddSeconds(1)); // Earliest time, second sent
+		var msg3 = CreateTimeMessage(baseTime.AddSeconds(2)); // Middle time, third sent
+
+		await channel.SendInMessageAsync(msg1, CancellationToken);
+		await channel.SendInMessageAsync(msg2, CancellationToken);
+		await channel.SendInMessageAsync(msg3, CancellationToken);
+
+		await allProcessed.Task.WithCancellation(CancellationToken);
+
+		// Should be processed in FIFO order (send order)
+		processedMessages[0].AssertEqual(msg1);
+		processedMessages[1].AssertEqual(msg2);
+		processedMessages[2].AssertEqual(msg3);
+	}
+
+	[TestMethod]
+	[Timeout(5_000, CooperativeCancellation = true)]
+	public async Task InMemoryChannel_MessageByLocalTimeQueue_OutOfOrderTimes_SortsCorrectly()
+	{
+		const int messageCount = 50;
+		var baseTime = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+		var expected = Enumerable.Range(0, messageCount)
+			.Select(i => CreateTimeMessage(baseTime.AddSeconds(i)))
+			.ToArray();
+
+		var processedMessages = await ProcessBufferedByLocalTime([.. expected.Reverse()], CancellationToken);
+
+		for (var i = 0; i < expected.Length; i++)
+			processedMessages[i].AssertSame(expected[i]);
+	}
+
+	[TestMethod]
+	[Timeout(5_000, CooperativeCancellation = true)]
+	public async Task InMemoryChannel_MessageByLocalTimeQueue_FutureTimeMessage_ProcessedAfterCurrent()
+	{
+		var now = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+		var pastMsg = CreateTimeMessage(now.AddSeconds(-10)); // Past
+		var currentMsg = CreateTimeMessage(now); // Current
+		var futureMsg = CreateTimeMessage(now.AddSeconds(10)); // Future
+
+		var processedMessages = await ProcessBufferedByLocalTime([futureMsg, pastMsg, currentMsg], CancellationToken);
+
+		// Should be in time order: past, current, future
+		processedMessages[0].AssertSame(pastMsg);
+		processedMessages[1].AssertSame(currentMsg);
+		processedMessages[2].AssertSame(futureMsg);
+	}
+
+	/// <summary>
+	/// Verifies time ordering of a buffered backtest batch where historical data
+	/// and commands (like OrderRegister) are interleaved.
+	/// </summary>
+	[TestMethod]
+	[Timeout(5_000, CooperativeCancellation = true)]
+	public async Task InMemoryChannel_BacktestSimulation_CommandsAndDataMixedTiming()
+	{
+		// Simulate backtest: historical data at t=10, t=20, t=30 seconds
+		// And commands at "current" times (which may be different)
+		var baseTime = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+
+		// Historical market data messages
+		var tick1 = CreateExecutionMessage(baseTime.AddSeconds(10));
+		var tick2 = CreateExecutionMessage(baseTime.AddSeconds(20));
+		var tick3 = CreateExecutionMessage(baseTime.AddSeconds(30));
+
+		// Command messages - in real backtest, these get LocalTime from when they're created
+		// which might be "ahead" of the historical data being processed
+		var order1 = CreateOrderMessage(baseTime.AddSeconds(15)); // Should be between tick1 and tick2
+		var order2 = CreateOrderMessage(baseTime.AddSeconds(25)); // Should be between tick2 and tick3
+		var order3 = CreateOrderMessage(baseTime.AddSeconds(35)); // Should be after tick3
+
+		var processedMessages = await ProcessBufferedByLocalTime(
+			[order2, tick3, tick1, order1, tick2, order3], CancellationToken);
+
+		// Verify strict time ordering
+		var orderedMessages = processedMessages.OrderBy(m => m.LocalTime).ToList();
+		for (int i = 0; i < processedMessages.Length; i++)
+		{
+			processedMessages[i].AssertEqual(orderedMessages[i],
+				$"Message at position {i} is out of order");
+		}
+
+		// Verify specific order: tick1, order1, tick2, order2, tick3, order3
+		processedMessages[0].AssertSame(tick1);
+		processedMessages[1].AssertSame(order1);
+		processedMessages[2].AssertSame(tick2);
+		processedMessages[3].AssertSame(order2);
+		processedMessages[4].AssertSame(tick3);
+		processedMessages[5].AssertSame(order3);
+	}
+
+	[TestMethod]
+	public async Task InMemoryChannel_MessageCount_ReturnsQueueCount()
+	{
+		var queue = new MessageByOrderQueue();
+		queue.Open();
+		await queue.Enqueue(CreateTimeMessage(DateTime.UtcNow), CancellationToken);
+		using var channel = new InMemoryMessageChannel(queue, "TestChannel", _ => { });
+
+		channel.MessageCount.AssertEqual(1);
+	}
+
+	#endregion
+}

@@ -1,0 +1,602 @@
+namespace StockSharp.Algo.Testing;
+
+using StockSharp.Algo.Risk;
+using StockSharp.Algo.Commissions;
+
+/// <summary>
+/// The emulation connection. It uses historical data and/or occasionally generated.
+/// </summary>
+public class HistoryEmulationConnector : BaseEmulationConnector
+{
+	private bool _stopPending;
+	private bool _isInterrupted;
+	private bool _isMarketDataRefused;
+	private Exception _lastRefusal;
+	private Exception _stopError;
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="HistoryEmulationConnector"/>.
+	/// </summary>
+	/// <param name="securityProvider">The provider of information about instruments.</param>
+	public HistoryEmulationConnector(ISecurityProvider securityProvider)
+		: this(securityProvider, [Portfolio.CreateSimulator()])
+	{
+	}
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="HistoryEmulationConnector"/>.
+	/// </summary>
+	/// <param name="securityProvider">The provider of information about instruments.</param>
+	/// <param name="portfolioProvider">The portfolio to be used to register orders. If value is not given, the portfolio with default name Simulator will be created.</param>
+	/// <param name="storageRegistry">Market data storage.</param>
+	public HistoryEmulationConnector(ISecurityProvider securityProvider, IPortfolioProvider portfolioProvider, IStorageRegistry storageRegistry)
+		: this(securityProvider, portfolioProvider, storageRegistry.CheckOnNull(nameof(storageRegistry)).ExchangeInfoProvider, storageRegistry)
+	{
+	}
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="HistoryEmulationConnector"/>.
+	/// </summary>
+	/// <param name="securities">Instruments, which will be sent through the <see cref="Connector.SecurityReceived"/> event.</param>
+	/// <param name="portfolios">Portfolios, which will be sent through the <see cref="Connector.PortfolioReceived"/> event.</param>
+	public HistoryEmulationConnector(IEnumerable<Security> securities, IEnumerable<Portfolio> portfolios)
+		: this(securities, portfolios, new StorageRegistry())
+	{
+	}
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="HistoryEmulationConnector"/>.
+	/// </summary>
+	/// <param name="securities">Instruments, the operation will be performed with.</param>
+	/// <param name="portfolios">Portfolios, the operation will be performed with.</param>
+	/// <param name="storageRegistry">Market data storage.</param>
+	public HistoryEmulationConnector(IEnumerable<Security> securities, IEnumerable<Portfolio> portfolios, IStorageRegistry storageRegistry)
+		: this(new CollectionSecurityProvider(securities), new CollectionPortfolioProvider(portfolios), storageRegistry.CheckOnNull(nameof(storageRegistry)).ExchangeInfoProvider, storageRegistry)
+	{
+	}
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="HistoryEmulationConnector"/>.
+	/// </summary>
+	/// <param name="securityProvider">The provider of information about instruments.</param>
+	/// <param name="portfolios">Portfolios, the operation will be performed with.</param>
+	public HistoryEmulationConnector(ISecurityProvider securityProvider, IEnumerable<Portfolio> portfolios)
+		: this(securityProvider, new CollectionPortfolioProvider(portfolios), new InMemoryExchangeInfoProvider())
+	{
+	}
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="HistoryEmulationConnector"/>.
+	/// </summary>
+	/// <param name="securityProvider">The provider of information about instruments.</param>
+	/// <param name="portfolioProvider">The portfolio to be used to register orders. If value is not given, the portfolio with default name Simulator will be created.</param>
+	/// <param name="exchangeInfoProvider">Exchanges and trading boards provider.</param>
+	public HistoryEmulationConnector(ISecurityProvider securityProvider, IPortfolioProvider portfolioProvider, IExchangeInfoProvider exchangeInfoProvider)
+		: this(securityProvider, portfolioProvider, exchangeInfoProvider, new StorageRegistry(exchangeInfoProvider))
+	{
+	}
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="HistoryEmulationConnector"/>.
+	/// </summary>
+	/// <param name="securityProvider">The provider of information about instruments.</param>
+	/// <param name="portfolioProvider">The portfolio to be used to register orders. If value is not given, the portfolio with default name Simulator will be created.</param>
+	/// <param name="storageRegistry">Market data storage.</param>
+	/// <param name="exchangeInfoProvider">Exchanges and trading boards provider.</param>
+	public HistoryEmulationConnector(ISecurityProvider securityProvider, IPortfolioProvider portfolioProvider, IExchangeInfoProvider exchangeInfoProvider, IStorageRegistry storageRegistry)
+		: this(new HistoryMessageAdapter(new IncrementalIdGenerator(), securityProvider, new HistoryMarketDataManager(new TradingTimeLineGenerator()) { StorageRegistry = storageRegistry }), true, new PassThroughMessageChannel(), securityProvider, portfolioProvider, exchangeInfoProvider)
+	{
+	}
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="HistoryEmulationConnector"/>.
+	/// </summary>
+	/// <param name="innerAdapter">Underlying adapter.</param>
+	/// <param name="ownInnerAdapter">Control <paramref name="innerAdapter"/> lifetime.</param>
+	/// <param name="inChannel">Incoming messages channel.</param>
+	/// <param name="securityProvider">The provider of information about instruments.</param>
+	/// <param name="portfolioProvider">The portfolio to be used to register orders. If value is not given, the portfolio with default name Simulator will be created.</param>
+	/// <param name="exchangeInfoProvider">Exchanges and trading boards provider.</param>
+	public HistoryEmulationConnector(IMessageAdapter innerAdapter, bool ownInnerAdapter, IMessageChannel inChannel, ISecurityProvider securityProvider, IPortfolioProvider portfolioProvider, IExchangeInfoProvider exchangeInfoProvider)
+		: base(new EmulationMessageAdapter(innerAdapter, inChannel, true, securityProvider, portfolioProvider, exchangeInfoProvider) { OwnInnerAdapter = ownInnerAdapter }, false, false)
+	{
+		MarketTimeChangedInterval = HistoryMessageAdapter.MarketTimeChangedInterval;
+
+		Adapter.LatencyManager = null;
+		Adapter.CommissionManager = null;
+		Adapter.PnLManager = null;
+		Adapter.SlippageManager = null;
+		Adapter.SupportSecurityAll = false;
+		Adapter.SendFinishedCandlesImmediatelly = true;
+		//Adapter.SupportCandlesCompression = false;
+		Adapter.SupportBuildingFromOrderLog = false;
+		Adapter.SupportLookupTracking = false;
+		Adapter.SupportOrderBookTruncate = false;
+		Adapter.ConnectDisconnectEventOnFirstAdapter = false;
+		Adapter.GenerateOrderBookFromLevel1 = false;
+		Adapter.UseInChannel = false;
+		Adapter.UseOutChannel = false;
+
+		// The replay's clock is the only one a run has: the time its emulator hands over is the strategies' time.
+		Adapter.IsTimeForwarded = true;
+
+		InMessageChannel = new PassThroughMessageChannel();
+		OutMessageChannel = new PassThroughMessageChannel();
+
+		// при тестировании по свечкам, время меняется быстрее и таймаут должен быть больше 30с.
+		//ReConnectionSettings.TimeOutInterval = TimeSpan.MaxValue;
+
+		//MaxMessageCount = 1000;
+
+		CurrentTimeChanged += OnCurrentTimeChanged;
+
+		SupportFilteredMarketDepth = false;
+		UpdatePortfolioByChange = false;
+		SupportBasketSecurities = true;
+
+		innerAdapter.Parent ??= this;
+
+		SubscriptionsOnConnect.Remove(SecurityLookup);
+	}
+
+	/// <inheritdoc />
+	public override IRiskManager RiskManager => null;
+
+	/// <inheritdoc />
+	public override bool SupportSnapshots => false;
+
+	/// <summary>
+	/// The adapter, receiving messages form the storage <see cref="IStorageRegistry"/>.
+	/// </summary>
+	public HistoryMessageAdapter HistoryMessageAdapter => EmulationAdapter.FindAdapter<HistoryMessageAdapter>();
+
+	// Serializes the read-modify-write of the state machine. All channels are synchronous
+	// PassThroughMessageChannel, so the replay thread and the resume/test thread can both
+	// drive state transitions at the same time; without this lock a terminal Stopping and a
+	// resume Starting could interleave a half-applied transition, making the strict guard
+	// throw or land in a non-Stopped state so that Stopped/OnDisconnected never fires.
+	private readonly Lock _stateSync = new();
+
+	private ChannelStates _state = ChannelStates.Stopped;
+
+	/// <summary>
+	/// The emulator state.
+	/// </summary>
+	public ChannelStates State => _state;
+
+	// Applies a single state transition. Must be called while holding _stateSync. What a handler of the
+	// change throws is collected: it is sent out by the caller, once the lock is released.
+	private void SetStateInternal(ChannelStates value, ref List<Exception> errors)
+	{
+		if (_state == value)
+			return;
+
+		if (!EmulationAdapter.OwnInnerAdapter && _state == ChannelStates.Stopped && value == ChannelStates.Stopping)
+			return;
+
+		bool throwError;
+
+		var channel = EmulationAdapter.InChannel;
+
+		switch (value)
+		{
+			case ChannelStates.Stopped:
+				throwError = _state != ChannelStates.Stopping;
+
+				//if (EmulationAdapter.OwnInnerAdapter)
+					if (!EmulationAdapter.OwnInnerAdapter && channel is InMemoryMessageChannel inMem)
+						inMem.Disabled = true;
+
+					channel.Close();
+
+				break;
+			case ChannelStates.Stopping:
+				throwError = _state is not ChannelStates.Started and not ChannelStates.Suspended
+					and not ChannelStates.Starting;  // on errors during emulation start the state can still be Starting
+
+				//if (EmulationAdapter.OwnInnerAdapter)
+				{
+					channel.Clear();
+
+					if (_state == ChannelStates.Suspended)
+						channel.Resume();
+				}
+
+				break;
+			case ChannelStates.Starting:
+				throwError = _state is not ChannelStates.Stopped and not ChannelStates.Suspended;
+				break;
+			case ChannelStates.Started:
+				throwError = _state != ChannelStates.Starting;
+				break;
+			case ChannelStates.Suspending:
+				throwError = _state != ChannelStates.Started;
+				break;
+			case ChannelStates.Suspended:
+				throwError = _state != ChannelStates.Suspending;
+
+				//if (EmulationAdapter.OwnInnerAdapter)
+					channel.Suspend();
+
+				break;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(value), value, LocalizedStrings.InvalidValue);
+		}
+
+		if (throwError)
+			throw new InvalidOperationException(LocalizedStrings.TaskCannotChangeState.Put(_state, value));
+
+		LogInfo("State: {0}->{1}", _state, value);
+		_state = value;
+
+		try
+		{
+			StateChanged?.Invoke();
+			StateChanged2?.Invoke(value);
+		}
+		catch (Exception ex)
+		{
+			(errors ??= []).Add(ex);
+		}
+	}
+
+	private async ValueTask SetStateAsync(ChannelStates value, CancellationToken cancellationToken)
+	{
+		List<Exception> errors = null;
+
+		using (_stateSync.EnterScope())
+			SetStateInternal(value, ref errors);
+
+		await SendOutErrorsAsync(errors, cancellationToken);
+	}
+
+	private async ValueTask SendOutErrorsAsync(List<Exception> errors, CancellationToken cancellationToken)
+	{
+		if (errors is null)
+			return;
+
+		foreach (var error in errors)
+			await SendOutErrorAsync(error, cancellationToken);
+	}
+
+	/// <summary>
+	/// End the run on any market data subscription that fails, not only when none of its market data is left: such a run
+	/// is not finished, and <see cref="StopError"/> holds the failure.
+	/// </summary>
+	public bool StopOnSubscriptionError { get; set; }
+
+	private InMemoryMessageChannel InMemChannel
+		=> (Adapter.InnerAdapters.FirstOrDefault() as EmulationMessageAdapter)?.InChannel as InMemoryMessageChannel;
+
+	/// <summary>
+	/// Maximum number of messages processed during backtesting. Negative value means the option is ignored.
+	/// </summary>
+	public int MaxMessageCount
+	{
+		get => -1;
+		set
+		{
+			// TODO
+
+			//var channel = InMemChannel;
+
+			//if (channel is not null)
+			//	channel.MaxMessageCount = value;
+		}
+	}
+
+	/// <inheritdoc/>
+	protected override void RaiseSubscriptionFailed(Subscription subscription, Exception error, bool isSubscribe)
+	{
+		base.RaiseSubscriptionFailed(subscription, error, isSubscribe);
+
+		if (subscription.SubscriptionMessage is not MarketDataMessage)
+			return;
+
+		if (StopOnSubscriptionError)
+		{
+			StopRun(new InvalidOperationException(LocalizedStrings.ErrorSubDetails.Put(subscription.DataType, subscription.SecurityId), error));
+			return;
+		}
+
+		if (!isSubscribe)
+			return;
+
+		// Whether any market data is left is decided when the run starts: a strategy asks for its series one after another,
+		// each refused inside its own call, so at a refusal the rest may not be asked for yet.
+		_isMarketDataRefused = true;
+		_lastRefusal = error;
+	}
+
+	// History is replayed only for the market data subscribed: a run with none of it would wait for it forever.
+	private bool HasMarketDataSubscriptions()
+		=> Subscriptions.Any(s => s.SubscriptionMessage is MarketDataMessage);
+
+	// What a run that has none of its market data ends with; the last refusal says which data was missing.
+	private InvalidOperationException CreateNoDataError()
+		=> new(LocalizedStrings.NoData, _lastRefusal);
+
+	// Ends the run on the error that ends it, told before the run is torn down; a run not started yet ends as it starts.
+	private void StopRun(Exception error)
+	{
+		if (ConnectionState != ConnectionStates.Connected)
+			return;
+
+		_stopError = error;
+		RaiseError(error);
+		Disconnect();
+	}
+
+	/// <summary>
+	/// The event on the emulator state change <see cref="State"/>.
+	/// </summary>
+	[Obsolete("Use StateChanged2 event.")]
+	public event Action StateChanged;
+
+	/// <summary>
+	/// The event on the emulator state change <see cref="State"/>.
+	/// </summary>
+	public event Action<ChannelStates> StateChanged2;
+
+	/// <summary>
+	/// Progress changed event.
+	/// </summary>
+	public event Action<int> ProgressChanged;
+
+	private DateTime _startTime;
+	private DateTime _stopTime;
+	private DateTime _nextTime;
+	private long _stepTicks;
+	private int _progress;
+
+	private void OnCurrentTimeChanged(TimeSpan diff)
+	{
+		if (_stepTicks == default || _progress >= 100)
+			return;
+
+		if (CurrentTime < _nextTime && CurrentTime < _stopTime)
+			return;
+
+		_nextTime = _nextTime.AddTicks(_stepTicks);
+		ProgressChanged?.Invoke(++_progress);
+	}
+
+	/// <summary>
+	/// Has the emulator ended its operation due to end of data, or it was interrupted through the <see cref="IConnector.Disconnect"/>method.
+	/// A run that ended on an error has not, and <see cref="StopError"/> says why.
+	/// </summary>
+	public bool IsFinished { get; private set; }
+
+	/// <summary>
+	/// The error the emulation ended on, or <see langword="null"/> if it ended without one: a run left with none of its
+	/// market data, a run stopped on a failed subscription, a replay that failed.
+	/// </summary>
+	public Exception StopError { get; private set; }
+
+	/// <inheritdoc />
+	public override TimeSpan MarketTimeChangedInterval
+	{
+		set
+		{
+			base.MarketTimeChangedInterval = value;
+			HistoryMessageAdapter.MarketTimeChangedInterval = value;
+		}
+	}
+
+	/// <summary>
+	/// Commission rules.
+	/// </summary>
+	[Obsolete("Use EmulationSettings.CommissionRules property.")]
+	public IEnumerable<ICommissionRule> CommissionRules { get; set; }
+
+	/// <summary>
+	/// <see cref="EmulationMessageAdapter.Settings"/>
+	/// </summary>
+	public MarketEmulatorSettings EmulationSettings => EmulationAdapter.Settings;
+
+	/// <inheritdoc />
+	public override async ValueTask ClearCacheAsync(CancellationToken cancellationToken)
+	{
+		await base.ClearCacheAsync(cancellationToken);
+
+		IsFinished = false;
+		StopError = null;
+	}
+
+	/// <inheritdoc />
+	protected override async ValueTask OnConnectAsync(CancellationToken cancellationToken)
+	{
+		_startTime = HistoryMessageAdapter.StartDate;
+		_stopTime = HistoryMessageAdapter.StopDate;
+
+		_stepTicks = (_stopTime - _startTime).Ticks / 100;
+
+		_nextTime = _startTime.AddTicks(_stepTicks);
+		_progress = default;
+
+		_stopPending = false;
+		_isInterrupted = false;
+		_isMarketDataRefused = false;
+		_lastRefusal = null;
+		_stopError = null;
+
+		await base.OnConnectAsync(cancellationToken);
+	}
+
+	/// <inheritdoc />
+	protected override ValueTask OnDisconnectAsync(CancellationToken cancellationToken)
+	{
+		_isInterrupted = true;
+
+		if (/*EmulationAdapter.OwnInnerAdapter && */State == ChannelStates.Suspended)
+			EmulationAdapter.InChannel.Resume();
+
+		if (State is not ChannelStates.Stopped and not ChannelStates.Stopping)
+			return SendEmulationStateAsync(ChannelStates.Stopping, cancellationToken);
+
+		_stopPending = true;
+		return default;
+	}
+
+	/// <inheritdoc />
+	protected override async ValueTask OnDisconnectedAsync(CancellationToken cancellationToken)
+	{
+		await SetStateAsync(ChannelStates.Stopped, cancellationToken);
+		await base.OnDisconnectedAsync(cancellationToken);
+	}
+
+	/// <inheritdoc />
+	protected override async ValueTask DisposeManagedAsync()
+	{
+		CurrentTimeChanged -= OnCurrentTimeChanged;
+
+		await base.DisposeManagedAsync();
+
+		MarketDataAdapter.DoDispose();
+	}
+
+	/// <summary>
+	/// To start the emulation.
+	/// </summary>
+	public async ValueTask StartAsync(CancellationToken cancellationToken = default)
+	{
+		var isResuming = /*EmulationAdapter.OwnInnerAdapter && */State == ChannelStates.Suspended;
+
+		if (isResuming)
+			EmulationAdapter.InChannel.Resume();
+
+		if (!isResuming)
+		{
+			foreach (var rule in EmulationSettings.CommissionRules)
+				await SendInMessageAsync(new CommissionRuleMessage { Rule = rule }, cancellationToken);
+		}
+
+		await SendEmulationStateAsync(ChannelStates.Starting, cancellationToken);
+	}
+
+	/// <summary>
+	/// To suspend the emulation.
+	/// </summary>
+	public ValueTask SuspendAsync(CancellationToken cancellationToken = default)
+	{
+		return SendEmulationStateAsync(ChannelStates.Suspending, cancellationToken);
+	}
+
+	private ValueTask SendEmulationStateAsync(ChannelStates state, CancellationToken cancellationToken)
+	{
+		var message = new EmulationStateMessage { State = state };
+
+		return EmulationAdapter.OwnInnerAdapter
+			? SendInMessageAsync(message, cancellationToken)
+			: ProcessEmulationStateMessageAsync(message, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	protected override async ValueTask OnProcessMessage(Message message, CancellationToken cancellationToken)
+	{
+		try
+		{
+			switch (message.Type)
+			{
+				case MessageTypes.EmulationState:
+					await ProcessEmulationStateMessageAsync((EmulationStateMessage)message, cancellationToken);
+					break;
+
+				default:
+				{
+					await base.OnProcessMessage(message, cancellationToken);
+					break;
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			await SendOutErrorAsync(ex, cancellationToken);
+			Disconnect();
+		}
+	}
+
+	private async ValueTask ProcessEmulationStateMessageAsync(EmulationStateMessage message, CancellationToken cancellationToken)
+	{
+		List<Exception> errors = null;
+		bool isStopping;
+
+		// Hold the state lock across the whole decision so a terminal Stopping and a concurrent
+		// resume Starting cannot interleave a half-applied transition. What has to be awaited - the
+		// disconnect, the errors of the handlers - is done once the lock is released: by then the
+		// state is Stopping, which no other transition gets past.
+		using (_stateSync.EnterScope())
+			isStopping = ProcessEmulationStateMessageNoLock(message, ref errors);
+
+		// The replay ran out of history rather than being disconnected: the run went the whole way and its progress says
+		// so, whether or not history reached the stop date.
+		if (isStopping && IsFinished && !_isInterrupted && _progress < 100)
+		{
+			_progress = 100;
+			ProgressChanged?.Invoke(_progress);
+		}
+
+		// What went wrong is told before the run is torn down: a host knows why the run ends by the time it sees it stopped.
+		await SendOutErrorsAsync(errors, cancellationToken);
+
+		if (isStopping)
+		{
+			// change ConnectionState to Disconnecting
+			if (ConnectionState != ConnectionStates.Disconnecting)
+				Disconnect();
+
+			// base method cannot be invoked from OnDisconnect HistConnector.OnDisconnect
+			await base.OnDisconnectAsync(cancellationToken);
+		}
+	}
+
+	// Core of the emulation-state handling. Must be called while holding _stateSync. Tells whether
+	// the emulation went into Stopping, which the caller follows with the disconnect.
+	private bool ProcessEmulationStateMessageNoLock(EmulationStateMessage message, ref List<Exception> errors)
+	{
+		SetStateInternal(message.State, ref errors);
+
+		var isStopping = false;
+
+		switch (State)
+		{
+			case ChannelStates.Stopping:
+			{
+				// What the connector ended the run on, or what the replay failed with; with neither, the run went the whole way
+				// or was disconnected.
+				StopError = _stopError ?? message.Error;
+				IsFinished = StopError is null;
+				isStopping = true;
+				break;
+			}
+
+			case ChannelStates.Starting:
+			{
+				SetStateInternal(ChannelStates.Started, ref errors);
+
+				// All the market data asked for was refused for want of history: the run ends rather than waiting for data
+				// that will not come. With none asked for yet the run waits, as a strategy started after the replay
+				// subscribes only then.
+				if (_isMarketDataRefused && !HasMarketDataSubscriptions())
+				{
+					_stopError = CreateNoDataError();
+					(errors ??= []).Add(_stopError);
+					_stopPending = true;
+				}
+
+				break;
+			}
+
+			case ChannelStates.Suspending:
+			{
+				SetStateInternal(ChannelStates.Suspended, ref errors);
+				break;
+			}
+		}
+
+		if (_stopPending && (State is ChannelStates.Started or ChannelStates.Suspended))
+			isStopping |= ProcessEmulationStateMessageNoLock(new() { State = ChannelStates.Stopping }, ref errors);
+
+		return isStopping;
+	}
+}

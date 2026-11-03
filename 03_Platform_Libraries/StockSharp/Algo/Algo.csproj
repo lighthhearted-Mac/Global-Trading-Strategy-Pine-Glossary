@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\props\common_target_net.props" />
+  <ItemGroup>
+    <PackageReference Include="Ecng.Net" Version="$(EcngVer)" />
+    <PackageReference Include="Ecng.IO.Compression" Version="$(EcngVer)" />
+    <PackageReference Include="Ecng.StringSearch" Version="$(EcngVer)" />
+    <PackageReference Include="Ecng.Compilation" Version="$(EcngVer)" />
+    <PackageReference Include="MathNet.Numerics" Version="$(MathNumVer)" />
+    <PackageReference Include="Ecng.Linq" Version="$(EcngVer)" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Reporting\Reporting.csproj" />
+    <ProjectReference Include="..\Charting.Interfaces\Charting.Interfaces.csproj" />
+    <ProjectReference Include="..\Configuration\Configuration.csproj" />
+  </ItemGroup>
+</Project>

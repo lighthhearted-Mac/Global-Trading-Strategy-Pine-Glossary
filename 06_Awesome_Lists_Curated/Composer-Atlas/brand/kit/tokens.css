@@ -1,0 +1,36 @@
+/* Composer Atlas design tokens.
+ *
+ * Generated from the :root block of css/main.css by
+ * brand/build/build_kit.py. This file is a PORTABLE COPY for use
+ * outside the site, in a deck, a prototype or a partner document.
+ * css/main.css remains the source of truth, and if the two ever
+ * disagree the CSS wins. Regenerate rather than hand-edit.
+ */
+:root {
+  /* color */
+  --color-bg: #16191f;  /* Page base */
+  --color-surface: #2c3038;  /* Cards and panels */
+  --color-surface-raised: #373c46;  /* The brightest surface, and the hardest ground for text */
+  --color-border: #4c515c;  /* Default border */
+  --color-border-hover: #616672;  /* Border on hover */
+  --color-primary: #e9edf2;  /* Primary text */
+  --color-secondary: #d2d8df;  /* Secondary text */
+  --color-disabled: #b8bec6;  /* Disabled text. The name is a misnomer kept knowingly; see DESIGN.md Section 2 */
+  --color-green: #00e676;  /* Positive values, primary actions, and the brand accent */
+  --color-pink: #ff82ac;  /* Negative values */
+  --color-blue: #68afff;  /* Interactive */
+  --color-yellow: #f5c518;  /* Caution */
+  --color-purple: #b39dff;  /* Momentum */
+  --color-brand: #00e676;  /* Identity, not a value. The mark only, and never paired with an arrow or a rising line; see DESIGN.md Section 11 */
+
+  /* radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* font */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;  /* UI and prose */
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;  /* Every number on the site */
+  --font-brand: 'Archivo', 'Inter', sans-serif;  /* The wordmark only. Not loaded by the site */
+
+}

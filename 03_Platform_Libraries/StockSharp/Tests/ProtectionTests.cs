@@ -1,0 +1,1949 @@
+﻿namespace StockSharp.Tests;
+
+using StockSharp.Algo.PnL;
+using StockSharp.Algo.Strategies.Protective;
+
+[TestClass]
+public class ProtectionTests : BaseTestClass
+{
+	[TestMethod]
+	[CLSCompliant(false)]
+	[DataRow(Sides.Buy, false, false)]
+	[DataRow(Sides.Sell, false, false)]
+	[DataRow(Sides.Buy, true, false)]
+	[DataRow(Sides.Sell, true, false)]
+	[DataRow(Sides.Buy, false, true)]
+	[DataRow(Sides.Sell, false, true)]
+	[DataRow(Sides.Buy, true, true)]
+	[DataRow(Sides.Sell, true, true)]
+	[Timeout(5_000, CooperativeCancellation = true)]
+	public void ControllerOwnsPositionLifecycle(Sides entrySide, bool isTakeProfit, bool isServer)
+	{
+		using var controller = new ProtectiveController();
+		var securityId = new SecurityId { SecurityCode = "LIFECYCLE", BoardCode = BoardCodes.Test };
+		IProtectiveBehaviourFactory factory = isServer
+			? new ServerProtectiveBehaviourFactory(CreateServerStopAdapter())
+			: new LocalProtectiveBehaviourFactory(0.01m, 2);
+		var time = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+		var sign = entrySide == Sides.Buy ? 1m : -1m;
+		var direction = isTakeProfit ? sign : -sign;
+		var exitSide = entrySide == Sides.Buy ? Sides.Sell : Sides.Buy;
+		IProtectivePositionController Get(decimal percent)
+			=> controller.GetController(securityId, "lifecycle", factory,
+				isTakeProfit ? new Unit(percent, UnitTypes.Percent) : new Unit(),
+				isTakeProfit ? new Unit() : new Unit(percent, UnitTypes.Percent),
+				false, TimeSpan.Zero, TimeSpan.Zero, true);
+
+		var first = Get(5m);
+		var firstRegistration = first.Update(100m, sign * 10m, time);
+		AreEqual(sign * 10m, first.Position, "The controller must track filled quantity independently of the protection backend.");
+		if (isServer)
+		{
+			IsNotNull(firstRegistration);
+			AreEqual(isTakeProfit, firstRegistration.Value.isTake);
+			AreEqual(exitSide, firstRegistration.Value.side);
+			AreEqual(10m, firstRegistration.Value.volume);
+			AreEqual(100m + direction * 5m, ((ServerTestOrderCondition)firstRegistration.Value.condition).ActivationPrice);
+		}
+		else
+			IsNull(firstRegistration);
+
+		var remaining = Get(2m);
+		remaining.Update(100m, -sign * 4m, time.AddSeconds(1));
+		AreEqual(sign * 6m, remaining.Position);
+		if (!isServer)
+		{
+			AreEqual(0, controller.TryActivate(securityId, 100m + direction * 3m, time.AddSeconds(2)).Count(), "New settings must not replace the open position's five-percent level.");
+			var exits = controller.TryActivate(securityId, 100m + direction * 6m, time.AddSeconds(3)).ToArray();
+			AreEqual(1, exits.Length);
+			AreEqual(isTakeProfit, exits[0].isTake);
+			AreEqual(exitSide, exits[0].side);
+			AreEqual(6m, exits[0].volume);
+		}
+		IsNull(remaining.Update(100m, -sign * 6m, time.AddSeconds(4)), "A fully closed position must not create another protective order.");
+		AreEqual(0m, remaining.Position);
+		AreEqual(0, controller.TryActivate(securityId, 100m + direction * 10m, time.AddSeconds(5)).Count());
+
+		var next = Get(2m);
+		var nextRegistration = next.Update(200m, sign * 7m, time.AddSeconds(6));
+		AreEqual(sign * 7m, next.Position);
+		if (isServer)
+		{
+			IsNotNull(nextRegistration);
+			AreEqual(isTakeProfit, nextRegistration.Value.isTake);
+			AreEqual(exitSide, nextRegistration.Value.side);
+			AreEqual(7m, nextRegistration.Value.volume);
+			AreEqual(200m + direction * 4m, ((ServerTestOrderCondition)nextRegistration.Value.condition).ActivationPrice);
+		}
+		else
+		{
+			IsNull(nextRegistration);
+			AreEqual(0, controller.TryActivate(securityId, 200m + direction * 2m, time.AddSeconds(7)).Count());
+			var exits = controller.TryActivate(securityId, 200m + direction * 6m, time.AddSeconds(8)).ToArray();
+			AreEqual(1, exits.Length, "The next position must use its new two-percent protection without external cache cleanup.");
+			AreEqual(isTakeProfit, exits[0].isTake);
+			AreEqual(exitSide, exits[0].side);
+			AreEqual(7m, exits[0].volume);
+		}
+		IsNull(next.Update(200m, -sign * 7m, time.AddSeconds(9)));
+		AreEqual(0m, next.Position);
+	}
+
+	[TestMethod]
+	[Timeout(5_000, CooperativeCancellation = true)]
+	public void ControllerDetachedHandleCannotRemoveReplacement()
+	{
+		using var controller = new ProtectiveController();
+		var securityId = new SecurityId { SecurityCode = "REPLACEMENT", BoardCode = BoardCodes.Test };
+		var factory = new LocalProtectiveBehaviourFactory(0.01m, 2);
+		var time = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+		var previous = controller.GetController(securityId, "portfolio", factory,
+			new Unit(), new Unit(5m, UnitTypes.Percent), false, TimeSpan.Zero, TimeSpan.Zero, true);
+		previous.Update(100m, 4m, time);
+		controller.Clear();
+		var current = controller.GetController(securityId, "PORTFOLIO", factory,
+			new Unit(), new Unit(2m, UnitTypes.Percent), false, TimeSpan.Zero, TimeSpan.Zero, true);
+		current.Update(200m, 8m, time.AddSeconds(1));
+		previous.Update(100m, -4m, time.AddSeconds(2));
+		var exits = controller.TryActivate(securityId, 195m, time.AddSeconds(3)).ToArray();
+		AreEqual(1, exits.Length, "Closing a detached handle must not detach the current position with the same key.");
+		AreEqual(Sides.Sell, exits[0].side);
+		AreEqual(8m, exits[0].volume);
+	}
+
+	[TestMethod]
+	[CLSCompliant(false)]
+	[DataRow(Sides.Buy, false, false)]
+	[DataRow(Sides.Buy, false, true)]
+	[DataRow(Sides.Sell, false, false)]
+	[DataRow(Sides.Sell, false, true)]
+	[DataRow(Sides.Buy, true, false)]
+	[DataRow(Sides.Buy, true, true)]
+	[DataRow(Sides.Sell, true, false)]
+	[DataRow(Sides.Sell, true, true)]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task StartProtection_RepeatedSetupProtectsReenteredPosition(Sides entrySide, bool isTakeProfit, bool isReconfigured)
+	{
+		var security = CreateProtectionSecurity("REENTERED");
+		var portfolio = new Portfolio { Name = "reentered_protection" };
+		var time = new DateTime(2024, 3, 1, 10, 0, 0, DateTimeKind.Utc);
+		var orders = new List<Order>();
+		var connector = new Mock<IConnector>();
+		connector.Setup(c => c.TransactionIdGenerator).Returns(new IncrementalIdGenerator());
+		connector.Setup(c => c.RegisterOrder(It.IsAny<Order>())).Callback<Order>(order =>
+		{
+			if (order.TransactionId == 0)
+				order.TransactionId = connector.Object.TransactionIdGenerator.GetNextId();
+			orders.Add(order);
+		});
+		using var strategy = new HighLevelBindStrategy { Connector = connector.Object, Security = security, Portfolio = portfolio };
+		var sign = entrySide == Sides.Buy ? 1m : -1m;
+		var direction = isTakeProfit ? sign : -sign;
+		var exitSide = entrySide == Sides.Buy ? Sides.Sell : Sides.Buy;
+
+		void Configure(decimal percent)
+			=> strategy.StartProtection(
+				isTakeProfit ? new Unit(percent, UnitTypes.Percent) : new Unit(),
+				isTakeProfit ? new Unit() : new Unit(percent, UnitTypes.Percent),
+				useMarketOrders: true, isLocalStop: true);
+
+		Configure(5m);
+		await strategy.StartAsync(CancellationToken);
+		await strategy.Engine.OnMessageAsync(new StrategyEngine.StrategyStateMessage(ProcessStates.Started), CancellationToken);
+		var quotes = strategy.Quotes(security).Start();
+		var transactions = new Subscription(DataType.Transactions);
+		strategy.Subscriptions.Subscribe(transactions);
+		var quoteNumber = 0;
+		void Quote(decimal price)
+		{
+			var timestamp = time.AddMinutes(++quoteNumber);
+			connector.Raise(c => c.Level1Received += null, quotes.Subscription, new Level1ChangeMessage
+			{
+				SecurityId = security.ToSecurityId(), ServerTime = timestamp, LocalTime = timestamp,
+				Changes = { [Level1Fields.BestBidPrice] = price },
+			});
+		}
+
+		var firstEntry = strategy.CreateOrder(entrySide, 0m, 10m);
+		firstEntry.Type = OrderTypes.Market;
+		strategy.RegisterOrder(firstEntry);
+		FillProtectionOrder(strategy, transactions, firstEntry, 100m, 1, time);
+		AreEqual(sign * 10m, strategy.Position);
+		AreEqual(1, orders.Count);
+		Quote(100m + direction);
+		AreEqual(1, orders.Count, "The first five-percent protection must stay inactive inside its level.");
+		var firstExitPrice = 100m + direction * 6m;
+		Quote(firstExitPrice);
+		AreEqual(2, orders.Count, "The first filled position must generate its protective exit.");
+		var firstExit = orders[^1];
+		AreEqual(exitSide, firstExit.Side);
+		AreEqual(OrderTypes.Market, firstExit.Type);
+		AreEqual(security, firstExit.Security);
+		AreEqual(portfolio, firstExit.Portfolio);
+		AreEqual(10m, firstExit.Volume);
+		FillProtectionOrder(strategy, transactions, firstExit, firstExitPrice, 2, time.AddMinutes(3));
+		AreEqual(0m, strategy.Position, "The first protective order must actually flatten the filled position.");
+		Quote(firstExitPrice);
+		AreEqual(2, orders.Count, "A flat position must not generate another protective order.");
+
+		if (isReconfigured)
+			Configure(2m);
+
+		var secondEntry = strategy.CreateOrder(entrySide, 0m, 7m);
+		secondEntry.Type = OrderTypes.Market;
+		strategy.RegisterOrder(secondEntry);
+		FillProtectionOrder(strategy, transactions, secondEntry, 200m, 3, time.AddMinutes(4));
+		AreEqual(sign * 7m, strategy.Position);
+		AreEqual(3, orders.Count);
+		Quote(200m + direction * 2m);
+		AreEqual(3, orders.Count, "The second position must not exit inside the configured level.");
+		var secondExitPrice = 200m + direction * (isReconfigured ? 6m : 12m);
+		Quote(secondExitPrice);
+		AreEqual(4, orders.Count, "Repeating StartProtection must still protect the next filled entry and use its new two-percent level.");
+		var secondExit = orders[^1];
+		AreEqual(exitSide, secondExit.Side);
+		AreEqual(OrderTypes.Market, secondExit.Type);
+		AreEqual(security, secondExit.Security);
+		AreEqual(portfolio, secondExit.Portfolio);
+		AreEqual(7m, secondExit.Volume, "The later exit must close its own current quantity, not the previous ten units.");
+		FillProtectionOrder(strategy, transactions, secondExit, secondExitPrice, 4, time.AddMinutes(6));
+		AreEqual(0m, strategy.Position);
+	}
+
+	[TestMethod]
+	[CLSCompliant(false)]
+	[DataRow(Sides.Buy, false)]
+	[DataRow(Sides.Sell, false)]
+	[DataRow(Sides.Buy, true)]
+	[DataRow(Sides.Sell, true)]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task StartProtection_RepeatedSetupKeepsOpenPosition(Sides entrySide, bool isTakeProfit)
+	{
+		var security = CreateProtectionSecurity("OPEN_RECONFIGURED");
+		var portfolio = new Portfolio { Name = "open_protection" };
+		var time = new DateTime(2024, 3, 1, 10, 0, 0, DateTimeKind.Utc);
+		var orders = new List<Order>();
+		var connector = new Mock<IConnector>();
+		connector.Setup(c => c.TransactionIdGenerator).Returns(new IncrementalIdGenerator());
+		connector.Setup(c => c.RegisterOrder(It.IsAny<Order>())).Callback<Order>(order =>
+		{
+			if (order.TransactionId == 0)
+				order.TransactionId = connector.Object.TransactionIdGenerator.GetNextId();
+			orders.Add(order);
+		});
+		using var strategy = new HighLevelBindStrategy { Connector = connector.Object, Security = security, Portfolio = portfolio };
+		var sign = entrySide == Sides.Buy ? 1m : -1m;
+		var direction = isTakeProfit ? sign : -sign;
+		var exitSide = entrySide == Sides.Buy ? Sides.Sell : Sides.Buy;
+		void Configure()
+			=> strategy.StartProtection(
+				isTakeProfit ? new Unit(5m, UnitTypes.Percent) : new Unit(),
+				isTakeProfit ? new Unit() : new Unit(5m, UnitTypes.Percent),
+				useMarketOrders: true, isLocalStop: true);
+
+		Configure();
+		await strategy.StartAsync(CancellationToken);
+		await strategy.Engine.OnMessageAsync(new StrategyEngine.StrategyStateMessage(ProcessStates.Started), CancellationToken);
+		var quotes = strategy.Quotes(security).Start();
+		var transactions = new Subscription(DataType.Transactions);
+		strategy.Subscriptions.Subscribe(transactions);
+		var quoteNumber = 0;
+		void Quote(decimal price)
+		{
+			var timestamp = time.AddMinutes(++quoteNumber);
+			connector.Raise(c => c.Level1Received += null, quotes.Subscription, new Level1ChangeMessage
+			{
+				SecurityId = security.ToSecurityId(), ServerTime = timestamp, LocalTime = timestamp,
+				Changes = { [Level1Fields.BestBidPrice] = price },
+			});
+		}
+
+		var entry = strategy.CreateOrder(entrySide, 0m, 10m);
+		entry.Type = OrderTypes.Market;
+		strategy.RegisterOrder(entry);
+		FillProtectionOrder(strategy, transactions, entry, 100m, 1, time);
+		AreEqual(sign * 10m, strategy.Position);
+		Quote(100m + direction);
+		AreEqual(1, orders.Count);
+
+		// Reapply the same levels so the contract does not depend on how changed levels affect an open position.
+		Configure();
+		Quote(100m + direction);
+		AreEqual(1, orders.Count, "Reapplying protection must not close a position inside its level.");
+		var exitPrice = 100m + direction * 6m;
+		Quote(exitPrice);
+		AreEqual(2, orders.Count, "Repeating the same StartProtection configuration must not detach an already open position.");
+		var exit = orders[^1];
+		AreEqual(exitSide, exit.Side);
+		AreEqual(OrderTypes.Market, exit.Type);
+		AreEqual(security, exit.Security);
+		AreEqual(portfolio, exit.Portfolio);
+		AreEqual(10m, exit.Volume);
+		FillProtectionOrder(strategy, transactions, exit, exitPrice, 2, time.AddMinutes(4));
+		AreEqual(0m, strategy.Position);
+	}
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task StartProtection_ReconfigurationPreservesPartialAndOtherPositions()
+	{
+		var first = CreateProtectionSecurity("REARM_PARTIAL");
+		var second = CreateProtectionSecurity("REARM_OTHER");
+		var portfolio = new Portfolio { Name = "multiple_protection" };
+		var time = new DateTime(2024, 3, 1, 10, 0, 0, DateTimeKind.Utc);
+		var orders = new List<Order>();
+		var connector = new Mock<IConnector>();
+		connector.Setup(c => c.TransactionIdGenerator).Returns(new IncrementalIdGenerator());
+		connector.Setup(c => c.RegisterOrder(It.IsAny<Order>())).Callback<Order>(order =>
+		{
+			if (order.TransactionId == 0)
+				order.TransactionId = connector.Object.TransactionIdGenerator.GetNextId();
+			orders.Add(order);
+		});
+		using var strategy = new HighLevelBindStrategy { Connector = connector.Object, Security = first, Portfolio = portfolio };
+		strategy.StartProtection(new Unit(), new Unit(5m, UnitTypes.Percent), useMarketOrders: true, isLocalStop: true);
+		await strategy.StartAsync(CancellationToken);
+		await strategy.Engine.OnMessageAsync(new StrategyEngine.StrategyStateMessage(ProcessStates.Started), CancellationToken);
+		var firstQuotes = strategy.Quotes(first).Start().Subscription;
+		var secondQuotes = strategy.Quotes(second).Start().Subscription;
+		var transactions = new Subscription(DataType.Transactions);
+		strategy.Subscriptions.Subscribe(transactions);
+		var sequence = 0;
+		void Fill(Security security, Sides side, decimal price, decimal volume)
+		{
+			var order = strategy.CreateOrder(side, 0m, volume, security);
+			order.Type = OrderTypes.Market;
+			strategy.RegisterOrder(order);
+			FillProtectionOrder(strategy, transactions, order, price, ++sequence, time.AddSeconds(sequence));
+		}
+		void FillExit(Order order, decimal price)
+			=> FillProtectionOrder(strategy, transactions, order, price, ++sequence, time.AddSeconds(sequence));
+		void Quote(Security security, Subscription subscription, decimal price)
+		{
+			var timestamp = time.AddSeconds(++sequence);
+			connector.Raise(c => c.Level1Received += null, subscription, new Level1ChangeMessage
+			{
+				SecurityId = security.ToSecurityId(), ServerTime = timestamp, LocalTime = timestamp,
+				Changes = { [Level1Fields.BestBidPrice] = price },
+			});
+		}
+		void CheckExit(Security security, decimal volume)
+		{
+			var order = orders[^1];
+			AreEqual(security, order.Security);
+			AreEqual(portfolio, order.Portfolio);
+			AreEqual(Sides.Sell, order.Side);
+			AreEqual(OrderTypes.Market, order.Type);
+			AreEqual(volume, order.Volume);
+		}
+
+		Fill(first, Sides.Buy, 100m, 10m);
+		Fill(second, Sides.Buy, 200m, 20m);
+		Fill(first, Sides.Sell, 101m, 4m);
+		AreEqual(6m, strategy.GetPositionValue(first, portfolio));
+		AreEqual(20m, strategy.GetPositionValue(second, portfolio));
+		strategy.StartProtection(new Unit(), new Unit(2m, UnitTypes.Percent), useMarketOrders: true, isLocalStop: true);
+		Quote(first, firstQuotes, 97m);
+		AreEqual(3, orders.Count, "The partially closed position must retain its original five-percent stop.");
+		Quote(first, firstQuotes, 94m);
+		AreEqual(4, orders.Count, "Reconfiguration must keep the partial position's controller attached.");
+		CheckExit(first, 6m);
+		FillExit(orders[^1], 94m);
+		AreEqual(0m, strategy.GetPositionValue(first, portfolio));
+
+		// The configuration was set while the old position was open; closing must retire its cached levels.
+		Fill(first, Sides.Buy, 300m, 7m);
+		Quote(first, firstQuotes, 297m);
+		AreEqual(5, orders.Count);
+		Quote(first, firstQuotes, 293m);
+		AreEqual(6, orders.Count, "The next position must receive the two-percent configuration without another StartProtection call.");
+		CheckExit(first, 7m);
+		FillExit(orders[^1], 293m);
+		AreEqual(0m, strategy.GetPositionValue(first, portfolio));
+
+		Quote(second, secondQuotes, 195m);
+		AreEqual(6, orders.Count, "A different open security must retain its own original five-percent stop.");
+		Quote(second, secondQuotes, 189m);
+		AreEqual(7, orders.Count);
+		CheckExit(second, 20m);
+		FillExit(orders[^1], 189m);
+		AreEqual(0m, strategy.GetPositionValue(second, portfolio));
+	}
+
+	[TestMethod]
+	public void BasicPositionTracking()
+	{
+		// Arrange
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+		var behaviour = factory.Create(
+			new Unit(1m, UnitTypes.Percent),  // Take profit 1%
+			new Unit(1m, UnitTypes.Percent),  // Stop loss 1%
+			false,                            // No trailing stop
+			TimeSpan.Zero,                    // No take timeout
+			TimeSpan.Zero,                    // No stop timeout
+			false);                           // No market orders
+
+		// Act & Assert - Initial state
+		behaviour.Position.AssertEqual(0);
+
+		// Open long position at price 100
+		var updateResult = behaviour.Update(100m, 10m, DateTime.UtcNow);
+		updateResult.AssertNull(); // No immediate activation expected
+		behaviour.Position.AssertEqual(10m);
+
+		// Test price movement without activation
+		var activationResult = behaviour.TryActivate(100.5m, DateTime.UtcNow);
+		activationResult.AssertNull(); // No activation yet
+
+		// Test take profit activation
+		activationResult = behaviour.TryActivate(101.1m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertTrue(); // Should be take profit
+		side.AssertEqual(Sides.Sell); // Should sell to close long
+		price.AssertEqual(101.1m); // Activation price should match
+		volume.AssertEqual(10m); // Full position volume
+		condition.AssertNull(); // LocalProtectiveBehaviour should return null condition
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, -volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// After activation, position should be reset
+		var newActivation = behaviour.TryActivate(102m, DateTime.UtcNow);
+		newActivation.AssertNull(); // No activation should happen
+	}
+
+	[TestMethod]
+	public void StopLossActivation()
+	{
+		// Arrange
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+		var behaviour = factory.Create(
+			new Unit(1m, UnitTypes.Percent),  // Take profit 1%
+			new Unit(1m, UnitTypes.Percent),  // Stop loss 1%
+			false,                            // No trailing stop
+			TimeSpan.Zero,                    // No take timeout
+			TimeSpan.Zero,                    // No stop timeout
+			false);                           // No market orders
+
+		// Open long position at price 100
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+
+		// Test stop loss activation
+		var activationResult = behaviour.TryActivate(98.9m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertFalse(); // Should be stop loss
+		side.AssertEqual(Sides.Sell); // Should sell to close long
+		price.AssertEqual(98.9m); // Activation price should match
+		volume.AssertEqual(10m); // Full position volume
+		condition.AssertNull();
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, -volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+	}
+
+	[TestMethod]
+	public void ShortPositionProtection()
+	{
+		// Arrange
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+		var behaviour = factory.Create(
+			new Unit(1m, UnitTypes.Percent),  // Take profit 1%
+			new Unit(1m, UnitTypes.Percent),  // Stop loss 1%
+			false,                            // No trailing stop 
+			TimeSpan.Zero,                    // No take timeout
+			TimeSpan.Zero,                    // No stop timeout
+			false);                           // No market orders
+
+		// Open short position at price 100
+		behaviour.Update(100m, -10m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(-10m);
+
+		// Test take profit activation (price going down for short)
+		var activationResult = behaviour.TryActivate(98.9m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertTrue(); // Should be take profit
+		side.AssertEqual(Sides.Buy); // Should buy to close short
+		price.AssertEqual(98.9m); // Activation price should match
+		volume.AssertEqual(10m); // Full position volume
+		condition.AssertNull();
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// Test new position after activation
+		behaviour.Update(95m, -5m, DateTime.UtcNow);
+
+		// Test stop loss activation (price going up for short)
+		activationResult = behaviour.TryActivate(96m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+		(isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertFalse(); // Should be stop loss
+		side.AssertEqual(Sides.Buy); // Should buy to close short
+		price.AssertEqual(96m); // Activation price should match
+		volume.AssertEqual(5m); // Full position volume for this test
+		condition.AssertNull();
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+	}
+
+	[TestMethod]
+	public void TrailingStop()
+	{
+		// Arrange
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+		var behaviour = factory.Create(
+			new Unit(2m, UnitTypes.Percent),  // Take profit 2%
+			new Unit(1m, UnitTypes.Percent),  // Stop loss 1%
+			true,                             // Trailing stop
+			TimeSpan.Zero,                    // No take timeout
+			TimeSpan.Zero,                    // No stop timeout
+			false);                           // No market orders
+
+		// Open long position at price 100
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+
+		// Price moves up, no activation
+		var activationResult = behaviour.TryActivate(101m, DateTime.UtcNow);
+		activationResult.AssertNull();
+
+		// Price moves up to take profit, should activate take profit
+		activationResult = behaviour.TryActivate(102m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+		{
+			var (isTake, side, price, volume, condition) = activationResult.Value;
+			isTake.AssertTrue(); // Take profit
+			side.AssertEqual(Sides.Sell);
+			price.AssertEqual(102m);
+			volume.AssertEqual(10m);
+			condition.AssertNull();
+		}
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(102m, -10m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// Open new position at price 100
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+
+		// Price reaches the take-profit level (2% above 100 = 102) again, take profit activates
+		activationResult = behaviour.TryActivate(102m, DateTime.UtcNow);
+		activationResult.AssertNotNull(); // take profit again
+		{
+			var (isTake, side, price, volume, condition) = activationResult.Value;
+			isTake.AssertTrue();
+			side.AssertEqual(Sides.Sell);
+			price.AssertEqual(102m);
+			volume.AssertEqual(10m);
+			condition.AssertNull();
+		}
+		behaviour.Update(102m, -10m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// Test trailing stop activation (take profit is not active)
+		var behaviourTrailingOnly = factory.Create(
+			new Unit(1000m, UnitTypes.Percent), // Take profit too high to activate
+			new Unit(1m, UnitTypes.Percent),    // Stop loss 1%
+			true,                              // Trailing stop
+			TimeSpan.Zero, TimeSpan.Zero, false);
+
+		behaviourTrailingOnly.Update(100m, 10m, DateTime.UtcNow);
+
+		// Price moves up, the trailing stop is pulled up but does not trigger
+		activationResult = behaviourTrailingOnly.TryActivate(101m, DateTime.UtcNow);
+		activationResult.AssertNull();
+		activationResult = behaviourTrailingOnly.TryActivate(102m, DateTime.UtcNow);
+		activationResult.AssertNull();
+		activationResult = behaviourTrailingOnly.TryActivate(101.5m, DateTime.UtcNow);
+		activationResult.AssertNull();
+
+		// Price falls to trailing stop (1% below 102 = 100.98)
+		activationResult = behaviourTrailingOnly.TryActivate(100.98m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+		{
+			var (isTake, side, price, volume, condition) = activationResult.Value;
+			isTake.AssertFalse(); // Stop loss
+			side.AssertEqual(Sides.Sell);
+			price.AssertEqual(100.98m);
+			volume.AssertEqual(10m);
+			condition.AssertNull();
+		}
+		behaviourTrailingOnly.Update(100.98m, -10m, DateTime.UtcNow);
+		behaviourTrailingOnly.Position.AssertEqual(0);
+	}
+
+	[TestMethod]
+	public void PositionModifications()
+	{
+		// Arrange
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.01m, 2);
+		var behaviour = factory.Create(
+			new Unit(1m, UnitTypes.Percent),  // Take profit 1%
+			new Unit(1m, UnitTypes.Percent),  // Stop loss 1%
+			false,                            // No trailing stop
+			TimeSpan.Zero,                    // No take timeout
+			TimeSpan.Zero,                    // No stop timeout
+			false);                           // No market orders
+
+		// Open long position at price 100
+		behaviour.Update(100m, 5m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(5m);
+
+		// Add to position at higher price
+		behaviour.Update(102m, 5m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(10m);
+
+		// Test take profit based on weighted average price (101)
+		var activationResult = behaviour.TryActivate(102.01m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertTrue(); // Should be take profit
+		side.AssertEqual(Sides.Sell);
+		price.AssertEqual(102.01m);
+		volume.AssertEqual(10m);
+		condition.AssertNull();
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, -volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// Open new position and reduce it
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(10m);
+
+		// Reduce position
+		behaviour.Update(100m, -3m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(7m);
+
+		// Close position
+		behaviour.Update(100m, -7m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// After position is closed, no activation should happen
+		activationResult = behaviour.TryActivate(110m, DateTime.UtcNow);
+		activationResult.AssertNull();
+	}
+
+	[TestMethod]
+	public void TimeoutActivation()
+	{
+		// Arrange
+		var takeTimeout = TimeSpan.FromSeconds(30);
+		var stopTimeout = TimeSpan.FromSeconds(60);
+
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+		var behaviour = factory.Create(
+			new Unit(5m, UnitTypes.Percent),  // Take profit 5%
+			new Unit(3m, UnitTypes.Percent),  // Stop loss 3%
+			false,                            // No trailing stop
+			takeTimeout,                      // Take profit timeout
+			stopTimeout,                      // Stop loss timeout
+			true);                            // Use market orders
+
+		// Open long position at price 100
+		var startTime = DateTime.UtcNow;
+		behaviour.Update(100m, 10m, startTime);
+
+		// No activation before timeout
+		startTime = startTime.AddSeconds(10);
+		var activationResult = behaviour.TryActivate(100m, startTime);
+		activationResult.AssertNull();
+
+		// Take profit timeout activation
+		startTime = startTime.AddSeconds(35);
+		activationResult = behaviour.TryActivate(100m, startTime);
+		activationResult.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activationResult.Value;
+		// Should be take profit due to take timeout occurring first
+		isTake.AssertTrue();
+		side.AssertEqual(Sides.Sell);
+		price.AssertEqual(0m);
+		volume.AssertEqual(10m);
+		condition.AssertNull(); // No special condition
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(100m, -volume, startTime);
+		behaviour.Position.AssertEqual(0);
+
+		behaviour = factory.Create(
+			new Unit(5m, UnitTypes.Percent),  // Take profit 5%
+			new Unit(3m, UnitTypes.Percent),  // Stop loss 3%
+			false,                            // No trailing stop
+			default,                          // No take profit timeout
+			stopTimeout,                      // Stop loss timeout
+			true);                            // Use market orders
+											  // Setup new test for stop loss timeout
+		startTime = startTime.AddSeconds(5);
+		behaviour.Update(100m, 10m, startTime);
+
+		// Take profit timeout deactivated for test
+		startTime = startTime.AddSeconds(65);
+		activationResult = behaviour.TryActivate(100m, startTime);
+		activationResult.AssertNotNull();
+		(isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertFalse(); // Should be stop loss due to timeout
+		side.AssertEqual(Sides.Sell);
+		price.AssertEqual(0);
+		volume.AssertEqual(10m);
+		condition.AssertNull(); // No special condition
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(100m, -volume, startTime);
+		behaviour.Position.AssertEqual(0);
+	}
+
+	[TestMethod]
+	public void PositionFlipping()
+	{
+		// Arrange
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+		var behaviour = factory.Create(
+			new Unit(1m, UnitTypes.Percent),  // Take profit 1%
+			new Unit(1m, UnitTypes.Percent),  // Stop loss 1%
+			false,                            // No trailing stop
+			TimeSpan.Zero,                    // No take timeout
+			TimeSpan.Zero,                    // No stop timeout
+			false);                           // No market orders
+
+		// Open long position
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+
+		// Flip to short position
+		behaviour.Update(102m, -20m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(-10m);
+
+		// Check take profit for new short position (based on new entry price 102)
+		var activationResult = behaviour.TryActivate(100.98m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertTrue(); // Should be take profit
+		side.AssertEqual(Sides.Buy); // Should buy to close short
+		price.AssertEqual(100.98m);
+		volume.AssertEqual(10m);
+		condition.AssertNull(); // No special condition
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+	}
+
+	[TestMethod]
+	public void MultiplePositions()
+	{
+		// Arrange
+		var controller = new ProtectiveController();
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+
+		// Create two different position controllers
+		var securityId1 = new SecurityId { SecurityCode = "AAPL", BoardCode = "NASDAQ" };
+		var securityId2 = new SecurityId { SecurityCode = "MSFT", BoardCode = "NASDAQ" };
+		var portfolio1 = "Portfolio1";
+		var portfolio2 = "Portfolio2";
+
+		var posController1 = controller.GetController(
+			securityId1, portfolio1, factory,
+			new Unit(1m, UnitTypes.Percent),  // Take profit 1%
+			new Unit(1m, UnitTypes.Percent),  // Stop loss 1%
+			false, TimeSpan.Zero, TimeSpan.Zero, false);
+
+		var posController2 = controller.GetController(
+			securityId1, portfolio2, factory,
+			new Unit(2m, UnitTypes.Percent),  // Take profit 2%
+			new Unit(2m, UnitTypes.Percent),  // Stop loss 2%
+			true, TimeSpan.Zero, TimeSpan.Zero, false);
+
+		var posController3 = controller.GetController(
+			securityId2, portfolio1, factory,
+			new Unit(1.5m, UnitTypes.Percent),  // Take profit 1.5%
+			new Unit(1.5m, UnitTypes.Percent),  // Stop loss 1.5%
+			false, TimeSpan.Zero, TimeSpan.Zero, false);
+
+		// Create positions
+		posController1.Update(100m, 10m, DateTime.UtcNow);
+		posController2.Update(100m, -10m, DateTime.UtcNow);
+		posController3.Update(50m, 20m, DateTime.UtcNow);
+
+		// Test position values
+		posController1.Position.AssertEqual(10m);
+		posController2.Position.AssertEqual(-10m);
+		posController3.Position.AssertEqual(20m);
+
+		// Test activations for securityId1
+		var activations = controller.TryActivate(securityId1, 101m, DateTime.UtcNow).ToArray();
+		activations.Length.AssertEqual(1); // Only posController1 should activate
+		{
+			var (isTake, side, price, volume, condition) = activations[0];
+			isTake.AssertTrue(); // Take profit
+			side.AssertEqual(Sides.Sell);
+			price.AssertEqual(101m);
+			volume.AssertEqual(10m);
+			condition.AssertNull();
+		}
+
+		// Emulate execution of take-profit for posController1
+		posController1.Update(101m, -10m, DateTime.UtcNow);
+		posController1.Position.AssertEqual(0m);
+
+		// Now at price 98, take profit should activate for posController2
+		activations = [.. controller.TryActivate(securityId1, 98m, DateTime.UtcNow)];
+		activations.Length.AssertEqual(1); // posController2 should activate
+		{
+			var (isTake, side, price, volume, condition) = activations[0];
+			isTake.AssertTrue(); // Take profit for short
+			side.AssertEqual(Sides.Buy);
+			price.AssertEqual(98m);
+			volume.AssertEqual(10m);
+			condition.AssertNull();
+		}
+		// Emulate execution of take-profit for posController2
+		posController2.Update(98m, 10m, DateTime.UtcNow);
+		posController2.Position.AssertEqual(0m);
+
+		// Test activations for securityId2
+		activations = [.. controller.TryActivate(securityId2, 50.8m, DateTime.UtcNow)];
+		activations.Length.AssertEqual(1); // posController3 should activate
+		{
+			var (isTake, side, price, volume, condition) = activations[0];
+			isTake.AssertTrue(); // Take profit
+			side.AssertEqual(Sides.Sell);
+			price.AssertEqual(50.8m);
+			volume.AssertEqual(20m);
+			condition.AssertNull();
+		}
+
+		// Test Clear method
+		controller.Clear();
+		activations = [.. controller.TryActivate(securityId1, 95m, DateTime.UtcNow)];
+		activations.Length.AssertEqual(0); // No controllers after clear
+	}
+
+	[TestMethod]
+	public void UnitsPercent()
+	{
+		// Arrange
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.01m, 2);
+		var behaviour = factory.Create(
+			new Unit(1m, UnitTypes.Percent),     // Take profit +1%
+			new Unit(0.5m, UnitTypes.Percent),   // Stop loss -0.5%
+			false,                            // No trailing stop
+			TimeSpan.Zero,                    // No take timeout
+			TimeSpan.Zero,                    // No stop timeout
+			false);                           // No market orders
+
+		// Initial position
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+
+		// Stop: threshold at 99.5 (0.5% below 100). Should not activate at 99.6
+		var activationResult = behaviour.TryActivate(99.6m, DateTime.UtcNow);
+		activationResult.AssertNull();
+
+		// Should activate stop at 99.5
+		var activationResult2 = behaviour.TryActivate(99.5m, DateTime.UtcNow);
+		activationResult2.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activationResult2.Value;
+		isTake.AssertFalse(); // Should be stop loss
+		side.AssertEqual(Sides.Sell); // Should sell to close long
+		price.AssertEqual(99.5m);
+		volume.AssertEqual(10m);
+		condition.AssertNull(); // No special condition
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, -volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// New position
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+
+		// Take: threshold at 101.0 (1% above 100)
+		activationResult = behaviour.TryActivate(101.0m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+		(isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertTrue(); // Should be take profit
+		side.AssertEqual(Sides.Sell); // Should sell to close long
+		price.AssertEqual(101.0m);
+		volume.AssertEqual(10m);
+		condition.AssertNull(); // No special condition
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, -volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+	}
+
+	[TestMethod]
+	public void UnitsAbsolute()
+	{
+		// Canonical (unified) semantics: an Absolute protective level is an OFFSET from the
+		// protected entry price, exactly like Percent. Entry = 100, so a take Absolute(1) means
+		// activation at 100 + 1 = 101 and a stop Absolute(20) means activation at 100 - 20 = 80.
+		// TDD red until the engine unifies Absolute with Percent: the current engine treats an
+		// Absolute level as a raw price LEVEL, so Absolute(1)/Absolute(20) would (wrongly) fire
+		// almost immediately and the "100.5 => no take" assertion below fails until that is fixed.
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.01m, 2);
+		var behaviour = factory.Create(
+			new Unit(1m, UnitTypes.Absolute),    // Take profit: Absolute offset 1 above entry => 100 + 1 = 101
+			new Unit(20m, UnitTypes.Absolute),   // Stop loss: Absolute offset 20 below entry => 100 - 20 = 80
+			false,                             // No trailing stop
+			TimeSpan.Zero,                     // No take timeout
+			TimeSpan.Zero,                     // No stop timeout
+			false);                            // No market orders
+
+		// Initial position
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+
+		// Should not activate at 100.5 (take offset => activation at 101)
+		var activationResult = behaviour.TryActivate(100.5m, DateTime.UtcNow);
+		activationResult.AssertNull();
+
+		// Should activate take at 101 (entry + Absolute offset 1)
+		activationResult = behaviour.TryActivate(101m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+		{
+			var (isTake, side, price, volume, condition) = activationResult.Value;
+			isTake.AssertTrue();
+			side.AssertEqual(Sides.Sell);
+			price.AssertEqual(101m);
+			volume.AssertEqual(10m);
+			condition.AssertNull();
+		}
+		behaviour.Update(101m, -10m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// New position
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+
+		// Should not activate at 85 (stop offset => activation at 80)
+		activationResult = behaviour.TryActivate(85m, DateTime.UtcNow);
+		activationResult.AssertNull();
+
+		// Should activate stop at 80 (entry - Absolute offset 20)
+		activationResult = behaviour.TryActivate(80m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+		{
+			var (isTake, side, price, volume, condition) = activationResult.Value;
+			isTake.AssertFalse();
+			side.AssertEqual(Sides.Sell);
+			price.AssertEqual(80m);
+			volume.AssertEqual(10m);
+			condition.AssertNull();
+		}
+		behaviour.Update(80m, -10m, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+	}
+
+	[TestMethod]
+	public void MultipleTrades()
+	{
+		// Arrange
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.01m, 2);
+		var behaviour = factory.Create(
+			new Unit(1m, UnitTypes.Percent),  // Take profit 1%
+			new Unit(1m, UnitTypes.Percent),  // Stop loss 1%
+			false,                            // No trailing stop
+			TimeSpan.Zero,                    // No take timeout
+			TimeSpan.Zero,                    // No stop timeout
+			false);                           // No market orders
+
+		// Build position gradually
+		behaviour.Update(100m, 5m, DateTime.UtcNow);
+		behaviour.Update(101m, 3m, DateTime.UtcNow);
+		behaviour.Update(102m, 2m, DateTime.UtcNow);
+
+		behaviour.Position.AssertEqual(10m);
+
+		// Average price should be (100*5 + 101*3 + 102*2)/10 = 100.7
+
+		// Test take profit at 1% above average
+		var activationResult = behaviour.TryActivate(101.71m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertTrue();
+		side.AssertEqual(Sides.Sell);
+		price.AssertEqual(101.71m);
+		volume.AssertEqual(10m);
+		condition.AssertNull(); // No special condition
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, -volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// New set of trades with partial reductions
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+		behaviour.Update(98m, 5m, DateTime.UtcNow);
+
+		// Total 15 units
+
+		// Reduce partially, should be FIFO
+		behaviour.Update(100m, -6m, DateTime.UtcNow);  // Reduce 6 from first trade
+		behaviour.Update(100m, -4m, DateTime.UtcNow);  // Reduce 4 from first trade + 0 from second
+
+		// Left with 5 units from second trade at 98
+		behaviour.Position.AssertEqual(5m);
+
+		// Test take profit at 1% above 98
+		activationResult = behaviour.TryActivate(98.98m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+		(isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertTrue();
+		side.AssertEqual(Sides.Sell);
+		price.AssertEqual(98.98m);
+		volume.AssertEqual(5m);
+		condition.AssertNull(); // No special condition
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, -volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+	}
+
+	[TestMethod]
+	public void MarketOrderFlag()
+	{
+		// Arrange - two behaviours, one with market orders and one without
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+
+		var behaviourLimit = factory.Create(
+			new Unit(1m, UnitTypes.Percent),
+			new Unit(1m, UnitTypes.Percent),
+			false, TimeSpan.Zero, TimeSpan.Zero,
+			false);  // Limit orders
+
+		var behaviourMarket = factory.Create(
+			new Unit(1m, UnitTypes.Percent),
+			new Unit(1m, UnitTypes.Percent),
+			false, TimeSpan.Zero, TimeSpan.Zero,
+			true);   // Market orders
+
+		// Setup positions
+		behaviourLimit.Update(100m, 10m, DateTime.UtcNow);
+		behaviourMarket.Update(100m, 10m, DateTime.UtcNow);
+
+		// Test activations
+		var activationLimit = behaviourLimit.TryActivate(101m, DateTime.UtcNow);
+		var activationMarket = behaviourMarket.TryActivate(101m, DateTime.UtcNow);
+
+		activationLimit.AssertNotNull();
+		activationMarket.AssertNotNull();
+
+		// The observable effect of the market-orders flag is the activation price
+		// (ProtectiveProcessor.GetActivationPrice -> getClosePosPrice):
+		//   limit  => close price = trigger price (priceOffset is zero here);
+		//   market => close price = 0 (close by market).
+		// LocalProtectiveBehaviour always reports a null condition regardless of the flag,
+		// so the price is the only thing that actually distinguishes the two modes.
+		var limitInfo = activationLimit.Value;
+		var marketInfo = activationMarket.Value;
+
+		// Both are take-profit activations of the full long position closing via Sell.
+		limitInfo.isTake.AssertTrue();
+		limitInfo.side.AssertEqual(Sides.Sell);
+		limitInfo.volume.AssertEqual(10m);
+		limitInfo.condition.AssertNull();
+
+		marketInfo.isTake.AssertTrue();
+		marketInfo.side.AssertEqual(Sides.Sell);
+		marketInfo.volume.AssertEqual(10m);
+		marketInfo.condition.AssertNull();
+
+		// The flag must change the close price: limit closes at the trigger, market closes at 0.
+		limitInfo.price.AssertEqual(101m);
+		marketInfo.price.AssertEqual(0m);
+	}
+
+	[TestMethod]
+	public void BasicTests()
+	{
+		// Test for ProtectiveProcessor class which is used internally by the behaviour
+		var logReceiver = new LogReceiver();
+
+		// Test long position take profit
+		var processorTakeLong = new ProtectiveProcessor(
+			Sides.Buy, 100m, true, false,
+			new Unit(1m, UnitTypes.Percent), false,
+			new Unit(), TimeSpan.Zero,
+			DateTime.UtcNow, logReceiver);
+
+		var activationPrice = processorTakeLong.GetActivationPrice(101m, DateTime.UtcNow);
+		activationPrice.AssertEqual(101m);
+
+		// Test long position stop loss
+		var processorStopLong = new ProtectiveProcessor(
+			Sides.Buy, 100m, false, false,
+			new Unit(1m, UnitTypes.Percent), false,
+			new Unit(), TimeSpan.Zero,
+			DateTime.UtcNow, logReceiver);
+
+		activationPrice = processorStopLong.GetActivationPrice(99m, DateTime.UtcNow);
+		activationPrice.AssertEqual(99m);
+
+		// Test trailing stop
+		var processorTrailing = new ProtectiveProcessor(
+			Sides.Buy, 100m, false, true,
+			new Unit(1m, UnitTypes.Percent), false,
+			new Unit(), TimeSpan.Zero,
+			DateTime.UtcNow, logReceiver);
+
+		// Price moves in favorable direction, no activation
+		activationPrice = processorTrailing.GetActivationPrice(102m, DateTime.UtcNow);
+		activationPrice.AssertNull();
+
+		// Price moves in unfavorable direction but not enough to trigger
+		activationPrice = processorTrailing.GetActivationPrice(101.5m, DateTime.UtcNow);
+		activationPrice.AssertNull();
+
+		// Price moves enough to trigger
+		activationPrice = processorTrailing.GetActivationPrice(98.9m, DateTime.UtcNow);
+		activationPrice.AssertEqual(98.9m);
+	}
+
+	[TestMethod]
+	public void ExtremeValues()
+	{
+		// Test with extreme price levels and position sizes
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.01m, 2);
+		var behaviour = factory.Create(
+			new Unit(50m, UnitTypes.Percent),  // Extreme take profit 50%
+			new Unit(50m, UnitTypes.Percent),  // Extreme stop loss 50%
+			false, TimeSpan.Zero, TimeSpan.Zero, false);
+
+		// Large position at high price
+		behaviour.Update(1000m, 1000m, DateTime.UtcNow);
+
+		// Test take profit
+		var activationResult = behaviour.TryActivate(1500m, DateTime.UtcNow);
+		activationResult.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activationResult.Value;
+		isTake.AssertTrue();
+		side.AssertEqual(Sides.Sell);
+		price.AssertEqual(1500m);
+		volume.AssertEqual(1000m);
+		condition.AssertNull();
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, -volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// Very small position and price
+		behaviour.Update(0.001m, 0.001m, DateTime.UtcNow);
+
+		// Test stop loss
+		var activationResult2 = behaviour.TryActivate(0.0005m, DateTime.UtcNow);
+		activationResult2.AssertNotNull();
+		(isTake, side, price, volume, condition) = activationResult2.Value;
+		isTake.AssertFalse();
+		side.AssertEqual(Sides.Sell); // Should sell to close long
+		price.AssertEqual(0.0005m);
+		volume.AssertEqual(0.001m);
+		condition.AssertNull();
+
+		// Emulate execution of protective order (position reset)
+		behaviour.Update(price, -volume, DateTime.UtcNow);
+		behaviour.Position.AssertEqual(0);
+
+		// Test position with zero price (should throw)
+		ThrowsExactly<ArgumentOutOfRangeException>(() => behaviour.Update(0m, 10m, DateTime.UtcNow));
+	}
+
+	[TestMethod]
+	public void TrailingStop_LongPosition()
+	{
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.01m, 2);
+		var behaviour = factory.Create(
+			new Unit(100m, UnitTypes.Percent), // Take-profit is not relevant for this test
+			new Unit(1m, UnitTypes.Percent),   // Trailing stop 1%
+			true,                             // Trailing enabled
+			TimeSpan.Zero, TimeSpan.Zero, false);
+
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+		// Trailing stop for long: the stop level moves up as price rises, but triggers only when price falls to the trailing level.
+		behaviour.TryActivate(101m, DateTime.UtcNow).AssertNull();
+		behaviour.TryActivate(102m, DateTime.UtcNow).AssertNull();
+		behaviour.TryActivate(101.5m, DateTime.UtcNow).AssertNull();
+		
+		// Price falls to the trailing stop level (1% below 102 = 100.98), should trigger stop
+		var activation = behaviour.TryActivate(100.98m, DateTime.UtcNow);
+		activation.AssertNotNull();
+
+		var (isTake, side, price, volume, condition) = activation.Value;
+		isTake.AssertFalse();
+		side.AssertEqual(Sides.Sell);
+		price.AssertEqual(100.98m);
+		volume.AssertEqual(10m);
+		condition.AssertNull();
+	}
+
+	[TestMethod]
+	public void TrailingStop_ShortPosition()
+	{
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.01m, 2);
+		var behaviour = factory.Create(
+			new Unit(100m, UnitTypes.Percent), // Take-profit is not relevant for this test
+			new Unit(1m, UnitTypes.Percent),   // Trailing stop 1%
+			true,                             // Trailing enabled
+			TimeSpan.Zero, TimeSpan.Zero, false);
+
+		behaviour.Update(100m, -10m, DateTime.UtcNow);
+		
+		// Trailing stop for short: the stop level moves down as price falls, but triggers only when price rises to the trailing level.
+		behaviour.TryActivate(99m, DateTime.UtcNow).AssertNull();
+		behaviour.TryActivate(98m, DateTime.UtcNow).AssertNull();
+		behaviour.TryActivate(98.5m, DateTime.UtcNow).AssertNull();
+		
+		// Price rises to the trailing stop level (1% above 98 = 98.98), should trigger stop
+		var activation = behaviour.TryActivate(98.98m, DateTime.UtcNow);
+		activation.AssertNotNull();
+		
+		var (isTake, side, price, volume, condition) = activation.Value;
+		isTake.AssertFalse();
+		side.AssertEqual(Sides.Buy);
+		price.AssertEqual(98.98m);
+		volume.AssertEqual(10m);
+		condition.AssertNull();
+	}
+
+	[TestMethod]
+	public void AbsoluteUnitType_TrailingAndActivation()
+	{
+		// Absolute is an offset from the protected entry price and is therefore valid
+		// for both fixed and trailing protection.
+		var logReceiver = new LogReceiver();
+
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+
+		var behaviour = factory.Create(
+			new Unit(),
+			new Unit(10m, UnitTypes.Absolute),
+			true,
+			TimeSpan.Zero, TimeSpan.Zero, false);
+
+		behaviour.Update(100m, 10m, DateTime.UtcNow);
+		behaviour.TryActivate(105m, DateTime.UtcNow).AssertNull();
+		behaviour.TryActivate(96m, DateTime.UtcNow).AssertNull();
+
+		var trailingActivation = behaviour.TryActivate(95m, DateTime.UtcNow);
+		trailingActivation.AssertNotNull();
+		trailingActivation.Value.isTake.AssertFalse();
+		trailingActivation.Value.side.AssertEqual(Sides.Sell);
+		trailingActivation.Value.price.AssertEqual(95m);
+		trailingActivation.Value.volume.AssertEqual(10m);
+
+		// Fixed Absolute protection follows the same entry-minus-offset semantics.
+		var p = new ProtectiveProcessor(
+			Sides.Buy, 100m, false, false, new(10, UnitTypes.Absolute),
+			true, new Unit(), TimeSpan.Zero, DateTime.UtcNow, logReceiver);
+
+		p.GetActivationPrice(85m, DateTime.UtcNow).AssertEqual(0m);
+		p.GetActivationPrice(95m, DateTime.UtcNow).AssertNull();
+	}
+
+	[TestMethod]
+	[Timeout(5_000)]
+	public void TimeoutLimitCloseWithPriceOffset()
+	{
+		// Covers the limit close-by-timeout branch of ProtectiveProcessor.GetActivationPrice:
+		// when the timeout elapses and useMarketOrders is false, the close price is the
+		// current price shifted by priceOffset (subtracted for a Buy protective side,
+		// added for a Sell protective side). This branch (limit close + non-zero offset)
+		// is otherwise not exercised, since the behaviour-level timeout tests all use market orders.
+		var logReceiver = new LogReceiver();
+
+		var started = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+		var timeout = TimeSpan.FromSeconds(30);
+		var priceOffset = new Unit(0.5m, UnitTypes.Absolute);
+
+		// Buy protective side (e.g. take for a long): close price = current - offset.
+		var procBuy = new ProtectiveProcessor(
+			Sides.Buy, 100m, true, false,
+			new Unit(5m, UnitTypes.Percent), false,
+			priceOffset, timeout, started, logReceiver);
+
+		// Before the timeout there is no activation when the price did not move.
+		procBuy.GetActivationPrice(100m, started.AddSeconds(10)).AssertNull();
+
+		// After the timeout the position is closed by a limit at current - offset.
+		procBuy.GetActivationPrice(100m, started.AddSeconds(31)).AssertEqual(99.5m);
+
+		// Sell protective side (e.g. take for a short): close price = current + offset.
+		var procSell = new ProtectiveProcessor(
+			Sides.Sell, 100m, false, false,
+			new Unit(5m, UnitTypes.Percent), false,
+			priceOffset, timeout, started, logReceiver);
+
+		procSell.GetActivationPrice(100m, started.AddSeconds(10)).AssertNull();
+		procSell.GetActivationPrice(100m, started.AddSeconds(31)).AssertEqual(100.5m);
+	}
+
+	[TestMethod]
+	[Timeout(5_000)]
+	public void ControllerNonPositivePriceNoActivation()
+	{
+		// Covers the early "price <= 0" guard in ProtectiveController.TryActivate
+		// (yield break before any controller is consulted).
+		var controller = new ProtectiveController();
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.1m, 2);
+
+		var securityId = new SecurityId { SecurityCode = "AAPL", BoardCode = "NASDAQ" };
+
+		var posController = controller.GetController(
+			securityId, "Portfolio1", factory,
+			new Unit(1m, UnitTypes.Percent),
+			new Unit(1m, UnitTypes.Percent),
+			false, TimeSpan.Zero, TimeSpan.Zero, false);
+
+		// Open a long position that would normally activate take profit at 101.
+		posController.Update(100m, 10m, DateTime.UtcNow);
+
+		// A non-positive price must short-circuit to an empty result, even though
+		// a position exists that could otherwise activate.
+		controller.TryActivate(securityId, 0m, DateTime.UtcNow).ToArray().Length.AssertEqual(0);
+		controller.TryActivate(securityId, -5m, DateTime.UtcNow).ToArray().Length.AssertEqual(0);
+
+		// Sanity check: a valid positive price still activates the existing position,
+		// proving the empty result above was due to the price guard and not a missing controller.
+		var activations = controller.TryActivate(securityId, 101m, DateTime.UtcNow).ToArray();
+		activations.Length.AssertEqual(1);
+		activations[0].isTake.AssertTrue();
+		activations[0].side.AssertEqual(Sides.Sell);
+		activations[0].price.AssertEqual(101m);
+		activations[0].volume.AssertEqual(10m);
+	}
+
+	// Minimal combined order condition used as a test double for the server protective path.
+	// It derives from OrderCondition (so Type.CreateOrderCondition can instantiate it via the
+	// parameterless constructor) and implements BOTH protective interfaces, which is exactly
+	// what ServerProtectiveBehaviourFactory requires from the adapter's OrderConditionType.
+	public class ServerTestOrderCondition : OrderCondition, IStopLossOrderCondition, ITakeProfitOrderCondition
+	{
+		// Shared by both interfaces (identical signatures), so a single property satisfies both.
+		public decimal? ClosePositionPrice { get; set; }
+		public decimal? ActivationPrice { get; set; }
+		public bool IsTrailing { get; set; }
+	}
+
+	// Builds a fake IMessageAdapter whose OrderConditionType is ServerTestOrderCondition.
+	// That single type implements both IStopLossOrderCondition and ITakeProfitOrderCondition,
+	// so IsSupportStopLoss()/IsSupportTakeProfit() (which test the OrderConditionType) both return
+	// true and CreateOrderCondition() yields a fresh ServerTestOrderCondition instance.
+	private static IMessageAdapter CreateServerStopAdapter()
+	{
+		var mock = new Mock<IMessageAdapter>();
+		mock.Setup(a => a.OrderConditionType).Returns(typeof(ServerTestOrderCondition));
+		return mock.Object;
+	}
+
+	[TestMethod]
+	[Timeout(5_000)]
+	public void ServerAbsoluteOffsetSemantics()
+	{
+		// First coverage for the otherwise-untested ServerProtectiveBehaviour.
+		// Canonical (unified) semantics: an Absolute protective level is an OFFSET from the
+		// protected entry price. The server path implements exactly this in Update():
+		//   take.ActivationPrice = entry +/- TakeValue, stop.ActivationPrice = entry -/+ StopValue.
+		// Each side is asserted on its OWN registration: the dual-interface server condition stores
+		// a single ActivationPrice, so configuring take and stop together would make the two writes
+		// collide; testing one side at a time verifies the offset arithmetic cleanly. Expected GREEN.
+		IProtectiveBehaviourFactory factory = new ServerProtectiveBehaviourFactory(CreateServerStopAdapter());
+
+		// Take-only: long entry at 100, take Absolute(1) => activation at 100 + 1 = 101.
+		var takeOnly = factory.Create(
+			new Unit(1m, UnitTypes.Absolute),
+			new Unit(),                         // stop not set
+			false, TimeSpan.Zero, TimeSpan.Zero,
+			false);                             // Limit close (ClosePositionPrice = ActivationPrice)
+
+		var takeReg = takeOnly.Update(100m, 10m, DateTime.UtcNow);
+		takeReg.AssertNotNull();
+		{
+			var (isTake, side, price, volume, condition) = takeReg.Value;
+			side.AssertEqual(Sides.Sell);
+			price.AssertEqual(100m);
+			volume.AssertEqual(10m);
+			condition.AssertNotNull();
+
+			var take = (ITakeProfitOrderCondition)condition;
+			take.ActivationPrice.AssertEqual(101m);    // entry + Absolute offset 1
+			take.ClosePositionPrice.AssertEqual(101m); // limit close at the activation price
+			isTake.AssertTrue();                       // a take-only registration is correctly a take
+		}
+
+		// Stop-only: long entry at 100, stop Absolute(20) => activation at 100 - 20 = 80.
+		var stopOnly = factory.Create(
+			new Unit(),                         // take not set
+			new Unit(20m, UnitTypes.Absolute),
+			false, TimeSpan.Zero, TimeSpan.Zero,
+			false);
+
+		var stopReg = stopOnly.Update(100m, 10m, DateTime.UtcNow);
+		stopReg.AssertNotNull();
+		{
+			var (_, side, price, volume, condition) = stopReg.Value;
+			side.AssertEqual(Sides.Sell);
+			price.AssertEqual(100m);
+			volume.AssertEqual(10m);
+
+			var stop = (IStopLossOrderCondition)condition;
+			stop.ActivationPrice.AssertEqual(80m);     // entry - Absolute offset 20
+			stop.ClosePositionPrice.AssertEqual(80m);
+			stop.IsTrailing.AssertFalse();
+		}
+
+		// ServerProtectiveBehaviour does not track position locally and never activates on price.
+		stopOnly.Position.AssertEqual(0m);
+		stopOnly.TryActivate(80m, DateTime.UtcNow).AssertNull();
+	}
+
+	[TestMethod]
+	[Timeout(5_000)]
+	public void ServerUpdateStopOnlyIsMislabeledAsTake()
+	{
+		// Proves the "// TODO" mislabeling in ServerProtectiveBehaviour.Update: the returned
+		// isTake flag is hard-coded to (condition is ITakeProfitOrderCondition) regardless of
+		// which protective side is actually configured. The shared server condition type always
+		// implements ITakeProfitOrderCondition, so a STOP-ONLY registration (no take configured)
+		// is still reported as isTake = true.
+		//
+		// Here only the stop is set (take Unit is unset => IsSet() == false), so the engine
+		// produces a pure stop order: only stop.ActivationPrice is populated and take.ActivationPrice
+		// stays null. The correct label for that registration is isTake = false. The assertion below
+		// asserts the CORRECT label and therefore goes RED on the current engine (which returns true).
+		IProtectiveBehaviourFactory factory = new ServerProtectiveBehaviourFactory(CreateServerStopAdapter());
+
+		var behaviour = factory.Create(
+			new Unit(),                       // Take NOT set => take block is skipped in Update
+			new Unit(5m, UnitTypes.Absolute), // Stop: offset -5 from entry => 100 - 5 = 95
+			false,
+			TimeSpan.Zero, TimeSpan.Zero,
+			false);
+
+		var reg = behaviour.Update(100m, 10m, DateTime.UtcNow);
+		reg.AssertNotNull();
+
+		var (isTake, side, _, _, condition) = reg.Value;
+
+		// Sanity: this is genuinely a stop-only registration - the take Unit is unset, so the take
+		// block is skipped and only the stop level is written. (The dual-interface server condition
+		// stores a single ActivationPrice, which therefore carries the stop offset 95.)
+		var stop = (IStopLossOrderCondition)condition;
+		stop.ActivationPrice.AssertEqual(95m);
+
+		side.AssertEqual(Sides.Sell);
+
+		// Correct label for a stop-only registration is false; the engine wrongly reports true.
+		isTake.AssertFalse();
+	}
+
+	// Exposes the protected high-level subscription helpers, so a test can bind several securities.
+	private class HighLevelBindStrategy : Strategy
+	{
+		public ISubscriptionHandler<ICandleMessage> BindCandles(Security security)
+			=> SubscribeCandles(TimeSpan.FromMinutes(1), true, security).Bind(_ => { }).Start();
+
+		public ISubscriptionHandler<ITickTradeMessage> BindTicks(Security security)
+			=> SubscribeTicks(security).Bind(_ => { }).Start();
+
+		public ISubscriptionHandler<Level1ChangeMessage> Quotes(Security security)
+		{
+			var subscription = new Subscription(DataType.Level1, security);
+			subscription.MarketData.BuildField = Level1Fields.BestBidPrice;
+			return SubscribeLevel1(subscription);
+		}
+	}
+
+	[TestMethod]
+	[DataRow(false)]
+	[DataRow(true)]
+	[Timeout(10_000)]
+	public async Task HighLevelStartedQuotesActivateProtection(bool isBound)
+	{
+		var security = CreateProtectionSecurity("QUOTE_OWN");
+		var other = CreateProtectionSecurity("QUOTE_OTHER");
+		var portfolio = new Portfolio { Name = "quote_protection" };
+		var time = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+		var orders = new List<Order>();
+		var connector = new Mock<IConnector>();
+		connector.Setup(c => c.TransactionIdGenerator).Returns(new IncrementalIdGenerator());
+		connector.Setup(c => c.RegisterOrder(It.IsAny<Order>())).Callback<Order>(orders.Add);
+		var strategy = new HighLevelBindStrategy { Connector = connector.Object, Security = security, Portfolio = portfolio };
+		strategy.StartProtection(new Unit(), new Unit(5m, UnitTypes.Percent), useMarketOrders: true, isLocalStop: true);
+		await strategy.StartAsync(CancellationToken);
+		await strategy.Engine.OnMessageAsync(new StrategyEngine.StrategyStateMessage(ProcessStates.Started), CancellationToken);
+		var callbacks = 0;
+		var ownQuotes = strategy.Quotes(security);
+		var otherQuotes = strategy.Quotes(other);
+		if (isBound)
+		{
+			ownQuotes.Bind(_ => callbacks++);
+			otherQuotes.Bind(_ => callbacks++);
+		}
+		ownQuotes.Start();
+		otherQuotes.Start();
+		var transactions = new Subscription(DataType.Transactions);
+		strategy.Subscriptions.Subscribe(transactions);
+		EnterProtectedLong(strategy, transactions, security, portfolio, 1, 100m, time);
+		var afterEntry = orders.Count;
+		Level1ChangeMessage quote(Security instrument) => new()
+		{
+			SecurityId = instrument.ToSecurityId(), ServerTime = time.AddMinutes(1), LocalTime = time.AddMinutes(1),
+			Changes = { [Level1Fields.BestBidPrice] = 90m },
+		};
+		connector.Raise(c => c.Level1Received += null, otherQuotes.Subscription, quote(other));
+		AreEqual(afterEntry, orders.Count, "Another instrument must not activate the position's stop.");
+		connector.Raise(c => c.Level1Received += null, ownQuotes.Subscription, quote(security));
+		AreEqual(afterEntry + 1, orders.Count, "Starting a quote subscription must activate protection without requiring a callback.");
+		AreEqual(Sides.Sell, orders[^1].Side);
+		AreEqual(10m, orders[^1].Volume);
+		AreEqual(OrderTypes.Market, orders[^1].Type);
+		AreEqual(security, orders[^1].Security);
+		AreEqual(isBound ? 2 : 0, callbacks);
+	}
+
+	[TestMethod]
+	[Timeout(10_000)]
+	public async Task HighLevelMultipleBindingsDispatchEachValueOnce()
+	{
+		var security = CreateProtectionSecurity("QUOTE_BINDINGS");
+		var connector = new Mock<IConnector>();
+		connector.Setup(c => c.TransactionIdGenerator).Returns(new IncrementalIdGenerator());
+		var strategy = new HighLevelBindStrategy { Connector = connector.Object, Security = security, Portfolio = new Portfolio { Name = "bindings" } };
+		await strategy.StartAsync(CancellationToken);
+		await strategy.Engine.OnMessageAsync(new StrategyEngine.StrategyStateMessage(ProcessStates.Started), CancellationToken);
+		var first = 0;
+		var second = 0;
+		var quotes = strategy.Quotes(security).Bind(_ => first++).Bind(_ => second++).Start();
+		var time = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+		connector.Raise(c => c.Level1Received += null, quotes.Subscription, new Level1ChangeMessage
+		{
+			SecurityId = security.ToSecurityId(), ServerTime = time, LocalTime = time,
+			Changes = { [Level1Fields.BestBidPrice] = 100m },
+		});
+		AreEqual(1, first);
+		AreEqual(1, second);
+	}
+
+	private static void FillProtectionOrder(Strategy strategy, Subscription transactions, Order order, decimal price, long tradeId, DateTime time)
+	{
+		strategy.OnConnectorOrderReceived(transactions, order);
+		order.State = OrderStates.Active;
+		strategy.OnConnectorOrderReceived(transactions, order);
+		order.AveragePrice = price;
+		strategy.OnTradeReceived(transactions, new MyTrade
+		{
+			Order = order,
+			Trade = new ExecutionMessage
+			{
+				DataTypeEx = DataType.Ticks,
+				SecurityId = order.Security.ToSecurityId(),
+				TradeId = tradeId,
+				TradePrice = price,
+				TradeVolume = order.Volume,
+				ServerTime = time,
+			},
+		});
+		order.Balance = 0m;
+		order.State = OrderStates.Done;
+		strategy.OnConnectorOrderReceived(transactions, order);
+	}
+
+	private static Security CreateProtectionSecurity(string code)
+	{
+		var secId = new SecurityId { SecurityCode = code, BoardCode = BoardCodes.Test };
+
+		return new()
+		{
+			Id = secId.ToStringId(),
+			Code = code,
+			Board = ExchangeBoard.Test,
+			PriceStep = 0.01m,
+		};
+	}
+
+	private static TimeFrameCandleMessage CreateProtectionCandle(Security security, decimal close, DateTime time)
+		=> new()
+		{
+			SecurityId = security.ToSecurityId(),
+			OpenTime = time,
+			LocalTime = time,
+			OpenPrice = close,
+			HighPrice = close,
+			LowPrice = close,
+			ClosePrice = close,
+			TotalVolume = 1m,
+			State = CandleStates.Finished,
+		};
+
+	private static ExecutionMessage CreateProtectionTick(Security security, decimal price, DateTime time)
+		=> new()
+		{
+			DataTypeEx = DataType.Ticks,
+			SecurityId = security.ToSecurityId(),
+			ServerTime = time,
+			LocalTime = time,
+			TradePrice = price,
+			TradeVolume = 1m,
+		};
+
+	// Opens a ten-lot long, filled in one trade, the way the strategy sees it come back from a connector.
+	private static void EnterProtectedLong(Strategy strategy, Subscription txSub, Security security, Portfolio portfolio, long transactionId, decimal price, DateTime time)
+	{
+		var entry = new Order
+		{
+			TransactionId = transactionId,
+			State = OrderStates.Pending,
+			Side = Sides.Buy,
+			Price = price,
+			Volume = 10m,
+			Security = security,
+			Portfolio = portfolio,
+			Time = time,
+		};
+
+		strategy.RegisterOrder(entry);
+		strategy.OnConnectorOrderReceived(txSub, entry);
+		entry.State = OrderStates.Active;
+		strategy.OnConnectorOrderReceived(txSub, entry);
+
+		strategy.OnTradeReceived(txSub, new MyTrade
+		{
+			Order = entry,
+			Trade = new ExecutionMessage
+			{
+				DataTypeEx = DataType.Ticks,
+				TradeId = transactionId,
+				TradePrice = price,
+				TradeVolume = 10m,
+				SecurityId = security.ToSecurityId(),
+				ServerTime = time,
+			},
+		});
+	}
+
+	[TestMethod]
+	[Timeout(10_000)]
+	public async Task HighLevelBoundCandleActivatesOwnSecurityOnly()
+	{
+		// A strategy holds a protected long in one security and has high-level candle subscriptions
+		// bound for two. A candle of the unprotected security carries a price that would breach the
+		// protected position's stop; it must not reach the protected security's controller.
+		var protectedSec = CreateProtectionSecurity("PROT_OWN");
+		var otherSec = CreateProtectionSecurity("PROT_OTHER");
+		var portfolio = new Portfolio { Name = "protection_portfolio" };
+
+		var time = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+
+		var registered = new List<Order>();
+
+		var connector = new Mock<IConnector>();
+		connector.Setup(c => c.TransactionIdGenerator).Returns(new IncrementalIdGenerator());
+		connector.Setup(c => c.RegisterOrder(It.IsAny<Order>())).Callback<Order>(registered.Add);
+
+		var strategy = new HighLevelBindStrategy
+		{
+			Connector = connector.Object,
+			Security = protectedSec,
+			Portfolio = portfolio,
+			Volume = 10m,
+		};
+
+		// Local stop of 5%: a long entered at 100 is protected at 95, so 90 is deep in stop territory.
+		strategy.StartProtection(new Unit(), new Unit(5m, UnitTypes.Percent), isLocalStop: true);
+
+		await strategy.StartAsync(CancellationToken);
+		await strategy.Engine.OnMessageAsync(new StrategyEngine.StrategyStateMessage(ProcessStates.Started), CancellationToken);
+
+		var protectedSub = strategy.BindCandles(protectedSec).Subscription;
+		var otherSub = strategy.BindCandles(otherSec).Subscription;
+
+		// The protective position controller is created by the fill, not by StartProtection.
+		var txSub = new Subscription(DataType.Transactions);
+		strategy.Subscriptions.Subscribe(txSub);
+
+		EnterProtectedLong(strategy, txSub, protectedSec, portfolio, 1, 100m, time);
+
+		AreEqual(10m, strategy.Position, "the protected long must be open before any candle arrives");
+
+		var afterEntry = registered.Count;
+
+		// A candle of the other security at the protected position's stop price.
+		connector.Raise(c => c.CandleReceived += null, otherSub,
+			CreateProtectionCandle(otherSec, 90m, time.AddMinutes(1)));
+
+		AreEqual(afterEntry, registered.Count,
+			"a candle of another security must not activate protection of the protected one");
+
+		// The very same price on the protected security's own candle must activate the stop.
+		connector.Raise(c => c.CandleReceived += null, protectedSub,
+			CreateProtectionCandle(protectedSec, 90m, time.AddMinutes(2)));
+
+		AreEqual(afterEntry + 1, registered.Count,
+			"the protected security's own candle must activate the stop");
+
+		var protectiveOrder = registered[^1];
+		AreEqual(Sides.Sell, protectiveOrder.Side, "a stop closing a long must be a sell");
+		AreEqual(protectedSec, protectiveOrder.Security, "the stop must be registered for the protected security");
+	}
+
+	[TestMethod]
+	[Timeout(10_000)]
+	public async Task HighLevelBoundTickActivatesOwnSecurityOnly()
+	{
+		// The tick branch of a high-level subscription activates protection itself, without going
+		// through Strategy.OnCandleReceived, so it has to name the security of its own value.
+		var protectedSec = CreateProtectionSecurity("PROT_TICK_OWN");
+		var otherSec = CreateProtectionSecurity("PROT_TICK_OTHER");
+		var portfolio = new Portfolio { Name = "protection_portfolio" };
+
+		var time = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+
+		var registered = new List<Order>();
+
+		var connector = new Mock<IConnector>();
+		connector.Setup(c => c.TransactionIdGenerator).Returns(new IncrementalIdGenerator());
+		connector.Setup(c => c.RegisterOrder(It.IsAny<Order>())).Callback<Order>(registered.Add);
+
+		var strategy = new HighLevelBindStrategy
+		{
+			Connector = connector.Object,
+			Security = protectedSec,
+			Portfolio = portfolio,
+			Volume = 10m,
+		};
+
+		// Local stop of 5%: a long entered at 100 is protected at 95, so 90 is deep in stop territory.
+		strategy.StartProtection(new Unit(), new Unit(5m, UnitTypes.Percent), isLocalStop: true);
+
+		await strategy.StartAsync(CancellationToken);
+		await strategy.Engine.OnMessageAsync(new StrategyEngine.StrategyStateMessage(ProcessStates.Started), CancellationToken);
+
+		var protectedSub = strategy.BindTicks(protectedSec).Subscription;
+		var otherSub = strategy.BindTicks(otherSec).Subscription;
+
+		var txSub = new Subscription(DataType.Transactions);
+		strategy.Subscriptions.Subscribe(txSub);
+
+		EnterProtectedLong(strategy, txSub, protectedSec, portfolio, 1, 100m, time);
+
+		AreEqual(10m, strategy.Position, "the protected long must be open before any tick arrives");
+
+		var afterEntry = registered.Count;
+
+		connector.Raise(c => c.TickTradeReceived += null, otherSub,
+			CreateProtectionTick(otherSec, 90m, time.AddMinutes(1)));
+
+		AreEqual(afterEntry, registered.Count,
+			"a tick of another security must not activate protection of the protected one");
+
+		connector.Raise(c => c.TickTradeReceived += null, protectedSub,
+			CreateProtectionTick(protectedSec, 90m, time.AddMinutes(2)));
+
+		AreEqual(afterEntry + 1, registered.Count,
+			"the protected security's own tick must activate the stop");
+
+		var tickStop = registered[^1];
+		AreEqual(Sides.Sell, tickStop.Side, "a stop closing a long must be a sell");
+		AreEqual(protectedSec, tickStop.Security, "the stop must be registered for the protected security");
+	}
+
+	[TestMethod]
+	[Timeout(10_000)]
+	public async Task ProtectionActivatesForTheSecurityItsPositionIsIn()
+	{
+		// A strategy holds a protected long in each of two securities. Protection is per (security,
+		// portfolio): each position is measured from its own entry price and closed on its own security.
+		var first = CreateProtectionSecurity("PROT_FIRST");
+		var second = CreateProtectionSecurity("PROT_SECOND");
+		var portfolio = new Portfolio { Name = "protection_portfolio" };
+
+		var time = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+
+		var registered = new List<Order>();
+
+		var connector = new Mock<IConnector>();
+		connector.Setup(c => c.TransactionIdGenerator).Returns(new IncrementalIdGenerator());
+		connector.Setup(c => c.RegisterOrder(It.IsAny<Order>())).Callback<Order>(registered.Add);
+
+		var strategy = new HighLevelBindStrategy
+		{
+			Connector = connector.Object,
+			Security = first,
+			Portfolio = portfolio,
+			Volume = 10m,
+		};
+
+		// Local stop of 5%: the long entered at 100 is protected at 95, the one entered at 200 at 190.
+		strategy.StartProtection(new Unit(), new Unit(5m, UnitTypes.Percent), isLocalStop: true);
+
+		await strategy.StartAsync(CancellationToken);
+		await strategy.Engine.OnMessageAsync(new StrategyEngine.StrategyStateMessage(ProcessStates.Started), CancellationToken);
+
+		var firstSub = strategy.BindCandles(first).Subscription;
+		var secondSub = strategy.BindCandles(second).Subscription;
+
+		var txSub = new Subscription(DataType.Transactions);
+		strategy.Subscriptions.Subscribe(txSub);
+
+		EnterProtectedLong(strategy, txSub, first, portfolio, 1, 100m, time);
+		EnterProtectedLong(strategy, txSub, second, portfolio, 2, 200m, time);
+
+		var afterEntries = registered.Count;
+
+		// The second security falls through its own stop while the first is nowhere near its own.
+		connector.Raise(c => c.CandleReceived += null, secondSub,
+			CreateProtectionCandle(second, 189m, time.AddMinutes(1)));
+
+		AreEqual(afterEntries + 1, registered.Count,
+			"the second security's position must be stopped by its own candle");
+
+		var secondStop = registered[^1];
+		AreEqual(second, secondStop.Security, "a stop must be registered for the security it protects");
+		AreEqual(Sides.Sell, secondStop.Side);
+		AreEqual(10m, secondStop.Volume, "a stop closes the position of its own security, not the total");
+
+		connector.Raise(c => c.CandleReceived += null, firstSub,
+			CreateProtectionCandle(first, 94m, time.AddMinutes(2)));
+
+		AreEqual(afterEntries + 2, registered.Count,
+			"the first security's position must be stopped by its own candle");
+
+		var firstStop = registered[^1];
+		AreEqual(first, firstStop.Security, "a stop must be registered for the security it protects");
+		AreEqual(Sides.Sell, firstStop.Side);
+		AreEqual(10m, firstStop.Volume, "a stop closes the position of its own security, not the total");
+	}
+
+	/// <summary>
+	/// A protective level farther away than the price itself puts the trigger at or below zero -
+	/// a price that cannot be reached, so the position is simply unprotected. Standing in a price
+	/// of one tick for it instead lets that stop fire after all, closing the position for a penny
+	/// at a level the user never named.
+	/// </summary>
+	[TestMethod]
+	public void StopFartherAwayThanThePriceItselfDoesNotFireAtAPenny()
+	{
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(0.01m, 2);
+
+		var behaviour = factory.Create(
+			new Unit(),                          // No take, so only the stop can fire
+			new Unit(200m, UnitTypes.Absolute),  // 200 below an entry of 100: no such price exists
+			false,                               // No trailing stop
+			TimeSpan.Zero,                       // No take timeout
+			TimeSpan.Zero,                       // No stop timeout
+			false);                              // No market orders
+
+		var time = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+
+		behaviour.Update(100m, 10m, time);
+
+		behaviour.TryActivate(0.01m, time)
+			.AssertNull("a stop placed below zero can never be reached, so nothing may fire at a penny instead");
+	}
+
+	/// <summary>
+	/// After part of a position is closed, protection and profit-and-loss must price what is left
+	/// the same way. They are two lot-matching models over one sequence of trades: if they pick
+	/// different lots to close, the take fires at a price the reported profit says the position
+	/// never cost, and a user reading one number cannot predict the other.
+	/// </summary>
+	[TestMethod]
+	public void ProtectionAndPnLAgreeOnThePositionPriceAfterAPartialClose()
+	{
+		var secId = new SecurityId { SecurityCode = "LOTS", BoardCode = "TEST" };
+		var time = new DateTime(2024, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+
+		const decimal priceStep = 0.01m;
+
+		// One sequence of trades, fed to both models: two buys at different prices, then a sell
+		// closing part of the position - the point where lot matching starts to matter.
+		(decimal price, decimal volume)[] opens = [(100m, 10m), (110m, 5m)];
+		const decimal closeVolume = 5m;
+		const decimal closePrice = 120m;
+		const decimal leftVolume = 10m;
+
+		IProtectiveBehaviourFactory factory = new LocalProtectiveBehaviourFactory(priceStep, 2);
+
+		// Absolute take: it fires once the price is the offset away from the position price, so the
+		// price at which it fires is what protection believes the remaining position cost.
+		const decimal takeOffset = 10m;
+
+		var behaviour = factory.Create(
+			new Unit(takeOffset, UnitTypes.Absolute),
+			new Unit(),                       // No stop, so only the take can fire
+			false,                            // No trailing stop
+			TimeSpan.Zero,                    // No take timeout
+			TimeSpan.Zero,                    // No stop timeout
+			false);                           // No market orders
+
+		var queue = new PnLQueue(secId);
+
+		// One money unit per price step, so the reported profit is in price units.
+		queue.UpdateSecurity(new Level1ChangeMessage { SecurityId = secId }
+			.Add(Level1Fields.PriceStep, priceStep)
+			.Add(Level1Fields.StepPrice, priceStep));
+
+		var tradeId = 0L;
+
+		void Trade(Sides tradeSide, decimal tradePrice, decimal tradeVolume)
+		{
+			behaviour.Update(tradePrice, tradeSide == Sides.Buy ? tradeVolume : -tradeVolume, time);
+
+			queue.Process(new ExecutionMessage
+			{
+				DataTypeEx = DataType.Transactions,
+				SecurityId = secId,
+				TradeId = ++tradeId,
+				TradePrice = tradePrice,
+				TradeVolume = tradeVolume,
+				Side = tradeSide,
+				ServerTime = time,
+			});
+		}
+
+		foreach (var (openPrice, openVolume) in opens)
+			Trade(Sides.Buy, openPrice, openVolume);
+
+		Trade(Sides.Sell, closePrice, closeVolume);
+
+		behaviour.Position.AssertEqual(leftVolume, "both models are looking at the same open position");
+
+		// Mark the rest to a price well clear of every trade, so the unrealized profit names the
+		// price the queue still holds the position at.
+		const decimal markPrice = 130m;
+
+		queue.ProcessExecution(new ExecutionMessage
+		{
+			DataTypeEx = DataType.Ticks,
+			SecurityId = secId,
+			TradePrice = markPrice,
+			ServerTime = time,
+		});
+
+		var pnlPosPrice = markPrice - queue.UnrealizedPnL / leftVolume;
+
+		// Protection must measure the take from that same price: not before it, and exactly at it.
+		behaviour.TryActivate(pnlPosPrice + takeOffset - priceStep, time)
+			.AssertNull("the take must not fire before the offset is reached from the position price the profit is measured against");
+
+		var activation = behaviour.TryActivate(pnlPosPrice + takeOffset, time);
+
+		activation.AssertNotNull($"the take must fire at {pnlPosPrice + takeOffset}, the offset away from the position price of {pnlPosPrice} the profit is measured against");
+
+		var (isTake, side, price, volume, condition) = activation.Value;
+		isTake.AssertTrue();
+		side.AssertEqual(Sides.Sell, "a take closing a long is a sell");
+		price.AssertEqual(pnlPosPrice + takeOffset);
+		volume.AssertEqual(leftVolume, "the take closes what is left of the position");
+		condition.AssertNull();
+	}
+}

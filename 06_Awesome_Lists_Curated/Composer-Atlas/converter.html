@@ -1,0 +1,977 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/converter">
+  <link rel="canonical" href="https://composeratlas.com/converter">
+  <meta property="og:title" content="Symphony to JSON Converter">
+  <meta property="og:description" content="Paste a Composer.trade symphony and get clean, formatted JSON beside a readable IF/ELSE logic tree, so you can see what a strategy really does.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Paste a Composer.trade symphony and get clean, formatted JSON beside a readable IF/ELSE logic tree, so you can see what a strategy really does.">
+  <title>Symphony → JSON Converter: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .conv-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+    .conv-label { display: block; font-size: 0.8125rem; font-weight: 600; color: var(--color-primary); margin-bottom: 8px; }
+    .conv-hint { font-size: 0.8125rem; color: var(--color-secondary); margin-bottom: 12px; line-height: 1.6; }
+    #conv-in {
+      width: 100%; min-height: 140px; resize: vertical; box-sizing: border-box;
+      background: var(--color-bg); color: var(--color-primary);
+      border: 1px solid var(--color-border-strong); border-radius: 8px; padding: 12px 14px;
+      font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6;
+    }
+    #conv-in:focus { outline: 2px solid var(--color-blue); outline-offset: -1px; }
+    .conv-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+    .conv-opts { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 14px; font-size: 0.8125rem; color: var(--color-secondary); }
+    .conv-opts label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+    .conv-msg { margin-top: 14px; font-size: 0.875rem; line-height: 1.6; }
+    .conv-msg.err { color: var(--color-pink); }
+    .conv-msg.info { color: var(--color-secondary); }
+    .conv-msg a { color: var(--color-blue); }
+
+    .conv-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .conv-section-head h2 { color: var(--color-primary); font-size: 1rem; font-weight: 600; margin: 0; }
+    .conv-copy { font-size: 0.75rem; padding: 5px 12px; }
+
+    .conv-summary { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-bottom: 4px; }
+    .conv-summary .k { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-disabled); display: block; margin-bottom: 2px; }
+    .conv-summary .v { font-size: 0.9375rem; color: var(--color-primary); font-family: var(--font-mono); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .chip { font-family: var(--font-mono); font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; background: var(--color-surface-raised); border: 1px solid var(--color-border); color: var(--color-secondary); }
+
+    pre.conv-json {
+      margin: 0; max-height: 520px; overflow: auto;
+      background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px;
+      padding: 16px; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.65;
+      color: var(--color-secondary); white-space: pre;
+    }
+
+    .tree {
+      background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px;
+      padding: 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.7;
+    }
+    .tree .row { white-space: pre; }
+    .t-kw { color: var(--color-pink); font-weight: 600; }
+    .t-wt { color: var(--color-blue); }
+    .t-asset { color: var(--color-green); }
+    .t-cond { color: var(--color-primary); }
+    .t-fn { color: var(--color-yellow); }
+    .t-muted { color: var(--color-disabled); }
+  </style>
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+
+      <div style="max-width:680px;margin-bottom:28px">
+        <h1 style="color:var(--color-primary);margin-bottom:8px">Symphony → JSON Converter</h1>
+        <p style="color:var(--color-secondary);font-size:1.0625rem;line-height:1.6">
+          Paste a Composer.trade symphony <strong>URL</strong>, <strong>ID</strong>, or raw
+          <strong>JSON</strong>. Get back clean, formatted JSON plus a readable IF/ELSE logic tree.
+        </p>
+      </div>
+
+      <div class="conv-panel">
+        <label class="conv-label" for="conv-in">Symphony input</label>
+        <p class="conv-hint">
+          Examples: <code>https://app.composer.trade/symphony/4aI4kVT5cEc0XJpTLei3/details</code>,
+          a bare ID like <code>4aI4kVT5cEc0XJpTLei3</code>, or the JSON from the
+          <code>/score</code> API endpoint.
+        </p>
+        <textarea id="conv-in" spellcheck="false" placeholder="Paste a symphony URL, ID, or JSON…"></textarea>
+        <div class="conv-opts">
+          <label><input type="checkbox" id="opt-strip" checked> Strip editor metadata (ids, collapsed flags, exchange)</label>
+        </div>
+        <div class="conv-actions">
+          <button id="btn-convert" class="btn btn-green">Convert</button>
+          <button id="btn-example" class="btn btn-outline">Load example</button>
+          <button id="btn-clear" class="btn btn-outline">Clear</button>
+        </div>
+        <div id="conv-msg" class="conv-msg"></div>
+      </div>
+
+      <div id="conv-out" style="display:none">
+        <div class="conv-panel">
+          <div class="conv-section-head"><h2>Summary</h2></div>
+          <div id="conv-summary" class="conv-summary"></div>
+          <div id="conv-chips" class="chips"></div>
+        </div>
+
+        <div class="conv-panel">
+          <div class="conv-section-head">
+            <h2>Formatted JSON</h2>
+            <div style="display:flex;gap:8px">
+              <button id="btn-copy" class="btn btn-green conv-copy">Copy JSON</button>
+              <button id="btn-download" class="btn btn-outline conv-copy">Download .json</button>
+            </div>
+          </div>
+          <pre id="conv-json" class="conv-json"></pre>
+        </div>
+
+        <div class="conv-panel">
+          <div class="conv-section-head"><h2>Logic Tree</h2></div>
+          <div id="conv-tree" class="tree"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="js/app.js"></script>
+  <script>
+    (function () {
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'Converter' },
+      ]);
+
+      var SCORE_URL = function (id) {
+        return 'https://api.composer.trade/api/v0.1/symphonies/' + id + '/score?score_version=v1';
+      };
+
+      var FRONT_URL = 'https://app.composer.trade/symphony/4aI4kVT5cEc0XJpTLei3/details';
+      var EXAMPLE = {
+  "description": "",
+  "children": [
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [
+                        {
+                          "name": "Direxion Shares ETF Trust - Direxion Daily Semiconductor Bull 3X Shares",
+                          "ticker": "SOXL",
+                          "id": "aa228ef0-a1f1-4d32-b950-4fe5462594ca",
+                          "exchange": "ARCX",
+                          "step": "asset"
+                        }
+                      ],
+                      "lhs-fn-params": {
+                        "window": 10
+                      },
+                      "is-else-condition?": false,
+                      "rhs-fixed-value?": true,
+                      "lhs-fn": "relative-strength-index",
+                      "lhs-val": "SMH",
+                      "id": "9950e440-29b7-4822-ab5c-a2327ad6c0d6",
+                      "comparator": "lt",
+                      "rhs-val": "23",
+                      "step": "if-child",
+                      "collapsed?": false
+                    },
+                    {
+                      "children": [
+                        {
+                          "children": [
+                            {
+                              "children": [
+                                {
+                                  "children": [
+                                    {
+                                      "name": "ProShares Trust - ProShares UltraPro QQQ 3x Shares",
+                                      "ticker": "TQQQ",
+                                      "id": "55a82d5d-690a-4e96-a0c8-2be400993f1e",
+                                      "exchange": "XNAS",
+                                      "step": "asset"
+                                    }
+                                  ],
+                                  "lhs-fn-params": {
+                                    "window": 10
+                                  },
+                                  "is-else-condition?": false,
+                                  "rhs-fixed-value?": true,
+                                  "lhs-fn": "relative-strength-index",
+                                  "lhs-val": "QQQ",
+                                  "id": "69196be8-65d5-4279-97a7-d0cf9a3c6694",
+                                  "comparator": "lt",
+                                  "rhs-val": "28",
+                                  "step": "if-child"
+                                },
+                                {
+                                  "children": [
+                                    {
+                                      "children": [
+                                        {
+                                          "children": [
+                                            {
+                                              "children": [
+                                                {
+                                                  "name": "ProShares Trust - ProShares UltraPro S&P 500 ETF 3x Shares",
+                                                  "ticker": "UPRO",
+                                                  "id": "be974864-d861-47fc-ad13-c8620692a313",
+                                                  "exchange": "ARCX",
+                                                  "step": "asset"
+                                                }
+                                              ],
+                                              "lhs-fn-params": {
+                                                "window": 10
+                                              },
+                                              "is-else-condition?": false,
+                                              "rhs-fixed-value?": true,
+                                              "lhs-fn": "relative-strength-index",
+                                              "lhs-val": "SPY",
+                                              "id": "fbb585cf-0241-414e-94ca-5fdc57517a0c",
+                                              "comparator": "lt",
+                                              "rhs-val": "28",
+                                              "step": "if-child"
+                                            },
+                                            {
+                                              "children": [
+                                                {
+                                                  "children": [
+                                                    {
+                                                      "children": [
+                                                        {
+                                                          "children": [
+                                                            {
+                                                              "name": "Barclays Bank PLC - iPathÂ® Series B S&P 500Â® VIX Short-Term FuturesTM ETN",
+                                                              "ticker": "VXX",
+                                                              "id": "73e6f798-347f-43b7-94bb-6d3f40189096",
+                                                              "exchange": "BATS",
+                                                              "step": "asset"
+                                                            }
+                                                          ],
+                                                          "is-else-condition?": false,
+                                                          "rhs-fixed-value?": true,
+                                                          "lhs-fn": "relative-strength-index",
+                                                          "lhs-window-days": "10",
+                                                          "lhs-val": "XLY",
+                                                          "id": "94f28c80-cded-40f0-8f31-98d82fcfa03c",
+                                                          "condition": {
+                                                            "condition-type": "compound",
+                                                            "conditions": [
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "SMH",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary",
+                                                                "comparator": "gt",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "QQQ",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary",
+                                                                "comparator": "gt",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "SPY",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary",
+                                                                "comparator": "gt",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "TQQQ",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary",
+                                                                "comparator": "gt",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "TECL",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary",
+                                                                "comparator": "gt",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "QQQE",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary",
+                                                                "comparator": "gt",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "VOOG",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary",
+                                                                "comparator": "gt",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "VOOV",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary",
+                                                                "comparator": "gt",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "%",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary-compound",
+                                                                "tickers": [
+                                                                  "VTV"
+                                                                ],
+                                                                "comparator": "gt",
+                                                                "operator": "any",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "%",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary-compound",
+                                                                "tickers": [
+                                                                  "FAS"
+                                                                ],
+                                                                "comparator": "gt",
+                                                                "operator": "any",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "%",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary-compound",
+                                                                "tickers": [
+                                                                  "XLP"
+                                                                ],
+                                                                "comparator": "gt",
+                                                                "operator": "any",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              },
+                                                              {
+                                                                "lhs": {
+                                                                  "fn": "relative-strength-index",
+                                                                  "ticker": "%",
+                                                                  "params": {
+                                                                    "window": 10
+                                                                  }
+                                                                },
+                                                                "condition-type": "binary-compound",
+                                                                "tickers": [
+                                                                  "XLY"
+                                                                ],
+                                                                "comparator": "gt",
+                                                                "operator": "any",
+                                                                "rhs": {
+                                                                  "constant": 79.0
+                                                                }
+                                                              }
+                                                            ],
+                                                            "operator": "any"
+                                                          },
+                                                          "suppress_incomplete_warnings": false,
+                                                          "comparator": "gt",
+                                                          "rhs-val": "79",
+                                                          "step": "if-child"
+                                                        },
+                                                        {
+                                                          "children": [
+                                                            {
+                                                              "children": [
+                                                                {
+                                                                  "children": [
+                                                                    {
+                                                                      "children": [
+                                                                        {
+                                                                          "children": [
+                                                                            {
+                                                                              "children": [
+                                                                                {
+                                                                                  "children": [
+                                                                                    {
+                                                                                      "name": "ProShares Trust - ProShares UltraPro Short S&P 500",
+                                                                                      "ticker": "SPXU",
+                                                                                      "id": "019c5027-ce04-44aa-b2b8-ea448fb54ce0",
+                                                                                      "exchange": "ARCX",
+                                                                                      "step": "asset"
+                                                                                    }
+                                                                                  ],
+                                                                                  "rhs-fn": "moving-average-return",
+                                                                                  "is-else-condition?": false,
+                                                                                  "rhs-fixed-value?": true,
+                                                                                  "lhs-fn": "relative-strength-index",
+                                                                                  "rhs-window-days": "1",
+                                                                                  "lhs-window-days": "21",
+                                                                                  "lhs-val": "SPY",
+                                                                                  "id": "d4e35cab-312d-47d1-ba97-d98d49bcf71a",
+                                                                                  "comparator": "gt",
+                                                                                  "rhs-val": "30",
+                                                                                  "step": "if-child"
+                                                                                },
+                                                                                {
+                                                                                  "children": [
+                                                                                    {
+                                                                                      "name": "ProShares Trust - ProShares UltraPro QQQ 3x Shares",
+                                                                                      "ticker": "TQQQ",
+                                                                                      "id": "6b6a23b8-4a1a-463f-9e6f-6ea3b8b4c644",
+                                                                                      "exchange": "XNAS",
+                                                                                      "step": "asset"
+                                                                                    }
+                                                                                  ],
+                                                                                  "is-else-condition?": true,
+                                                                                  "id": "3a9bf664-d731-4340-9848-bd6f0d7515e1",
+                                                                                  "step": "if-child"
+                                                                                }
+                                                                              ],
+                                                                              "id": "4c22ec5b-a105-4d99-b407-67b249b06866",
+                                                                              "step": "if"
+                                                                            }
+                                                                          ],
+                                                                          "id": "c55adefb-5d90-414a-b8fb-3386c0914e42",
+                                                                          "step": "wt-cash-equal"
+                                                                        }
+                                                                      ],
+                                                                      "is-else-condition?": false,
+                                                                      "rhs-fixed-value?": true,
+                                                                      "lhs-fn": "relative-strength-index",
+                                                                      "lhs-window-days": "21",
+                                                                      "lhs-val": "UVXY",
+                                                                      "id": "2adac76f-3e02-459f-a1e7-d9b71b902a23",
+                                                                      "comparator": "gt",
+                                                                      "rhs-val": "65",
+                                                                      "step": "if-child"
+                                                                    },
+                                                                    {
+                                                                      "children": [
+                                                                        {
+                                                                          "name": "SPDR Series Trust - State Street SPDR Bloomberg 1-3 Month T-Bill ETF",
+                                                                          "ticker": "BIL",
+                                                                          "id": "e101f5ef-3f41-4e4a-ae37-752f0351d84b",
+                                                                          "exchange": "ARCX",
+                                                                          "step": "asset"
+                                                                        }
+                                                                      ],
+                                                                      "is-else-condition?": true,
+                                                                      "id": "891df75c-1b29-4617-93ee-27a19e343cbb",
+                                                                      "step": "if-child"
+                                                                    }
+                                                                  ],
+                                                                  "id": "1517a164-93d6-478c-b6e4-c154e2434fbc",
+                                                                  "step": "if"
+                                                                }
+                                                              ],
+                                                              "id": "4c3045c8-7f9b-4f5a-80a3-e859b4cad0ca",
+                                                              "step": "wt-cash-equal"
+                                                            }
+                                                          ],
+                                                          "is-else-condition?": true,
+                                                          "id": "183b4b60-54cb-4bb7-8a5a-ddd8b34c05a9",
+                                                          "step": "if-child"
+                                                        }
+                                                      ],
+                                                      "weight": {
+                                                        "num": 100,
+                                                        "den": 100
+                                                      },
+                                                      "id": "86b5cf44-acf6-4378-970d-010d46778681",
+                                                      "step": "if"
+                                                    }
+                                                  ],
+                                                  "id": "138bf538-cd7e-412f-a3ea-93032b325dfc",
+                                                  "step": "wt-cash-equal"
+                                                }
+                                              ],
+                                              "is-else-condition?": true,
+                                              "id": "fedb86dc-74b0-4342-93ea-e006cce675a3",
+                                              "step": "if-child"
+                                            }
+                                          ],
+                                          "weight": {
+                                            "num": 100,
+                                            "den": 100
+                                          },
+                                          "id": "dac6786c-9d01-4915-a19f-de6dfbdba4e2",
+                                          "step": "if"
+                                        }
+                                      ],
+                                      "id": "ab4f9476-dc94-4df3-ac5f-b9b355b95a9b",
+                                      "step": "wt-cash-equal"
+                                    }
+                                  ],
+                                  "is-else-condition?": true,
+                                  "id": "2a7b8b85-1e85-4945-8baa-141ba69c4efc",
+                                  "step": "if-child"
+                                }
+                              ],
+                              "weight": {
+                                "num": 100,
+                                "den": 100
+                              },
+                              "id": "a898c614-ad8d-4604-bc27-caf5b6795a1c",
+                              "step": "if"
+                            }
+                          ],
+                          "id": "3149f2c1-2822-4d4b-8554-3abd7506fd8c",
+                          "step": "wt-cash-equal"
+                        }
+                      ],
+                      "is-else-condition?": true,
+                      "id": "602c138d-160f-4846-8df8-07d78d77ddb6",
+                      "step": "if-child"
+                    }
+                  ],
+                  "weight": {
+                    "num": 100,
+                    "den": 100
+                  },
+                  "id": "5430f3b6-9f7f-42d9-bf08-8a9cf5c13ea4",
+                  "step": "if"
+                }
+              ],
+              "id": "908cfddd-e188-4738-9aa1-93be09f3d081",
+              "step": "wt-cash-equal"
+            }
+          ],
+          "name": "zoop's 2026 Frontrunner",
+          "id": "e5fee79b-391e-45d7-b52d-d36c9c710718",
+          "step": "group"
+        }
+      ],
+      "id": "69687302-2b9e-41cd-86b0-46747d9704a1",
+      "step": "wt-cash-equal"
+    }
+  ],
+  "name": "zoop's 2026 Frontrunner",
+  "rebalance": "daily",
+  "id": "4aI4kVT5cEc0XJpTLei3",
+  "step": "root"
+};
+
+      // ---- label maps ----
+      var FN = {
+        'relative-strength-index': 'RSI',
+        'current-price': 'Price',
+        'moving-average-price': 'MA',
+        'exponential-moving-average-price': 'EMA',
+        'moving-average-return': 'MA Return',
+        'cumulative-return': 'Cumulative Return',
+        'standard-deviation-return': 'Std Dev',
+        'max-drawdown': 'Max Drawdown'
+      };
+      var CMP = { lt: '<', lte: '≤', gt: '>', gte: '≥', eq: '=' };
+
+      var msgEl = document.getElementById('conv-msg');
+      var outEl = document.getElementById('conv-out');
+      var rawJson = '';
+      var lastSym = null;
+
+      function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+      function setMsg(html, cls) {
+        msgEl.className = 'conv-msg ' + (cls || '');
+        msgEl.innerHTML = html || '';
+      }
+      function win(node, side) {
+        var p = node[side + '-fn-params'];
+        if (p && p.window != null) return p.window;
+        if (node[side + '-window-days'] != null) return node[side + '-window-days'];
+        return null;
+      }
+      function operand(node, side) {
+        var fn = node[side + '-fn'];
+        var val = node[side + '-val'];
+        var w = win(node, side);
+        if (!fn) return val != null ? String(val) : '?';
+        var label = FN[fn] || fn;
+        return label + '(' + (val != null ? val : '') + (w != null ? ', ' + w + 'd' : '') + ')';
+      }
+      function condText(node) {
+        var lhs = operand(node, 'lhs');
+        var cmp = CMP[node.comparator] || node.comparator || '?';
+        var rhs;
+        if (node['rhs-fixed-value?']) rhs = (node['rhs-val'] != null ? node['rhs-val'] : '?');
+        else rhs = operand(node, 'rhs');
+        return lhs + ' ' + cmp + ' ' + rhs;
+      }
+      // Nested `condition` object (compound "Any of / All of", binary, binary-compound).
+      function fnCall(fn, tick, w) {
+        if (!fn) return tick != null ? String(tick) : '?';
+        return (FN[fn] || fn) + '(' + (tick != null ? tick : '') + (w != null ? ', ' + w + 'd' : '') + ')';
+      }
+      function sideText(o) {
+        if (!o || typeof o !== 'object') return o != null ? String(o) : '?';
+        if (o.constant != null) return String(o.constant);
+        return fnCall(o.fn, o.ticker, o.params && o.params.window);
+      }
+      function binaryText(c) {
+        var tick = c.lhs && c.lhs.ticker;
+        if (c['condition-type'] === 'binary-compound' && Array.isArray(c.tickers) && c.tickers.length) {
+          tick = c.tickers.join(' / ');
+        }
+        var lhs = fnCall(c.lhs && c.lhs.fn, tick, c.lhs && c.lhs.params && c.lhs.params.window);
+        var cmp = CMP[c.comparator] || c.comparator || '?';
+        return lhs + ' ' + cmp + ' ' + sideText(c.rhs);
+      }
+      function condRep(b) {
+        var c = b.condition;
+        if (c && typeof c === 'object') {
+          var ct = c['condition-type'];
+          if (ct === 'compound' && Array.isArray(c.conditions)) {
+            return { mode: 'compound', op: (c.operator === 'all' ? 'All of' : 'Any of'),
+                     items: c.conditions.map(binaryText) };
+          }
+          if (ct === 'binary' || ct === 'binary-compound') {
+            return { mode: 'simple', text: binaryText(c) };
+          }
+        }
+        return { mode: 'simple', text: condText(b) }; // flat single-condition fallback
+      }
+      function pct(w) {
+        if (!w || w.den == null || w.num == null) return null;
+        var v = (w.num / w.den) * 100;
+        if (Math.abs(v - 100) < 0.001) return null;
+        return (Math.round(v * 10) / 10) + '%';
+      }
+
+      // ---- logic tree renderer ----
+      function renderTree(node) {
+        var out = [];
+        walk(node, 0, out);
+        return out.join('');
+      }
+      function line(depth, html) {
+        return '<div class="row">' + '  '.repeat(depth) + html + '</div>';
+      }
+      function kids(node) { return node.children || []; }
+
+      function walk(node, depth, out) {
+        if (!node || typeof node !== 'object') return;
+        var step = node.step;
+        var p = pct(node.weight);
+        var wtag = p ? ' <span class="t-muted">[' + p + ']</span>' : '';
+
+        if (step === 'root') {
+          kids(node).forEach(function (c) { walk(c, depth, out); });
+          return;
+        }
+        if (step === 'wt-cash-equal') {
+          out.push(line(depth, '<span class="t-wt">Weight equally:</span>'));
+          kids(node).forEach(function (c) { walk(c, depth + 1, out); });
+          return;
+        }
+        if (step === 'wt-cash-specified') {
+          out.push(line(depth, '<span class="t-wt">Weight (specified):</span>'));
+          kids(node).forEach(function (c) { walk(c, depth + 1, out); });
+          return;
+        }
+        if (step === 'group') {
+          out.push(line(depth, '<span class="t-wt">Group:</span> ' + esc(node.name || '') + wtag));
+          kids(node).forEach(function (c) { walk(c, depth + 1, out); });
+          return;
+        }
+        if (step === 'filter') {
+          var sfn = FN[node['sort-by-fn']] || node['sort-by-fn'] || '';
+          var sp = node['sort-by-fn-params'];
+          var sw = sp && sp.window != null ? ', ' + sp.window + 'd' : '';
+          out.push(line(depth, '<span class="t-fn">Select ' + esc(node['select-fn'] || '') + ' ' +
+            esc(node['select-n'] || '') + '</span> by ' + esc(sfn) + '(' + esc((sw || '').replace(/^, /, '')) + ') from:'));
+          kids(node).forEach(function (c) { walk(c, depth + 1, out); });
+          return;
+        }
+        if (step === 'if') {
+          kids(node).forEach(function (b, i) {
+            if (b['is-else-condition?']) {
+              out.push(line(depth, '<span class="t-kw">ELSE:</span>'));
+              kids(b).forEach(function (c) { walk(c, depth + 1, out); });
+              return;
+            }
+            var kw = i === 0 ? 'IF' : 'ELSE IF';
+            var rep = condRep(b);
+            if (rep.mode === 'compound') {
+              out.push(line(depth, '<span class="t-kw">' + kw + '</span> <span class="t-cond">' + esc(rep.op) + ':</span>'));
+              rep.items.forEach(function (it) {
+                out.push(line(depth + 1, '<span class="t-muted">·</span> <span class="t-cond">' + esc(it) + '</span>'));
+              });
+              out.push(line(depth, '<span class="t-muted">THEN:</span>'));
+            } else {
+              out.push(line(depth, '<span class="t-kw">' + kw + '</span> <span class="t-cond">' + esc(rep.text) + '</span>:'));
+            }
+            kids(b).forEach(function (c) { walk(c, depth + 1, out); });
+          });
+          return;
+        }
+        if (step === 'if-child') { // safety: render standalone
+          kids(node).forEach(function (c) { walk(c, depth, out); });
+          return;
+        }
+        if (step === 'asset') {
+          var nm = node.name ? ' <span class="t-muted">: ' + esc(node.name) + '</span>' : '';
+          out.push(line(depth, '<span class="t-asset">• ' + esc(node.ticker || '?') + '</span>' + nm + wtag));
+          return;
+        }
+        // unknown step
+        out.push(line(depth, '<span class="t-muted">[' + esc(step || 'node') + ']</span>' + wtag));
+        kids(node).forEach(function (c) { walk(c, depth + 1, out); });
+      }
+
+      // ---- cleaning ----
+      var STRIP = ['id', 'collapsed?', 'suppress_incomplete_warnings', 'exchange'];
+      function clean(v) {
+        if (Array.isArray(v)) return v.map(clean);
+        if (v && typeof v === 'object') {
+          var o = {};
+          Object.keys(v).forEach(function (k) {
+            if (STRIP.indexOf(k) !== -1) return;
+            o[k] = clean(v[k]);
+          });
+          return o;
+        }
+        return v;
+      }
+
+      // ---- JSON syntax highlight ----
+      function highlight(json) {
+        json = esc(json);
+        return json.replace(
+          /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+          function (m) {
+            var cls = 'j-num';
+            if (/^"/.test(m)) cls = /:\s*$/.test(m) ? 'j-key' : 'j-str';
+            else if (/true|false/.test(m)) cls = 'j-bool';
+            else if (/null/.test(m)) cls = 'j-null';
+            return '<span class="' + cls + '">' + m + '</span>';
+          }
+        );
+      }
+
+      // ---- collect summary ----
+      function collect(node, acc) {
+        if (!node || typeof node !== 'object') return;
+        if (node.step === 'asset' && node.ticker) acc.tickers[node.ticker] = 1;
+        if (node['lhs-fn']) acc.fns[FN[node['lhs-fn']] || node['lhs-fn']] = 1;
+        if (node['rhs-fn'] && !node['rhs-fixed-value?']) acc.fns[FN[node['rhs-fn']] || node['rhs-fn']] = 1;
+        if (node['sort-by-fn']) acc.fns[FN[node['sort-by-fn']] || node['sort-by-fn']] = 1;
+        (node.children || []).forEach(function (c) { collect(c, acc); });
+      }
+
+      function renderOutput(sym) {
+        lastSym = sym;
+        var toRender = document.getElementById('opt-strip').checked ? clean(sym) : sym;
+        rawJson = JSON.stringify(toRender, null, 2);
+        document.getElementById('conv-json').innerHTML = highlight(rawJson);
+        document.getElementById('conv-tree').innerHTML = renderTree(sym) || '<span class="t-muted">No renderable nodes.</span>';
+
+        var acc = { tickers: {}, fns: {} };
+        collect(sym, acc);
+        var tickers = Object.keys(acc.tickers);
+        var fns = Object.keys(acc.fns);
+        document.getElementById('conv-summary').innerHTML =
+          field('Name', sym.name || '-') +
+          field('Rebalance', sym.rebalance || '-') +
+          field('Unique tickers', String(tickers.length)) +
+          field('Indicators', fns.length ? String(fns.length) : '-');
+        document.getElementById('conv-chips').innerHTML =
+          tickers.map(function (t) { return '<span class="chip">' + esc(t) + '</span>'; }).join('') +
+          fns.map(function (f) { return '<span class="chip" style="color:var(--color-yellow)">' + esc(f) + '</span>'; }).join('');
+
+        outEl.style.display = 'block';
+      }
+      function field(k, v) {
+        return '<div><span class="k">' + esc(k) + '</span><span class="v">' + esc(v) + '</span></div>';
+      }
+
+      function looksLikeJson(s) { return /^[\[{]/.test(s.trim()); }
+
+      function extractId(s) {
+        var m = s.match(/symphony\/([A-Za-z0-9_-]+)/);
+        if (m) return m[1];
+        s = s.trim();
+        if (/^[A-Za-z0-9_-]{12,}$/.test(s)) return s;
+        return null;
+      }
+
+      function normalizeSymphony(parsed) {
+        if (parsed && parsed.step) return parsed;
+        // maybe a { slug: tree } map or an array, grab the first tree-like value
+        if (Array.isArray(parsed)) {
+          var a = parsed.find(function (x) { return x && x.step; });
+          if (a) return a;
+        } else if (parsed && typeof parsed === 'object') {
+          var vals = Object.keys(parsed).map(function (k) { return parsed[k]; });
+          var v = vals.find(function (x) { return x && x.step; });
+          if (v) return v;
+        }
+        return null;
+      }
+
+      function convert() {
+        var raw = document.getElementById('conv-in').value;
+        if (!raw.trim()) { setMsg('Paste a symphony URL, ID, or JSON first.', 'err'); return; }
+
+        if (looksLikeJson(raw)) {
+          var parsed;
+          try { parsed = JSON.parse(raw); }
+          catch (e) { setMsg('That is not valid JSON: ' + esc(e.message), 'err'); return; }
+          var sym = normalizeSymphony(parsed);
+          if (!sym) { setMsg('Could not find a symphony tree (no "step" field) in that JSON.', 'err'); return; }
+          setMsg('', '');
+          renderOutput(sym);
+          return;
+        }
+
+        var id = extractId(raw);
+        if (!id) { setMsg('Could not find a symphony ID in that input.', 'err'); return; }
+        fetchSymphony(id);
+      }
+
+      function fetchSymphony(id) {
+        var url = SCORE_URL(id);
+        setMsg('Fetching symphony <code>' + esc(id) + '</code> from Composer…', 'info');
+        fetch(url)
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function (data) {
+            var sym = normalizeSymphony(data) || data;
+            if (!sym || !sym.step) throw new Error('Unexpected response shape');
+            setMsg('', '');
+            renderOutput(sym);
+          })
+          .catch(function (err) {
+            setMsg(
+              'Could not fetch it directly from the browser (' + esc(err.message) +
+              '): this is usually a CORS restriction. Open the raw JSON in a new tab, copy it, and paste it above:<br>' +
+              '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(url) + '</a>',
+              'info'
+            );
+          });
+      }
+
+      document.getElementById('btn-convert').addEventListener('click', convert);
+      document.getElementById('opt-strip').addEventListener('change', function () {
+        if (lastSym) renderOutput(lastSym); // re-render from cached tree; no re-fetch
+      });
+      function loadFrontrunner() {
+        document.getElementById('conv-in').value = FRONT_URL;
+        renderOutput(EXAMPLE);
+        setMsg("Showing <strong>zoop's 2026 Frontrunner</strong> as the default example. Paste your own symphony URL, ID, or JSON above and click <strong>Convert</strong>.", 'info');
+      }
+      document.getElementById('btn-example').addEventListener('click', loadFrontrunner);
+      document.getElementById('btn-clear').addEventListener('click', function () {
+        document.getElementById('conv-in').value = '';
+        setMsg('', '');
+        outEl.style.display = 'none';
+      });
+      document.getElementById('btn-copy').addEventListener('click', function () {
+        var btn = this;
+        navigator.clipboard.writeText(rawJson).then(function () {
+          var t = btn.textContent; btn.textContent = 'Copied ✓';
+          setTimeout(function () { btn.textContent = t; }, 1400);
+        });
+      });
+      document.getElementById('btn-download').addEventListener('click', function () {
+        var blob = new Blob([rawJson], { type: 'application/json' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'symphony.json';
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(a.href);
+      });
+
+      // Default view: show zoop's 2026 Frontrunner on load.
+      loadFrontrunner();
+    })();
+  </script>
+</body>
+</html>

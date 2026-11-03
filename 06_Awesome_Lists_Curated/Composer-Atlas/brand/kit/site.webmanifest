@@ -1,0 +1,35 @@
+{
+  "name": "Composer Atlas",
+  "short_name": "Atlas",
+  "description": "Free breakdowns of hand-picked symphonies, a searchable database, daily signals and testing tools.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#16191f",
+  "theme_color": "#16191f",
+  "icons": [
+    {
+      "src": "/brand/logo/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/logo/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/logo/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/brand/logo/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

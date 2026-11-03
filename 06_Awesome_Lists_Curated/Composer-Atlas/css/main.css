@@ -1,0 +1,3300 @@
+/* =============================================
+   Composer Atlas: Main Stylesheet
+   Dark design system with CSS custom properties
+   ============================================= */
+
+/* Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* ---- Design Tokens ---- */
+:root {
+  /* SURFACES. Owner-approved 2026-09-09 after looking at three rendered
+     candidates side by side; this is the softest of the three.
+
+     THE TARGET WAS AN EXTERNAL REFERENCE, NOT A FEELING. The owner asked for
+     backgrounds in the range Visual Studio's dark theme uses. Measured
+     relative luminance of the real thing: VS Code Dark+ editor #1e1e1e is
+     0.0130, Dark Modern #1f1f1f is 0.0137, the sidebar #252526 is 0.0186.
+     The palette this replaces sat at 0.0040, which is roughly three and a
+     half times darker than the editor it was meant to resemble. This base is
+     0.0096, just under Dark+.
+
+     EVERY STEP IS SOLVED FOR A CONTRAST RATIO, NOT PICKED BY EYE. sRGB is not
+     linear, so adding a fixed amount to each channel is a different
+     perceptual step at every brightness level, and a ladder built that way
+     drifts. Targets: surface 1.33 above the base, raised 1.20 above surface,
+     border 1.66, border-hover 2.30. The surface step matters most, because a
+     separation below about 1.3 is not an edge a person can see, and panels
+     are most of the page. The previous attempt at this raised the borders
+     past that line but left the surfaces at 1.10, which is why it shipped a
+     measurable change nobody could actually see.
+
+     THE COOL CAST IS DELIBERATE. Visual Studio's greys are near-neutral;
+     these carry a few points of blue so the green reads as a brand colour
+     against a blue-black rather than as a highlighter on grey. */
+  --color-bg: #16191f;                 /* L 0.0096, just under VS Dark+     */
+  --color-surface: #2c3038;            /* sep 1.33 above bg                 */
+  --color-surface-raised: #373c46;     /* sep 1.20 above surface            */
+  --color-border: #4c515c;             /* sep 1.66 above surface            */
+  --color-border-hover: #616672;       /* sep 2.30 above surface            */
+
+  /* TEXT, in strictly decreasing luminance. Ratios shown are against
+     --color-surface-raised, the BRIGHTEST surface and therefore the hardest
+     case: quoting the easy pair against --color-bg is how a palette passes on
+     paper and fails on a card. Every value here also clears 4.5:1 on bg and
+     on surface.
+
+     THE TWO LOWER GREYS WERE RAISED AGAIN AT v1.83.1, and the reason is worth
+     keeping because it is not a bug report. NOTHING WAS FAILING: an audit of
+     every visible paragraph on all ten pages found body prose at 10.24:1 on
+     the page background and 7.69:1 on a card, comfortably past AA, and the
+     owner still reported it as hard to read. AA is a floor for whether text is
+     perceivable, not a target for whether a long paragraph is comfortable, and
+     a page of body copy is exactly where that gap shows. Secondary went 6.44
+     to 7.71 on the raised surface and tertiary 4.67 to 5.91. The ordering
+     against --color-primary (9.41) still holds, which is the constraint that
+     stops "brighter" from collapsing into "all one colour".
+
+     The old palette had this hierarchy BACKWARDS: --color-disabled (#c0c0c0)
+     was brighter than --color-secondary (#b0b0b0), so the text meant to
+     recede was the most prominent grey on the site. */
+  --color-primary: #e9edf2;            /* 9.41:1 on raised                  */
+  --color-secondary: #d2d8df;          /* 7.71:1 on raised                  */
+  /* MISNOMER, KEPT DELIBERATELY. This is the TERTIARY TEXT colour, not a
+     disabled state: it renders breadcrumb separators, captions, table labels,
+     `.risk-cat.is-absent` body copy and `.j-null`, all of which a reader is
+     meant to read. It is therefore set to clear AA rather than to something
+     dim enough to deserve the name. Renaming it touches 30 rules here and 61
+     places in markup, which belongs in its own mechanical commit rather than
+     inside a visual change. */
+  --color-disabled: #b8bec6;           /* 5.91:1 on raised                  */
+
+  /* HUES. The green is the brand and is untouched. Pink, blue and purple were
+     re-derived: at the old values they FAILED AA on the raised surface once
+     the base came up, which is the constraint that makes a dark theme
+     impossible to lighten one token at a time. Surfaces, greys and accents
+     are one system. */
+  --color-green: #00e676;              /* unchanged   6.63:1 on raised      */
+  --color-pink: #ff82ac;               /* was #ff5c93 4.77:1 on raised      */
+  --color-blue: #68afff;               /* was #5aa7ff 4.83:1 on raised      */
+  --color-yellow: #f5c518;             /* unchanged   6.79:1 on raised      */
+  --color-purple: #b39dff;             /* was #a78bfa 4.84:1 on raised      */
+
+  /* Semantic roles. The five hues above are a paint box; these say what a
+     colour MEANS, so a rule can express intent instead of picking a hue and
+     hoping the next person guesses the same way. Aliases, not new colours, so
+     nothing needs repainting to adopt them. */
+  --color-positive: var(--color-green);
+  /* Was pink. The standard lists pink under data and expressive colours and
+     reserves red for danger, so a loss now reads as a loss. */
+  --color-negative: var(--color-red);
+  --color-caution: var(--color-yellow);
+  /* Was blue. Teal is the standard's info hue, and freeing blue means it can
+     never read as both "informational" and "clickable". */
+  --color-info: var(--color-teal);
+
+  /* IDENTITY, added when the brand system was adopted. Section 2 of
+     docs/DESIGN.md says green is used EXCLUSIVELY for positive values and
+     primary actions, never decoratively, and a logo is neither of those
+     things. The resolution is that the mark uses green as IDENTITY, a
+     third role the original rule did not anticipate, rather than as a
+     value or as decoration. This alias exists so the two can never be
+     confused in a rule: --color-positive means a number went up,
+     --color-brand means this is us. They resolve to the same hue today
+     and are not required to forever.
+
+     THE CONSTRAINT THAT COMES WITH THE THIRD ROLE: brand green must
+     never be paired with an arrow, a rising line or anything else that
+     reads as a value, because that is precisely what collapses identity
+     back into data. See docs/DESIGN.md Section 11. */
+  --color-brand: var(--color-green);
+
+  /* NEW AT THE COLOUR AUDIT. Red and teal did not exist; negative values used
+     pink and info used blue. The Template Interface Color Standard reserves
+     red for danger and teal for info, and lists pink as a data colour rather
+     than a status one. Both are solved against --color-surface-raised, the
+     brightest dark surface and therefore the hardest pair, and both land at
+     4.77:1, the same figure pink already carried.
+
+     The standard's own dark grades (red-40 #fe4745, teal-40 #009c99) measure
+     3.27 and 3.28 here and were NOT usable: they are solved against the
+     standard's canvas #13171c, which is darker than this stylesheet's raised
+     surface. Taking published values on trust would have shipped two failing
+     hues. They were re-solved in HLS, holding hue and saturation. */
+  --color-red: #fe8786;                /* 4.77:1 on raised                  */
+  --color-teal: #00beba;               /* 4.77:1 on raised                  */
+
+  /* CONTROL BOUNDARY, and the one hard WCAG failure the audit found.
+     --color-border is 1.66 on surface and is DECORATIVE by design. A text
+     entry field has no fill distinct from its panel, so that border is the
+     only thing marking where the field is, which is WCAG 1.4.11 at 3:1.
+     This token exists so controls can clear 3:1 without brightening every
+     decorative divider on the site. 3.45 on raised, the hardest surface. */
+  --color-border-strong: #8a909c;
+
+  /* THE ACCENT ROLE, named rather than implied. Links, primary actions and
+     the focus ring. It resolves to brand green, which is the one deliberate
+     deviation from the standard: section 7 says a brand colour goes in the
+     accent role, and rule 6 says green means success and nothing else. Both
+     cannot hold when the brand IS green. Owner ruling 2026-10-07: green
+     serves accent and positive, and the collision is documented rather than
+     designed away. --color-positive still means a number went up and
+     --color-brand still means this is us; they are three names because they
+     are three jobs, not because they are three colours. */
+  --color-accent: var(--color-green);
+  /* Blue, not the accent green: a focus ring must not be mistaken for a
+     selected or positive state, and blue now carries no status meaning. */
+  --color-focus: var(--color-blue);
+
+  /* RSI TIER LADDER. These were the last raw hex values in the stylesheet and
+     the only ones that would have broken in light mode: #52c98a on a white
+     card is 2.1:1. Tokenised rather than simply recoloured, because the
+     ladder's ORDER carries the ranking and the order has to survive a theme
+     swap. Each tier keeps its measured ratio on the hardest surface of its
+     own mode, and the extreme tiers stay more intense than the mild ones in
+     both. Dark ratios are on --color-surface-raised. */
+  --rsi-oversold: #52c98a;             /* 5.31:1                            */
+  --rsi-overbought: #f78a83;           /* 4.70:1                            */
+  --rsi-extreme-overbought: #ffaaa4;   /* 6.08:1                            */
+
+  /* CHANNEL TRIPLES. Every rgba() tint in this file used to be a hardcoded
+     copy of a hue, e.g. rgba(245, 197, 24, 0.1) for a yellow wash. A literal
+     copy does not follow when the token moves: that exact bug was found
+     sixteen times during the palette rebuild, and it is also what would make
+     a light theme impossible, because the tints would stay dark-mode colours
+     on a white card. Tints now compose from these, so one override per theme
+     moves every wash with it. */
+  --rgb-green: 0, 230, 118;
+  --rgb-red: 254, 135, 134;
+  --rgb-yellow: 245, 197, 24;
+  --rgb-teal: 0, 190, 186;
+  --rgb-blue: 104, 175, 255;
+  --rgb-pink: 255, 130, 172;
+  --rgb-purple: 179, 157, 255;
+  --rgb-zoop: 255, 149, 0;
+  --rgb-slate: 148, 163, 184;
+  --rgb-shadow: 0, 0, 0;
+  --rgb-bg: 22, 25, 31;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  /* THE BRAND FACE, AND IT IS DELIBERATELY NOT LOADED. Archivo SemiBold
+     caps is the wordmark, drawn as outlines in brand/logo/ rather than
+     set as live text, so no page needs the font file to render the mark
+     correctly. Declaring the stack without adding it to the @import
+     above keeps the token honest: it falls back to Inter, which is
+     already loaded, and costs nothing. Adding Archivo to the font
+     request is a real cost on every page for one line of type, so it
+     waits until something on the site actually sets live brand copy. */
+  --font-brand: 'Archivo', 'Inter', sans-serif;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --nav-height: 56px;
+  --max-width: 1280px;
+  --page-px: 24px;
+}
+
+/* ---- Light theme -------------------------------------------------------
+   Rule 5: every role has a light and a dark value and both must pass.
+
+   DARK IS THE DEFAULT and stays the default. There is deliberately no
+   prefers-color-scheme query: the owner's instruction is that the site opens
+   dark and the visitor chooses otherwise. js/app.js writes data-theme on
+   <html> and remembers the choice.
+
+   The greys are the standard's: canvas white, surface gray-5, raised gray-10,
+   text gray-90, border gray-20, border-strong gray-50. The hues are its light
+   grades. Hardest pair in this mode is the DARKEST surface, the inverse of
+   dark mode, because dark text loses contrast as the panel darkens. Every
+   value below is measured on --color-surface-raised (#d8dee5).
+
+   BRAND GREEN IS NOT #00e676 HERE, and this is not a change to the brand.
+   #00e676 measures 1.67:1 on white: as link or button text in light mode it
+   is illegible. The light accent is the same hue at the grade the standard
+   specifies for light accents. The dark theme, which is what the site opens
+   in and what the brand assets are drawn against, is untouched. */
+:root[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-surface: #e8eef6;            /* gray-5,  sep 1.17 from canvas     */
+  --color-surface-raised: #d8dee5;     /* gray-10, sep 1.16 from surface    */
+  --color-border: #bac0c7;             /* gray-20, decorative               */
+  --color-border-strong: #71767d;      /* gray-50, 3.38 on raised           */
+
+  --color-primary: #20252a;            /* gray-90, 11.40 on raised          */
+  --color-secondary: #454b53;          /*          6.50 on raised           */
+  --color-disabled: #5c6168;           /* gray-60, 4.61 on raised           */
+
+  --color-green: #00712a;              /* green-60, 4.56 on raised          */
+  --color-red: #c5001a;                /* red-60,   4.57                    */
+  --color-yellow: #795d00;             /* yellow-60,4.59                    */
+  --color-teal: #006d6a;               /* teal-60,  4.56                    */
+  /* blue-60 #005cc9 measured 4.49 on the blue chip tint, which is the
+     hardest light pair and 0.01 short. Nudged down a grade step. */
+  --color-blue: #005bc7;               /* 4.57 worst case               */
+  --color-pink: #b4226d;               /* pink-60,  4.57                    */
+  --color-purple: #7e3bcb;             /* purple-60,4.59                    */
+
+  --rgb-green: 0, 113, 42;
+  --rgb-red: 197, 0, 26;
+  --rgb-yellow: 121, 93, 0;
+  --rgb-teal: 0, 109, 106;
+  --rgb-blue: 0, 91, 199;
+  --rgb-pink: 180, 34, 109;
+  --rgb-purple: 126, 59, 203;
+  /* zoop orange: #a65500 measured 4.13 on its own tag tint. Solved
+     against every light background the tag can land on. */
+  --rgb-zoop: 149, 76, 0;
+  --rgb-slate: 71, 85, 105;
+  --rgb-shadow: 15, 23, 42;
+  --rgb-bg: 255, 255, 255;
+
+  /* The light ladder inverts how intensity reads: in dark mode an extreme
+     tier is BRIGHTER than a mild one, in light mode it is DARKER. Grades 70
+     and 60 of the standard's green and red, measured on #d8dee5. */
+  --rsi-oversold: #00712a;             /* green-60, 4.56:1                  */
+  --rsi-overbought: #c5001a;           /* red-60,   4.57:1                  */
+  --rsi-extreme-overbought: #9f0013;   /* red-70,   6.24:1                  */
+  --rsi-extreme-oversold: #005a20;     /* green-70, 6.24:1                  */
+}
+
+/* ---- Focus ring --------------------------------------------------------
+   Rule 2 and WCAG 2.4.7. Before the audit the site defined no focus ring for
+   most elements and inherited the browser's `outline: auto`. Edge paints a
+   visible ring there, which is why the audit did not call it a failure, but
+   an appearance nobody specified is not the same as one that is correct, and
+   it differs across browsers. This one is measured: 4.83 on the hardest dark
+   surface, 4.59 on the hardest light one. */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Theme toggle ---- */
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1;
+  padding: 7px 9px;
+  margin-left: 4px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.theme-toggle:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface);
+}
+
+/* The glyph is decorative: .theme-toggle carries an aria-label and the
+   title attribute, so the emoji is never the only way to know what the
+   control does. Rule 3. */
+.theme-toggle span { pointer-events: none; }
+
+/* ---- Reset ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-primary);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  /* Narrow-screen hardening (~390px): stop any stray horizontal overflow from
+     letting the page scroll sideways and clipping the nav/hamburger, and let
+     long unbreakable tokens (tickers, IDs, URLs) wrap instead of forcing width.
+     `clip` (not `hidden`) avoids making <body> a scroll container, so it can't
+     break position:sticky/fixed; the fixed nav is unaffected. */
+  overflow-x: clip;
+  overflow-wrap: break-word;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* ---- Layout ---- */
+.container {
+  width: 100%;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 var(--page-px);
+}
+
+.page {
+  flex: 1;
+  min-width: 0;
+  padding-top: var(--nav-height);
+}
+
+/* ---- Typography ---- */
+h1 { font-size: 2rem; font-weight: 700; line-height: 1.2; }
+h2 { font-size: 1.375rem; font-weight: 700; line-height: 1.3; }
+h3 { font-size: 1.125rem; font-weight: 600; line-height: 1.4; }
+h4 { font-size: 0.9375rem; font-weight: 600; }
+
+p { color: var(--color-secondary); }
+
+.text-primary { color: var(--color-primary); }
+.text-secondary { color: var(--color-secondary); }
+.text-disabled { color: var(--color-disabled); }
+.text-green { color: var(--color-green); }
+.text-pink { color: var(--color-pink); }
+/* Rule 6. A gain and a loss are STATUS, so they name the role rather than a
+   hue. .text-green and .text-pink stay for the handful of genuinely
+   decorative uses, but no value should reach for them: repointing a hue
+   token then has to chase every call site, which is how pink survived as
+   the loss colour long after the palette gained a red. */
+.text-positive { color: var(--color-positive); }
+.text-negative { color: var(--color-negative); }
+.text-blue { color: var(--color-blue); }
+.text-yellow { color: var(--color-yellow); }
+.text-purple { color: var(--color-purple); }
+.font-mono { font-family: var(--font-mono); }
+
+.label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-disabled);
+}
+
+/* ---- Navigation ---- */
+.nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: var(--nav-height);
+  background: rgba(var(--rgb-bg), 0.95);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 var(--page-px);
+  gap: 16px;
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--color-primary);
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.nav-logo:hover { color: var(--color-green); }
+
+.nav-logo-mark {
+  font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.nav-logo-text {
+  display: none;
+}
+
+@media (min-width: 480px) {
+  .nav-logo-text { display: inline; }
+}
+
+.nav-links {
+  display: none;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (min-width: 768px) {
+  .nav-links { display: flex; }
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  color: var(--color-secondary);
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-link:hover {
+  color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.nav-link.active {
+  color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+/* Tools dropdown */
+.nav-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.nav-dropdown-toggle {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  gap: 4px;
+}
+
+.nav-caret {
+  font-size: 0.7em;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+
+.nav-dropdown:hover .nav-caret,
+.nav-dropdown:focus-within .nav-caret,
+.nav-dropdown.open .nav-caret {
+  transform: rotate(180deg);
+}
+
+.nav-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 8px;
+  min-width: 180px;
+  display: none;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 28px rgba(var(--rgb-shadow), 0.35);
+  z-index: 10;
+}
+
+/* Transparent bridge so hover survives the gap between toggle and menu. */
+.nav-dropdown-menu::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 0;
+  right: 0;
+  height: 8px;
+}
+
+.nav-dropdown:hover .nav-dropdown-menu,
+.nav-dropdown:focus-within .nav-dropdown-menu,
+.nav-dropdown.open .nav-dropdown-menu {
+  display: flex;
+}
+
+.nav-dropdown-link {
+  display: block;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  color: var(--color-secondary);
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-dropdown-link:hover,
+.nav-dropdown-link.active {
+  color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-hamburger {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  padding: 8px;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.nav-hamburger:hover { background: var(--color-surface); }
+
+.nav-hamburger span {
+  display: block;
+  height: 1.5px;
+  width: 100%;
+  background: var(--color-primary);
+  border-radius: 2px;
+  transition: transform 0.2s, opacity 0.2s;
+}
+
+.nav-hamburger[aria-expanded="true"] span:nth-child(1) {
+  transform: translateY(6.5px) rotate(45deg);
+}
+.nav-hamburger[aria-expanded="true"] span:nth-child(2) {
+  opacity: 0;
+}
+.nav-hamburger[aria-expanded="true"] span:nth-child(3) {
+  transform: translateY(-6.5px) rotate(-45deg);
+}
+
+@media (min-width: 768px) {
+  .nav-hamburger { display: none; }
+}
+
+/* Mobile nav drawer */
+.nav-mobile {
+  display: none;
+  flex-direction: column;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg);
+  gap: 2px;
+}
+
+.nav-mobile.open { display: flex; }
+
+.mobile-nav-link {
+  display: block;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  color: var(--color-secondary);
+  transition: color 0.15s, background 0.15s;
+}
+
+.mobile-nav-link:hover,
+.mobile-nav-link.active {
+  color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.mobile-nav-group {
+  display: block;
+  padding: 12px 12px 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-disabled);
+}
+
+.mobile-nav-sublink {
+  padding-left: 24px;
+}
+
+.mobile-nav-cta {
+  margin-top: 8px;
+  justify-content: center;
+}
+
+/* ---- Buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Must come after .btn: same specificity, this override needs to win in the
+   cascade to actually hide the CTA below 768px (a pre-existing bug fixed
+   here - .nav-cta used to sit before .btn in the file, so .btn's
+   display:inline-flex always won regardless of viewport width). */
+.nav-cta {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .nav-cta { display: inline-flex; }
+}
+
+.btn-green {
+  background: var(--color-green);
+  color: var(--color-bg);
+  border: 1px solid transparent;
+}
+
+.btn-green:hover { opacity: 0.9; }
+
+.btn-outline {
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+}
+
+.btn-outline:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface);
+}
+
+.btn-outline-green {
+  background: transparent;
+  color: var(--color-green);
+  border: 1px solid var(--color-green);
+  font-size: 0.8125rem;
+  padding: 5px 12px;
+}
+
+.btn-outline-green:hover {
+  background: var(--color-green);
+  color: var(--color-bg);
+}
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 0.8125rem;
+}
+
+.btn-lg {
+  padding: 11px 22px;
+  font-size: 0.9375rem;
+}
+
+/* ---- Cards ---- */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  transition: border-color 0.15s;
+  display: flex;
+  flex-direction: column;
+}
+
+.card:hover { border-color: var(--color-border-hover); }
+
+.card-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  line-height: 1.4;
+  margin-bottom: 8px;
+  transition: color 0.15s;
+}
+
+.card:hover .card-title { color: var(--color-green); }
+
+.card-title a { color: inherit; text-decoration: none; }
+
+.card-desc {
+  font-size: 0.875rem;
+  color: var(--color-secondary);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+/* Strategy card metrics row */
+.card-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.card-metric-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-disabled);
+  margin-bottom: 2px;
+}
+
+.card-metric-value {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Tags row */
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+  min-height: 22px;
+}
+
+.card-footer {
+  margin-top: auto;
+}
+
+/* ---- Explore/step cards (homepage) ---- */
+.explore-icon {
+  font-size: 1.5rem;
+  margin-bottom: 12px;
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-green);
+  color: var(--color-bg);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.8125rem;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+/* ---- Tags (GlossaryTag pills) ---- */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid;
+  transition: opacity 0.15s;
+  cursor: pointer;
+}
+
+.tag:hover { opacity: 0.8; }
+
+.tag-rsi, .tag-200d-ma { background: rgba(var(--rgb-blue), 0.08); color: var(--color-blue); border-color: rgba(var(--rgb-blue), 0.25); }
+.tag-momentum { background: rgba(var(--rgb-purple), 0.08); color: var(--color-purple); border-color: rgba(var(--rgb-purple), 0.25); }
+.tag-vix-tiers { background: rgba(var(--rgb-yellow), 0.08); color: var(--color-yellow); border-color: rgba(var(--rgb-yellow), 0.25); }
+.tag-leveraged-etfs { background: rgba(var(--rgb-pink), 0.08); color: var(--color-pink); border-color: rgba(var(--rgb-pink), 0.25); }
+.tag-sharpe-ratio, .tag-calmar-ratio, .tag-max-drawdown { background: rgba(var(--rgb-green), 0.08); color: var(--color-green); border-color: rgba(var(--rgb-green), 0.25); }
+.tag-zoop { background: rgba(var(--rgb-zoop), 0.08); color: rgb(var(--rgb-zoop)); border-color: rgba(var(--rgb-zoop), 0.25); }
+.tag-original { background: rgba(var(--rgb-slate), 0.1); color: var(--color-secondary); border-color: rgba(var(--rgb-slate), 0.3); }
+.tag-default { background: var(--color-surface-raised); color: var(--color-secondary); border-color: var(--color-border-hover); }
+
+/* ---- Tag filter bar (strategies listing) ---- */
+.tagfilter {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  margin-bottom: 32px;
+}
+
+.tagfilter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.tagfilter-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-disabled);
+}
+
+.tagfilter-clear {
+  font-size: 0.75rem;
+  color: var(--color-secondary);
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tagfilter-clear:hover {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-border-hover);
+}
+
+.tagfilter-clear[hidden] { display: none; }
+
+.tagfilter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.tagfilter-group + .tagfilter-group {
+  border-top: 1px solid var(--color-border);
+}
+
+.tagfilter-label {
+  flex: 0 0 88px;
+  font-size: 0.75rem;
+  color: var(--color-disabled);
+}
+
+.tagfilter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Inactive filter chips read as quieter than the colored tags on cards, so the
+   selected ones clearly stand out; active restores the tag's own color. */
+.tagfilter-tag {
+  opacity: 0.62;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.tagfilter-tag:hover { opacity: 0.85; }
+
+.tagfilter-tag.active {
+  opacity: 1;
+  box-shadow: 0 0 0 1px currentColor inset;
+}
+
+.tagfilter-count {
+  margin-left: 5px;
+  opacity: 0.7;
+  font-size: 0.6875rem;
+}
+
+@media (max-width: 640px) {
+  .tagfilter-label { flex-basis: 100%; }
+}
+
+/* Category badge (ConceptCard) */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid;
+}
+
+.badge-indicator { background: rgba(var(--rgb-blue), 0.1); color: var(--color-blue); border-color: rgba(var(--rgb-blue), 0.2); }
+.badge-risk-metric { background: rgba(var(--rgb-red), 0.1); color: var(--color-negative); border-color: rgba(var(--rgb-red), 0.2); }
+.badge-asset-class { background: rgba(var(--rgb-yellow), 0.1); color: var(--color-yellow); border-color: rgba(var(--rgb-yellow), 0.2); }
+.badge-strategy-concept { background: rgba(var(--rgb-purple), 0.1); color: var(--color-purple); border-color: rgba(var(--rgb-purple), 0.2); }
+/* Guide categories. The hue carries the meaning the site already assigns it:
+   blue is informational, yellow is caution, pink is risk. Green is NOT used
+   here; Section 2 reserves it for positive values, primary actions and
+   identity, and a category label is none of those. */
+.badge-testing { background: rgba(var(--rgb-blue), 0.1); color: var(--color-blue); border-color: rgba(var(--rgb-blue), 0.2); }
+.badge-execution { background: rgba(var(--rgb-yellow), 0.1); color: var(--color-yellow); border-color: rgba(var(--rgb-yellow), 0.2); }
+.badge-instrument-risk { background: rgba(var(--rgb-red), 0.1); color: var(--color-negative); border-color: rgba(var(--rgb-red), 0.2); }
+
+/* ---- Metrics Table ---- */
+.metrics-section {
+  margin-bottom: 20px;
+}
+
+.metrics-section-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-disabled);
+  margin-bottom: 8px;
+}
+
+.metrics-table {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.metrics-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.metrics-row:last-child { border-bottom: none; }
+
+.metrics-row dt {
+  font-size: 0.875rem;
+  color: var(--color-secondary);
+}
+
+.metrics-row dd {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* ---- Provenance chips (V1.20 item 8) ---- */
+.prov-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.prov-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font-size: 0.75rem;
+  color: var(--color-secondary);
+}
+
+.prov-chip strong { color: var(--color-primary); font-weight: 600; }
+
+.prov-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-green);
+  flex-shrink: 0;
+}
+
+.prov-chip.stale .prov-dot { background: var(--color-yellow); }
+
+/* ---- Hero metric strip (V1.20 item 2) ---- */
+.hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+@media (min-width: 720px) {
+  .hero-metrics { grid-template-columns: repeat(4, 1fr); }
+}
+
+.hero-metric {
+  background: var(--color-surface);
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.hero-metric-label {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-disabled);
+  margin-bottom: 6px;
+}
+
+.hero-metric-value {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 1.1875rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.hero-metric-sub {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--color-disabled);
+  margin-top: 5px;
+  line-height: 1.4;
+}
+
+/* ---- Secondary metric grid (V1.20 item 3) ---- */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 640px) {
+  .metric-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (min-width: 1180px) {
+  .metric-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+.metric-tile {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 13px 15px;
+  min-width: 0;
+}
+
+.metric-tile-label {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-disabled);
+  margin-bottom: 6px;
+}
+
+.metric-tile-value {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.metric-tile-sub {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--color-secondary);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.metric-grid-note {
+  font-size: 0.75rem;
+  color: var(--color-disabled);
+  line-height: 1.6;
+  margin-top: 12px;
+}
+
+/* ---- Glossary links on metric labels (V1.20 item 12) ---- */
+/* Inherits its colour so a linked label looks like the unlinked ones beside it.
+   The dotted rule is the only affordance, which is the point: these sit inside
+   metric tables where a row of green links would read as navigation. */
+.metric-term {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+
+.metric-term:hover,
+.metric-term:focus-visible {
+  color: var(--color-green);
+  border-bottom-color: var(--color-green);
+}
+
+/* ---- Grid layouts ---- */
+.grid-3 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 640px) {
+  .grid-3 { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (min-width: 1024px) {
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* `1fr` means `minmax(auto, 1fr)`, and that `auto` minimum is the item's
+   min-content width, so ONE stubborn child widens the track and every sibling
+   with it. That is V1.20 item 18: at 390px the detail page measured a 453px
+   scrollWidth against a 375px clientWidth. `.detail-main` already carried
+   `min-width: 0` and the bug survived, because on mobile `.grid-2` is a single
+   column and BOTH children share that track: the culprit was `.detail-sidebar`,
+   which had no such floor. Fixing the track rather than the item makes the
+   container immune to whichever child misbehaves next. */
+.grid-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+}
+
+@media (min-width: 1024px) {
+  .grid-2 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+}
+
+.grid-4 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 640px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (min-width: 1024px) {
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ---- Detail page layout ---- */
+.detail-main { min-width: 0; }
+
+.detail-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+@media (min-width: 1024px) {
+  .detail-sidebar-sticky {
+    position: sticky;
+    top: calc(var(--nav-height) + 20px);
+  }
+}
+
+/* ---- Compact strategy list (sidebar) ---- */
+.strategy-list-compact {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.strategy-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  transition: background 0.15s;
+  color: var(--color-secondary);
+  font-size: 0.875rem;
+}
+
+.strategy-list-item:last-child { border-bottom: none; }
+.strategy-list-item:hover { background: var(--color-surface-raised); color: var(--color-primary); }
+
+.strategy-list-item .arr {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+/* ---- Hero section ---- */
+.hero {
+  padding: 64px 0 48px;
+}
+
+.hero-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-green);
+  margin-bottom: 12px;
+}
+
+.hero-title {
+  font-size: clamp(1.75rem, 4vw, 3rem);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-primary);
+  margin-bottom: 16px;
+  max-width: 600px;
+}
+
+.hero-desc {
+  font-size: 1.0625rem;
+  color: var(--color-secondary);
+  line-height: 1.7;
+  max-width: 540px;
+  margin-bottom: 32px;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* ---- Homepage sections ----
+   Padding is keyed to POSITION, not to which section it is, so the two can be
+   reordered without the bottom spacing following the wrong one. The old markup
+   had this inline and hardcoded, which is why swapping them needed a class. */
+.home-section {
+  padding: 56px 0 16px;
+}
+
+.home-section-last {
+  padding-bottom: 64px;
+}
+
+/* Cleared by the fixed nav, so an in-page anchor does not land the heading
+   underneath it. */
+.home-section[id] {
+  scroll-margin-top: calc(var(--nav-height) + 16px);
+}
+
+.home-section-title {
+  color: var(--color-primary);
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+}
+
+.home-section-sub {
+  color: var(--color-secondary);
+  font-size: 1rem;
+  max-width: 620px;
+  margin-bottom: 32px;
+}
+
+/* ---- Section headings ---- */
+.section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.section-header h2 { color: var(--color-primary); }
+
+.section-count {
+  font-size: 0.875rem;
+  color: var(--color-secondary);
+}
+
+/* ---- Wiki-style index (v1.83.0) ----
+   A directory, not a gallery. See DESIGN.md "Wiki Index" for the reasoning;
+   the short version is that a reference page is measured by how fast a reader
+   reaches the entry behind it, and a grid of identical cards is slow at that.
+
+   Deliberately NOT a fixed rail: the owner kept the top nav, so the "see the
+   whole structure at once" job is done by .wiki-jump, an in-page anchor strip
+   that scrolls with the page and needs no second column. */
+.wiki-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 0 22px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.wiki-jump-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-disabled);
+  align-self: center;
+  margin-right: 4px;
+}
+
+.wiki-jump a {
+  font-size: 0.8125rem;
+  color: var(--color-secondary);
+  text-decoration: none;
+  padding: 4px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.wiki-jump a:hover,
+.wiki-jump a:focus-visible {
+  color: var(--color-primary);
+  border-color: var(--color-border-hover);
+}
+
+.wiki-jump a .wiki-jump-count {
+  color: var(--color-disabled);
+  margin-left: 5px;
+}
+
+.wiki-group {
+  margin-bottom: 40px;
+}
+
+/* The nav is position: fixed, so an anchor jump would otherwise land the
+   group heading underneath it. Derived from --nav-height rather than typed,
+   so it follows the nav if the nav changes. */
+.wiki-group[id] {
+  scroll-margin-top: calc(var(--nav-height) + 16px);
+}
+
+.wiki-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.wiki-group-head h2 {
+  color: var(--color-primary);
+  font-size: 1.125rem;
+  margin: 0;
+}
+
+.wiki-group-count {
+  font-size: 0.75rem;
+  color: var(--color-disabled);
+  white-space: nowrap;
+}
+
+/* One row per entry. The name and its description share a line on desktop and
+   stack on narrow screens, so the same markup serves both without a media
+   query on the row itself. */
+.wiki-entry {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px 16px;
+  padding: 10px 8px;
+  margin: 0 -8px;
+  border-radius: var(--radius-sm, 6px);
+  border-bottom: 1px solid var(--color-border);
+  transition: background 0.12s;
+}
+
+.wiki-entry:last-child {
+  border-bottom: none;
+}
+
+.wiki-entry:hover {
+  background: var(--color-surface);
+}
+
+.wiki-entry-name {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.wiki-entry-name a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.wiki-entry-name a:hover,
+.wiki-entry-name a:focus-visible {
+  color: var(--color-green);
+}
+
+.wiki-entry-desc {
+  color: var(--color-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.wiki-entry-meta {
+  font-size: 0.75rem;
+  color: var(--color-disabled);
+  white-space: nowrap;
+}
+
+@media (min-width: 720px) {
+  .wiki-entry {
+    grid-template-columns: minmax(140px, 200px) 1fr auto;
+    align-items: baseline;
+  }
+}
+
+/* ---- Breadcrumb ---- */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  color: var(--color-secondary);
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.breadcrumb-sep { color: var(--color-disabled); }
+
+.breadcrumb a {
+  color: var(--color-secondary);
+  transition: color 0.15s;
+}
+
+.breadcrumb a:hover { color: var(--color-primary); }
+
+.breadcrumb .current {
+  color: var(--color-primary);
+}
+
+/* ---- Signals list ---- */
+/* ---- Signal Types table (V1.20 item 11) ----
+   A table with detail rows, not a five-column table. The median signal
+   description is 259 characters and 75 of the 91 run over 200, so a real prose
+   column would recreate the phone overflow fixed in v1.69.0. Instead the four
+   scannable fields share one row and the description gets a full-width row
+   under it.
+
+   `table-layout: fixed` matters here rather than being a preference: without
+   it a long signal name sets the column's min-content width and drags the
+   table past its container, which is the same mechanism as the .grid-2 bug.
+   Below 640px the whole thing becomes a stack, so it never needs to scroll
+   sideways at all. */
+.signal-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.signal-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-secondary);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.signal-table th:nth-child(1) { width: 44%; }
+.signal-table th:nth-child(2) { width: 13%; }
+.signal-table th:nth-child(3) { width: 25%; }
+.signal-table th:nth-child(4) { width: 18%; }
+
+.signal-table td {
+  padding: 10px 10px 4px;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.signal-row .signal-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.signal-detail td {
+  padding: 0 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-secondary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.signal-type {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Threshold and Trend are the two large families (45 and 23 of 91) and read as
+   the neutral default. Selection and Composition are the ones a reader is
+   scanning for, so they carry the accent. */
+.type-threshold   { background: var(--color-surface-raised); color: var(--color-secondary); }
+.type-trend       { background: var(--color-surface-raised); color: var(--color-secondary); }
+.type-selection   { background: rgba(var(--rgb-blue), 0.14);  color: var(--color-blue); }
+.type-composition { background: rgba(var(--rgb-purple), 0.14); color: var(--color-purple); }
+
+code.signal-ind {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  padding: 2px 6px;
+  margin: 0 3px 3px 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-secondary);
+}
+
+/* An absent value states itself. Same reasoning as the item 10 risk categories:
+   a blank cell reads as missing data, and "none" is a fact about the signal. */
+.signal-none {
+  color: var(--color-disabled);
+  font-style: italic;
+  font-size: 0.75rem;
+}
+
+/* Below 640px the table stops being a table. Four columns of chips beside a
+   44% name column cannot be read on a phone, and forcing them would need a
+   horizontal scroll. Each signal becomes a labelled stack instead. */
+@media (max-width: 640px) {
+  .signal-table,
+  .signal-table tbody,
+  .signal-table tr,
+  .signal-table td { display: block; width: auto; }
+
+  .signal-table thead { display: none; }
+
+  .signal-row {
+    padding-top: 14px;
+  }
+
+  .signal-row .signal-name {
+    font-size: 0.875rem;
+    padding: 0 0 6px;
+  }
+
+  .signal-table td { padding: 2px 0; }
+
+  /* The header row is gone, so each value has to name itself. */
+  .signal-row td:not(.signal-name)::before {
+    content: attr(data-label) ": ";
+    color: var(--color-disabled);
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 4px;
+  }
+
+  .signal-detail td { padding: 8px 0 14px; }
+}
+
+/* Pre-item-11 card form. Nothing renders it today, kept only because the
+   hidden strategies would fall back to it if the table were reverted. */
+.signal-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 8px;
+}
+
+.signal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.signal-name {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.signal-desc {
+  font-size: 0.875rem;
+  color: var(--color-secondary);
+  line-height: 1.6;
+}
+
+/* ---- Risk profile box ---- */
+/* ---- Categorised risk profile (strategy detail pages, V1.20 item 10) ----
+   .risk-box below is the pre-item-10 single-string form and is still live: the
+   rewrite ships one strategy at a time behind an owner sign-off, so both shapes
+   render side by side by design.
+
+   Categories are laid out as a plain stack, not cards or a grid. A grid would
+   put absent categories in visual parity with present ones, and roughly half of
+   these are absent on any given strategy: "no hedge leg" is worth stating but
+   is not worth the same weight as a paragraph describing one. .is-absent dims
+   the row instead, so a reader scanning for a real risk skips it. ---- */
+.risk-verdict {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  margin-bottom: 12px;
+}
+.risk-cats { display: flex; flex-direction: column; gap: 2px; }
+.risk-cat {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+}
+.risk-cat-label {
+  display: block;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-disabled);
+  margin-bottom: 4px;
+}
+.risk-cat-body {
+  font-size: 0.875rem;
+  color: var(--color-secondary);
+  line-height: 1.7;
+  margin: 0;
+}
+/* Dimmed, never hidden. Omitting the row would leave a reader unable to tell
+   "this strategy has no hedge" from "nobody wrote about hedging", which are
+   different claims. */
+.risk-cat.is-absent .risk-cat-body { color: var(--color-disabled); font-style: italic; }
+
+.risk-suit {
+  font-size: 0.8125rem;
+  color: var(--color-secondary);
+  line-height: 1.7;
+  margin-top: 12px;
+}
+
+.risk-box {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  font-size: 0.875rem;
+  color: var(--color-secondary);
+  line-height: 1.7;
+}
+
+/* ---- TL;DR card (V1.20 item 13) ---- */
+.tldr {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+}
+
+/* The "In short" panel at the top of a guide. Same container treatment as
+   .tldr, which is the site's existing summary-before-the-prose pattern, but a
+   separate class because the two sit on different pages and should be able to
+   move apart without one silently restyling the other.
+
+   The left border is deliberately --color-border and not an accent. This block
+   is a summary of the page below it, not a warning and not a value, and the one
+   thing it must not do is read as more important than the guide it introduces. */
+/* Optional per-guide notice, shown above the takeaways. Yellow because
+   Section 2 assigns yellow to caution, which is exactly what this is. Pink
+   would read as a negative value and green is reserved. */
+.guide-disclaimer {
+  background: rgba(var(--rgb-yellow), 0.06);
+  border: 1px solid rgba(var(--rgb-yellow), 0.2);
+  border-left: 3px solid var(--color-yellow);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  color: var(--color-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+
+.guide-disclaimer strong { color: var(--color-yellow); }
+
+.guide-takeaways {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border-hover);
+  border-radius: var(--radius-lg);
+  padding: 18px 22px;
+}
+
+.guide-takeaways ul {
+  margin: 0;
+  /* The global reset at the top of this file sets list-style: none on every ul,
+     so this has to ask for markers back explicitly. Without it the takeaways
+     render as indented paragraphs and stop reading as a list, which was only
+     visible in a screenshot. */
+  list-style: disc;
+  padding-left: 20px;
+  color: var(--color-secondary);
+  line-height: 1.7;
+}
+
+.guide-takeaways li {
+  margin-bottom: 8px;
+}
+
+.guide-takeaways li:last-child {
+  margin-bottom: 0;
+}
+
+.tldr-thesis {
+  border-left: 3px solid var(--color-green);
+  padding-left: 14px;
+  margin-bottom: 18px;
+}
+
+.tldr-thesis-label {
+  display: block;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-green);
+  margin-bottom: 6px;
+}
+
+.tldr-thesis p {
+  font-size: 0.9375rem;
+  color: var(--color-primary);
+  line-height: 1.7;
+}
+
+/* The two columns are the component. A single-column version would let an author
+   describe a strategy without naming what breaks it, which is the one thing this
+   format exists to prevent. */
+.tldr-cols {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+@media (min-width: 720px) {
+  .tldr-cols { grid-template-columns: 1fr 1fr; gap: 28px; }
+}
+
+.tldr-col-label {
+  display: block;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+
+.tldr-col.good .tldr-col-label { color: var(--color-green); }
+.tldr-col.bad .tldr-col-label { color: var(--color-negative); }
+
+.tldr-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tldr-list li {
+  font-size: 0.8125rem;
+  color: var(--color-secondary);
+  line-height: 1.65;
+  padding-left: 16px;
+  position: relative;
+}
+
+.tldr-list li::before {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.tldr-col.good .tldr-list li::before { content: '+'; color: var(--color-green); }
+.tldr-col.bad .tldr-list li::before { content: '-'; color: var(--color-negative); }
+
+/* ---- Underlying assumptions (V1.20 item 14) ---- */
+.assump-cols {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+@media (min-width: 860px) {
+  .assump-cols { grid-template-columns: 1fr 1fr; gap: 24px; }
+}
+
+.assump-col {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+}
+
+.assump-col-label {
+  display: block;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-disabled);
+  margin-bottom: 12px;
+}
+
+.assump-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.assump-list li {
+  font-size: 0.8125rem;
+  color: var(--color-secondary);
+  line-height: 1.65;
+  padding-left: 18px;
+  position: relative;
+}
+
+.assump-list li::before {
+  content: '\2022';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--color-disabled);
+}
+
+.assump-list li strong { color: var(--color-primary); }
+
+/* ---- Market regime table (V1.20 item 15) ---- */
+/* Its own overflow-x wrapper, per the rule the v1.12.0 mobile audit set: a wide
+   table scrolls inside its container and never widens the page. */
+.regime-wrap { overflow-x: auto; }
+
+.regime-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.regime-table th,
+.regime-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+  line-height: 1.6;
+}
+
+.regime-table th {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-disabled);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.regime-table td.regime-name { color: var(--color-primary); font-weight: 600; }
+.regime-table td.regime-why { color: var(--color-secondary); }
+.regime-table td.regime-eg { color: var(--color-secondary); font-family: var(--font-mono); font-size: 0.75rem; }
+
+/* Three buckets, read off the first word of the authored verdict. Green, yellow
+   and pink rather than a numeric score, because the roadmap's instruction for the
+   whole tier is that these stay judgements and do not become ratings. */
+.regime-table td.regime-exp { white-space: nowrap; font-weight: 600; }
+.regime-exp.good { color: var(--color-green); }
+.regime-exp.mixed { color: var(--color-yellow); }
+.regime-exp.bad { color: var(--color-negative); }
+
+.regime-note {
+  font-size: 0.75rem;
+  color: var(--color-disabled);
+  line-height: 1.7;
+  margin-top: 14px;
+}
+
+.regime-note strong { color: var(--color-secondary); }
+.regime-note code { font-size: 0.6875rem; }
+
+/* ---- Holdings tax notice (V1.20 item 7) ---- */
+/* Two states on one component, and the colour is the only difference that matters.
+   Yellow matches the "Yes" verdict on /k1, so a visitor who has seen that page reads
+   this without being taught. Blue matches .k1-etn there for the same reason. This is
+   not .risk-box: risk_profile is authored prose about how a strategy behaves, this is
+   a mechanical fact about a position held today, and the two should not look alike. */
+/* ---- Assets section (strategy detail pages, V1.20 item 6, rebuilt v1.43.0) ----
+   The section renders the reachable universe as chips and no longer renders
+   today's position, so the allocation row this block used to style is gone:
+   .asset-row, .asset-bar, .asset-pct, .asset-since, .asset-flags, .asset-badge,
+   .asset-ticker and .asset-idle were removed in v1.43.0 after a grep confirmed
+   no remaining consumer in any .html or .js.
+
+   What is left is the count line. The chips themselves reuse .hold-ticker
+   below, which is the same component the K-1 and ETN notices use, so a reader
+   meets one kind of ticker list on this page rather than two. ---- */
+.asset-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.asset-head-n { font-family: var(--font-mono); font-size: 1.25rem; font-weight: 600; color: var(--color-primary); }
+.asset-head-l { font-size: 0.8125rem; color: var(--color-secondary); }
+
+.hold-notice {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--color-secondary);
+  margin-bottom: 10px;
+}
+
+.hold-notice:last-child { margin-bottom: 0; }
+
+.hold-notice.k1 {
+  border-color: rgba(var(--rgb-yellow), 0.4);
+  background: rgba(var(--rgb-yellow), 0.05);
+}
+
+.hold-notice.etn {
+  border-color: rgba(var(--rgb-blue), 0.4);
+  background: rgba(var(--rgb-blue), 0.05);
+}
+
+.hold-notice-title {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--color-primary);
+}
+
+.hold-notice.k1 .hold-notice-title { color: var(--color-yellow); }
+.hold-notice.etn .hold-notice-title { color: var(--color-blue); }
+
+.hold-tickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.hold-ticker {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-hover);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.hold-ticker:hover,
+.hold-ticker:focus { border-color: var(--color-disabled); text-decoration: underline; }
+
+/* ---- Beyond the backtest: outlier dependence and out-of-sample (V1.20 items 4 and 5) ---- */
+.rc-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 720px) {
+  .rc-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.rc-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+
+.rc-label {
+  display: block;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-disabled);
+  margin-bottom: 8px;
+}
+
+/* Deliberately large. The number is the argument, and the paragraph under it is
+   the footnote, not the other way round. */
+.rc-value {
+  font-family: var(--font-mono);
+  font-size: 1.75rem;
+  line-height: 1.1;
+  font-weight: 600;
+  color: var(--color-primary);
+  display: block;
+}
+
+
+.rc-sub {
+  display: block;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--color-disabled);
+  margin-top: 6px;
+}
+
+.rc-body {
+  font-size: 0.8125rem;
+  color: var(--color-secondary);
+  line-height: 1.7;
+  margin-top: 12px;
+}
+
+.rc-body strong { color: var(--color-primary); }
+
+/* Provenance line inside a card (v1.42.1 pilot): the two raw figures the
+   headline ratio was derived from. Deliberately quieter than .rc-body, because
+   a reader who accepts the comparison never needs to read it, and one who does
+   not needs it to be there. */
+.rc-fine {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--color-disabled);
+  line-height: 1.6;
+  margin-top: 12px;
+}
+
+/* Unlisted page banner (v1.44.0). Directly under the title, above the
+   description, because a reader who is going to act on this page needs it before
+   they read anything else on it.
+
+   Bordered and tinted rather than a plain paragraph: it is a statement about the
+   page itself, not part of the page's content, and the two must not be mistaken
+   for each other. Uses the disabled/muted greys rather than a warning colour,
+   because nothing here is wrong: the strategy is real, the metrics are current,
+   and the page is simply not being written to any more. */
+.unlisted-notice {
+  border: 1px solid var(--color-border-hover);
+  border-left: 3px solid var(--color-disabled);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  color: var(--color-secondary);
+}
+
+.unlisted-notice strong { color: var(--color-primary); }
+
+/* ---- AI Summary box ---- */
+.ai-summary {
+  background: linear-gradient(180deg, rgba(var(--rgb-purple), 0.06), rgba(var(--rgb-purple), 0.02));
+  border: 1px solid rgba(var(--rgb-purple), 0.25);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+}
+
+.ai-summary-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ai-summary-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--rgb-purple), 0.12);
+  color: var(--color-purple);
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.ai-summary-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0;
+}
+
+.ai-summary-p {
+  font-size: 0.9375rem;
+  color: var(--color-secondary);
+  line-height: 1.75;
+  margin-bottom: 12px;
+}
+
+.ai-summary-p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---- Prose (glossary content) ---- */
+.prose h2 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 28px 0 12px;
+}
+
+.prose h2:first-child { margin-top: 0; }
+
+.prose p {
+  font-size: 0.9375rem;
+  color: var(--color-secondary);
+  line-height: 1.7;
+  margin-bottom: 14px;
+}
+
+.prose p:last-child { margin-bottom: 0; }
+
+.prose strong { color: var(--color-primary); font-weight: 600; }
+
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  color: var(--color-green);
+  background: rgba(var(--rgb-green), 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.prose pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  overflow-x: auto;
+  margin: 16px 0;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--color-primary);
+  line-height: 1.6;
+}
+
+.prose pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 0.875rem;
+}
+
+.prose th {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.prose td {
+  padding: 8px 12px;
+  color: var(--color-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.prose ul {
+  list-style: disc;
+  padding-left: 20px;
+  margin-bottom: 14px;
+}
+
+.prose li {
+  color: var(--color-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  margin-bottom: 6px;
+}
+
+/* ---- Formula box ---- */
+.formula-box {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.formula-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-disabled);
+  margin-bottom: 6px;
+}
+
+.formula-value {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--color-green);
+}
+
+/* ---- Footer ---- */
+footer {
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg);
+  padding: 2rem;
+  text-align: center;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 1rem;
+}
+
+.footer-links a {
+  font-size: 0.8rem;
+  color: var(--color-secondary);
+  transition: color 0.15s;
+}
+
+.footer-links a:hover { color: var(--color-primary); }
+
+.footer-legal {
+  font-size: 0.75rem;
+  color: var(--color-secondary);
+  line-height: 1.6;
+  max-width: 560px;
+  margin: 0 auto 0.5rem;
+}
+
+.footer-copy {
+  font-size: 0.75rem;
+  color: var(--color-secondary);
+}
+
+/* Rule 3, never colour alone. This is the site's only link inside running
+   text. It measured 1.60 against the prose around it, where WCAG G183 wants
+   3.0 before colour may identify a link on its own, so colour was the only
+   thing marking it. The underline is the non-colour cue, which is the fix
+   G183 actually asks for. It also moves to the accent role. */
+.footer-copy a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.footer-copy a:hover { color: var(--color-primary); }
+
+/* ---- Loading state ---- */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-green);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- Error state ---- */
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  text-align: center;
+  gap: 12px;
+}
+
+.error-state h2 { color: var(--color-primary); }
+.error-state p { color: var(--color-secondary); }
+
+/* ---- 404 / empty state ---- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  text-align: center;
+  gap: 16px;
+  padding: 48px 24px;
+}
+
+.empty-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-green);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.empty-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.empty-desc { max-width: 380px; }
+
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+/* ---- Section padding ---- */
+.py-12 { padding-top: 48px; padding-bottom: 48px; }
+.mt-8 { margin-top: 32px; }
+.mb-4 { margin-bottom: 16px; }
+.mb-6 { margin-bottom: 24px; }
+.mb-8 { margin-bottom: 32px; }
+.mb-10 { margin-bottom: 40px; }
+
+/* ---- About page prose ---- */
+.about-content {
+  max-width: 720px;
+}
+
+.about-content h2 {
+  color: var(--color-primary);
+  margin-top: 40px;
+  margin-bottom: 12px;
+  font-size: 1.25rem;
+}
+
+.about-content p {
+  font-size: 0.9375rem;
+  color: var(--color-secondary);
+  line-height: 1.75;
+  margin-bottom: 16px;
+}
+
+.about-content ul {
+  list-style: disc;
+  padding-left: 20px;
+  margin-bottom: 16px;
+}
+
+.about-content li {
+  font-size: 0.9375rem;
+  color: var(--color-secondary);
+  line-height: 1.7;
+  margin-bottom: 6px;
+}
+
+.about-content strong { color: var(--color-primary); }
+
+.about-content a {
+  color: var(--color-green);
+  transition: opacity 0.15s;
+}
+
+.about-content a:hover { opacity: 0.8; }
+
+/* ---- Database tabs (database.html) ---- */
+.db-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 24px;
+  overflow-x: auto;
+}
+
+.db-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.db-tab:hover { color: var(--color-primary); }
+
+.db-tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-green);
+}
+
+.db-tab-panel[hidden] { display: none; }
+
+/* ---- Database toolbar (database.html) ---- */
+.db-toolbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+
+.db-toolbar h2 {
+  display: inline;
+  color: var(--color-primary);
+  font-size: 1.125rem;
+  margin-right: 10px;
+}
+
+.db-count-pill {
+  display: inline-flex;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  color: var(--color-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* Leaderboard scoring-model toggle (V1.18). A segmented pair rather than two
+   loose buttons, so it reads as one control with one of two states rather than
+   as two things that could both be off. */
+.model-toggle {
+  display: inline-flex;
+  margin-left: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.model-toggle-btn {
+  padding: 5px 12px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--color-secondary);
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.model-toggle-btn + .model-toggle-btn {
+  border-left: 1px solid var(--color-border);
+}
+
+.model-toggle-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+.model-toggle-btn.is-active {
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+}
+
+.db-search-input {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+  font-family: var(--font-sans);
+  width: 200px;
+  max-width: 100%;
+}
+
+.db-search-input:focus {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 1px;
+}
+
+/* ---- Last-updated badge (database.html, rsi.html) ---- */
+.updated-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  color: var(--color-green);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.updated-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-green);
+  flex-shrink: 0;
+}
+
+/* ---- Database table (database.html) ---- */
+.db-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.db-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.db-table th {
+  text-align: left;
+  padding: 10px 16px;
+  background: var(--color-surface-raised);
+  color: var(--color-disabled);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.db-table th.sortable {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.db-table th.sortable:hover { color: var(--color-primary); }
+
+.db-sort-arrow {
+  display: inline-block;
+  font-size: 0.625rem;
+  opacity: 0.4;
+  margin-left: 2px;
+}
+
+.db-sort-arrow.active {
+  opacity: 1;
+  color: var(--color-green);
+}
+
+.db-table td {
+  padding: 10px 16px;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.db-table tbody tr {
+  transition: background 0.15s;
+}
+
+.db-table tbody tr:hover {
+  background: var(--color-surface-raised);
+}
+
+.db-table td:first-child,
+.db-table th:first-child {
+  font-family: var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.db-table td:first-child a {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.db-table th:first-child { background: var(--color-surface-raised); z-index: 2; }
+.db-table td:first-child { background: var(--color-surface); box-shadow: 1px 0 0 var(--color-border); }
+.db-table tbody tr:hover td:first-child { background: var(--color-surface-raised); }
+
+.db-table td:first-child a {
+  color: var(--color-primary);
+  transition: color 0.15s;
+}
+
+.db-table td:first-child a:hover { color: var(--color-green); }
+
+.db-table tbody tr:last-child td { border-bottom: none; }
+
+.db-warning {
+  color: var(--color-yellow);
+  cursor: help;
+}
+
+.db-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.db-pagination .btn {
+  min-width: 32px;
+  text-align: center;
+}
+
+/* ---- Filter Panel (database.html, shared by All Strategies + Screener) ---- */
+.filter-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.filter-empty {
+  text-align: center;
+  padding: 12px 0 20px;
+}
+
+.filter-empty-title {
+  color: var(--color-primary);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  margin-bottom: 4px;
+}
+
+.filter-empty-hint {
+  font-size: 0.8125rem;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-row-label {
+  color: var(--color-secondary);
+  font-size: 0.8125rem;
+  flex-shrink: 0;
+}
+
+.filter-row select,
+.filter-row input {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 0.8125rem;
+  font-family: var(--font-sans);
+}
+
+.filter-row select:focus,
+.filter-row input:focus {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 1px;
+}
+
+.filter-value {
+  flex: 1;
+  min-width: 120px;
+}
+
+.filter-remove {
+  background: none;
+  border: none;
+  color: var(--color-pink);
+  cursor: pointer;
+  font-size: 0.9375rem;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.filter-remove:hover {
+  opacity: 0.7;
+}
+
+.filter-panel-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-panel-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---- Screener bucketed filter grid (database.html, V1.12 redesign) ----
+   Always-visible, Finviz-style: one label+select per field, unlike the
+   All Strategies Filter Panel above which stays hidden until opened. */
+.screener-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.screener-filter-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.screener-filter-cell label {
+  color: var(--color-secondary);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.screener-filter-cell select,
+.screener-filter-cell input {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 0.8125rem;
+  font-family: var(--font-sans);
+  width: 100%;
+}
+
+.screener-filter-cell select:focus,
+.screener-filter-cell input:focus {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 1px;
+}
+
+/* ---- Screener CSV export buttons (database.html, V1.12) ----
+   Sits at the right of .db-toolbar opposite the heading and count pill. Wraps
+   rather than overflows, because the toolbar is the narrowest thing on the
+   page at phone width and two buttons plus a count do not fit on one line. ---- */
+.db-export {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ---- Tier badges (Leaderboard, database.html, V1.13) ---- */
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid;
+}
+
+.tier-sp { color: var(--color-green); background: rgba(var(--rgb-green), 0.14); border-color: rgba(var(--rgb-green), 0.35); }
+.tier-s  { color: var(--color-green); background: rgba(var(--rgb-green), 0.08); border-color: rgba(var(--rgb-green), 0.25); }
+.tier-a  { color: var(--color-blue); background: rgba(var(--rgb-blue), 0.08); border-color: rgba(var(--rgb-blue), 0.25); }
+.tier-b  { color: var(--color-yellow); background: rgba(var(--rgb-yellow), 0.08); border-color: rgba(var(--rgb-yellow), 0.25); }
+.tier-c  { color: var(--color-secondary); background: var(--color-surface-raised); border-color: var(--color-border); }
+.tier-f  { color: var(--color-negative); background: rgba(var(--rgb-red), 0.08); border-color: rgba(var(--rgb-red), 0.25); }
+
+/* ---- RSI signal tiers (rsi.html, V2.2) ---- */
+/* Direction is "buy = green": oversold (low RSI, where Frontrunner dip-buy
+   branches may fire) reads green; overbought reads red. Oversold uses the
+   site's --color-green token; overbought uses reds chosen to clear the bar.
+   Every ratio below is measured against --color-surface-raised (#373c46),
+   NOT the table's resting background. That is deliberate: `.db-table tbody
+   tr:hover` swaps the row to the raised surface, so a hovered row is the
+   hardest case and the only one worth quoting. Measuring against the resting
+   background is how two of these tiers passed review and still failed in
+   practice. Every one clears WCAG AA there; the two extremes add bold weight as
+   a second cue so the ladder does not depend on colour vision alone.
+   All four coloured tiers were RE-DERIVED at v1.82.0, twice. The original
+   pair (#e04545 and #ff0000) had NEVER cleared AA: 4.48 and 4.41 on the old
+   #141414 surface, so the comment claiming all five passed was wrong from the
+   start rather than broken by this change. The surface then moved again when
+   the base was lifted to Visual Studio range, which is why these are the
+   values that survived and not the first replacements.
+   ORDER MATTERS AS MUCH AS THE THRESHOLD. Each colour carries a rank, so the
+   mild tier must stay dimmer than the extreme above it; clearing 4.5:1 by
+   brightening a mid tier past its own extreme would satisfy the checker and
+   destroy the ladder.
+   Selectors are scoped to ".db-table td.rsi-x" (not a bare class) because
+   ".db-table td" alone (0,1,1) outranks a single class selector (0,1,0) -
+   without the td these colors silently never apply against that rule. */
+.db-table td.rsi-extreme-oversold   { color: var(--rsi-extreme-oversold, var(--color-green)); font-weight: 700; }  /*  7.93:1 */
+.db-table td.rsi-oversold           { color: var(--rsi-oversold); }                               /*  5.31:1 */
+.db-table td.rsi-neutral            { color: var(--color-secondary); }                /*  7.69:1 */
+.db-table td.rsi-overbought         { color: var(--rsi-overbought); }                               /*  4.70:1 */
+.db-table td.rsi-extreme-overbought { color: var(--rsi-extreme-overbought); font-weight: 700; }             /*  6.08:1 */
+
+/* ---- JSON syntax highlighter (converter.html, etf-cloner.html) ----
+   Promoted out of both pages' inline stylesheets at v1.31.2. It was the one
+   rule set the site had in two places, byte-identical and never drifted, and
+   the standing note said to promote it if a third page ever needed it. The
+   owner called it in earlier: two byte-identical copies is already the
+   condition that note was guarding against, and the cost of being wrong about
+   a third page is a handful of unused bytes. Applied by the `highlight()`
+   helper on both pages, which wraps JSON tokens in these classes. ---- */
+.j-key { color: var(--color-blue); }
+.j-str { color: var(--color-green); }
+.j-num { color: var(--color-yellow); }
+.j-bool { color: var(--color-pink); }
+.j-null { color: var(--color-disabled); }
+
+/* ---- Modal (score breakdown + methodology, database.html, V1.13) ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(var(--rgb-shadow), 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.modal-overlay[hidden] { display: none; }
+
+.modal-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  max-width: 880px;
+  width: 100%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.modal-header h2 {
+  font-size: 1.0625rem;
+  color: var(--color-primary);
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--color-secondary);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.modal-close:hover { color: var(--color-primary); }
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  color: var(--color-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.modal-body h3 {
+  color: var(--color-primary);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  margin: 20px 0 8px;
+}
+
+.modal-body h3:first-child { margin-top: 0; }
+
+.modal-body p { margin-bottom: 12px; }
+
+.score-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.875rem;
+}
+
+.score-row:last-child { border-bottom: none; }
+
+.score-row-label { color: var(--color-secondary); }
+
+.score-row-value {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.score-row.category-total {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.score-row.category-total .score-row-label { color: var(--color-primary); }
+
+.score-row.no-data .score-row-value { color: var(--color-disabled); }
+
+/* Score cell button: looks identical to every other .db-table value cell
+   (same color, font, size), just clickable; only a hover state hints that
+   it opens the breakdown, no distinct "link" treatment. */
+.score-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.score-link:hover { text-decoration: underline; }
+
+.db-col-narrow {
+  width: 52px;
+  max-width: 52px;
+  white-space: nowrap;
+  padding-left: 8px;
+  padding-right: 8px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* .db-table td:first-child (220px, sticky, sans-serif) is meant for the
+   Symphony name column, which is first on All Strategies/Screener. On
+   Leaderboard, Rank is first instead, and that rule's higher specificity
+   (.db-table td:first-child) was winning over .db-col-narrow alone. This
+   overrides it specifically when both classes land on the same cell. */
+.db-table td.db-col-narrow:first-child,
+.db-table th.db-col-narrow:first-child {
+  width: 52px;
+  max-width: 52px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  position: static;
+  text-align: center;
+}
+
+/* ---- Control boundaries (rule 2, WCAG 1.4.11) --------------------------
+   The one unambiguous failure the colour audit found. A text entry field has
+   no fill distinct from the panel behind it, so its border is the only thing
+   marking where the field is, and --color-border is 1.66 on surface. These
+   controls take --color-border-strong instead, which clears 3:1 on every
+   surface in both themes. Buttons are left on the decorative border: they
+   carry visible text labels, so the boundary is not the only thing
+   identifying them. */
+input,
+select,
+textarea,
+.db-search-input,
+.filter-row select,
+.filter-row input,
+.screener-filter-cell select,
+.screener-filter-cell input {
+  border-color: var(--color-border-strong);
+}
+
+/* =============================================
+   Referral (v1.31)
+   Tokens only, no raw colour literals: the palette is two themes now and a
+   literal here would stay a dark-mode colour on a white card.
+   ============================================= */
+
+/* The first-visit banner. [hidden] is respected explicitly because the
+   element ships hidden in the markup and app.js reveals it; without this,
+   display:flex below would beat the UA's [hidden] rule and it would flash. */
+.ref-banner[hidden] { display: none; }
+
+.ref-banner {
+  background: rgba(var(--rgb-green), 0.08);
+  border-bottom: 1px solid rgba(var(--rgb-green), 0.35);
+}
+
+.ref-banner-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.ref-banner-text {
+  color: var(--color-secondary);
+  font-size: 0.875rem;
+  flex: 1 1 260px;
+}
+
+.ref-banner-text strong { color: var(--color-primary); }
+
+.ref-banner-link {
+  color: var(--color-accent);
+  font-size: 0.875rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ref-banner-close {
+  background: none;
+  border: none;
+  color: var(--color-secondary);
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.ref-banner-close:hover { color: var(--color-primary); }
+
+/* The code itself, inline in prose and in the banner. */
+.ref-code-inline {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  background: rgba(var(--rgb-green), 0.12);
+  border: 1px solid rgba(var(--rgb-green), 0.4);
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+  font-size: 0.9375rem;
+  white-space: nowrap;
+}
+
+/* The big copy block on the referral page. */
+.ref-code-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 20px 0 8px;
+  padding: 18px 20px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.ref-code-block code {
+  font-family: var(--font-mono);
+  font-size: 1.375rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  letter-spacing: 0.04em;
+  flex: 1 1 auto;
+  word-break: break-all;
+}
+
+/* Wikipedia-style contents box: a boxed, numbered list of the page's own
+   headings. The global reset strips list markers from every ul, so the
+   numbering here is an ol and the indent is set back by hand. */
+.ref-toc {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin: 0 0 32px;
+  display: inline-block;
+  min-width: min(100%, 340px);
+}
+
+.ref-toc h2 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 10px;
+}
+
+.ref-toc ol {
+  margin: 0;
+  padding-left: 22px;
+  list-style: decimal;
+  color: var(--color-secondary);
+}
+
+.ref-toc li { margin: 4px 0; }
+
+.ref-toc a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Numbered walkthrough steps. Same reason as above: the reset killed the
+   markers and these steps are meaningless out of order. */
+.ref-steps {
+  counter-reset: ref-step;
+  margin: 16px 0 24px;
+  padding: 0;
+}
+
+.ref-steps li {
+  counter-increment: ref-step;
+  position: relative;
+  padding: 0 0 0 40px;
+  margin: 0 0 16px;
+  color: var(--color-secondary);
+}
+
+.ref-steps li::before {
+  content: counter(ref-step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(var(--rgb-green), 0.15);
+  border: 1px solid rgba(var(--rgb-green), 0.45);
+  color: var(--color-accent);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Disclosure box. Caution-toned on purpose: it is a notice, not a warning. */
+.ref-disclosure {
+  background: rgba(var(--rgb-yellow), 0.08);
+  border: 1px solid rgba(var(--rgb-yellow), 0.35);
+  border-left: 3px solid var(--color-caution);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin: 28px 0;
+  color: var(--color-secondary);
+  font-size: 0.9375rem;
+}
+
+.ref-disclosure strong { color: var(--color-primary); }
+
+/* ---- Referral CTA (v1.31.1) ---- */
+
+/* The offer block, directly under the disclosure. Marketing weight lives here
+   and in .ref-cta-strip; the body of the page stays reference material. */
+.ref-cta {
+  background: rgba(var(--rgb-green), 0.07);
+  border: 1px solid rgba(var(--rgb-green), 0.3);
+  border-radius: var(--radius-lg);
+  padding: 28px 28px 24px;
+  margin-bottom: 36px;
+}
+
+.ref-cta-head {
+  color: var(--color-primary);
+  font-size: clamp(1.375rem, 3vw, 1.875rem);
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0 0 8px;
+}
+
+.ref-amount { color: var(--color-accent); }
+
+.ref-cta-sub {
+  color: var(--color-secondary);
+  font-size: 1rem;
+  max-width: 62ch;
+  margin: 0;
+}
+
+.ref-cta-sub strong { color: var(--color-primary); }
+
+.ref-cta-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+}
+
+.ref-cta-note {
+  color: var(--color-secondary);
+  font-size: 0.875rem;
+}
+
+/* Second CTA, for the reader who scrolled past the first. */
+.ref-cta-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: rgba(var(--rgb-green), 0.1);
+  border: 1px solid rgba(var(--rgb-green), 0.35);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin: 20px 0 28px;
+  color: var(--color-secondary);
+}
+
+.ref-cta-strip strong { color: var(--color-primary); }
+.ref-cta-strip span { flex: 1 1 240px; }
+
+/* Banner terms line: present, legible, not competing with the offer. */
+.ref-banner-terms {
+  color: var(--color-disabled);
+  font-size: 0.8125rem;
+}

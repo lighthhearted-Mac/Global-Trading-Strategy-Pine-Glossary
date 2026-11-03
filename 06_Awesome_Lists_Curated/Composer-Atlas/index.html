@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/">
+  <link rel="canonical" href="https://composeratlas.com/">
+  <meta property="og:title" content="Judge a Composer Strategy Before You Run It">
+  <meta property="og:description" content="Judge a Composer.trade strategy before you run it: free breakdowns of hand-picked symphonies, a searchable database, daily signals and testing tools.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Judge a Composer.trade strategy before you run it: free breakdowns of hand-picked symphonies, a searchable database, daily signals and testing tools.">
+  <title>Composer Atlas: Systematic Strategy Library</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <!-- Hero -->
+    <section class="hero">
+      <div class="container">
+        <p class="hero-eyebrow">Composer Atlas</p>
+        <h1 class="hero-title">Understand any Composer strategy before you invest in it.</h1>
+        <p class="hero-desc">Free breakdowns of hand-picked Composer.trade symphonies, a searchable database of thousands more, and tools to test any strategy before you run it.</p>
+        <div class="hero-actions">
+          <a id="hero-strategies-link" href="#" class="btn btn-green btn-lg">Browse Strategies</a>
+          <!-- A real in-page anchor, not a scripted scroll: it works before
+               app.js runs, it can be middle-clicked and copied, and the
+               keyboard lands on the section rather than nowhere. -->
+          <a href="#explore" class="btn btn-outline btn-lg">Explore</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works. Directly below the hero by owner instruction:
+         a visitor who has just read the pitch wants the shape of the
+         thing before a menu of ten tools. -->
+    <section class="home-section">
+      <div class="container">
+        <p class="hero-eyebrow">Overview</p>
+        <h2 class="home-section-title">How to use this site</h2>
+        <p class="home-section-sub">Four steps to go from browsing to building.</p>
+        <div class="grid-4">
+          <div class="card">
+            <div class="step-num">1</div>
+            <h3 class="card-title">Browse a strategy</h3>
+            <p class="card-desc">Start with a hand-picked strategy, or search thousands more in the full Database.</p>
+          </div>
+          <div class="card">
+            <div class="step-num">2</div>
+            <h3 class="card-title">Read the breakdown</h3>
+            <p class="card-desc">Every strategy links out to the Glossary concepts that explain its signals and risk profile.</p>
+          </div>
+          <div class="card">
+            <div class="step-num">3</div>
+            <h3 class="card-title">Check live signals</h3>
+            <p class="card-desc">See today's RSI Signals to know if a Frontrunner dip-buy trigger is active right now.</p>
+          </div>
+          <div class="card">
+            <div class="step-num">4</div>
+            <h3 class="card-title">Mine your own signals</h3>
+            <p class="card-desc">Use Signal Miner to brute-force and backtest thousands of your own IF/THEN signals in the browser.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Explore. The hero's second button targets this id. -->
+    <section class="home-section home-section-last" id="explore">
+      <div class="container">
+        <p class="hero-eyebrow">Explore</p>
+        <h2 class="home-section-title">Everything on this site</h2>
+        <p class="home-section-sub">Every tool on this site, and what each one is for.</p>
+        <div class="grid-3">
+          <a href="#" class="card" id="explore-strategies">
+            <div class="explore-icon">&#x1F4DA;</div>
+            <h3 class="card-title">Strategies</h3>
+            <p class="card-desc">Hand-picked symphonies with full logic breakdowns, AI summaries, and risk profiles.</p>
+          </a>
+          <a href="#" class="card" id="explore-database">
+            <div class="explore-icon">&#x1F5C4;&#xFE0F;</div>
+            <h3 class="card-title">Database</h3>
+            <p class="card-desc">Thousands of community-submitted symphonies with a Leaderboard, Screener, and search.</p>
+          </a>
+          <a href="#" class="card" id="explore-rsi">
+            <div class="explore-icon">&#x1F4C8;</div>
+            <h3 class="card-title">RSI Signals</h3>
+            <p class="card-desc">Live 10-day RSI for the tickers used as Frontrunner-family dip-buy signals.</p>
+          </a>
+          <a href="#" class="card" id="explore-signal-miner">
+            <div class="explore-icon">&#x26CF;&#xFE0F;</div>
+            <h3 class="card-title">Signal Miner</h3>
+            <p class="card-desc">Brute-force thousands of IF/THEN signals and backtest them, right in your browser.</p>
+          </a>
+          <a href="#" class="card" id="explore-glossary">
+            <div class="explore-icon">&#x1F4D6;</div>
+            <h3 class="card-title">Glossary</h3>
+            <p class="card-desc">Plain-English explanations of every indicator, ratio, and concept used on this site.</p>
+          </a>
+          <a href="#" class="card" id="explore-converter">
+            <div class="explore-icon">&#x1F527;</div>
+            <h3 class="card-title">Converter</h3>
+            <p class="card-desc">Turn any Composer symphony into clean JSON and a readable IF/ELSE logic tree.</p>
+          </a>
+          <a href="#" class="card" id="explore-nodes">
+            <div class="explore-icon">&#x1F522;</div>
+            <h3 class="card-title">Nodes</h3>
+            <p class="card-desc">Paste a symphony URL and see its node count, the number Composer prices against but does not show you.</p>
+          </a>
+          <a href="#" class="card" id="explore-k1">
+            <div class="explore-icon">&#x1F9FE;</div>
+            <h3 class="card-title">K1 Lookup</h3>
+            <p class="card-desc">Check whether an ETF sends you a Schedule K-1 instead of a 1099, before it turns up in April.</p>
+          </a>
+          <a href="#" class="card" id="explore-rsi-backtest">
+            <div class="explore-icon">&#x1F4C8;</div>
+            <h3 class="card-title">RSI Backtester</h3>
+            <p class="card-desc">Test an RSI rule before you build it: when a ticker crosses a level, buy a fund. See the return at every nearby level and how much of it is luck.</p>
+          </a>
+          <a href="#" class="card" id="explore-overfit">
+            <div class="explore-icon">&#x1F50D;</div>
+            <h3 class="card-title">Overfit Check</h3>
+            <p class="card-desc">How much of a backtest survives once its author stops editing it. Measured across thousands of symphonies, and lookup-able for any one of them.</p>
+          </a>
+          <a href="#" class="card" id="explore-referral">
+            <div class="explore-icon">&#x1F39F;&#xFE0F;</div>
+            <h3 class="card-title">Get $50 on Composer</h3>
+            <p class="card-desc">New accounts receive a $50 bonus when they sign up with a referral code. Here is how to claim it, and a code you can use.</p>
+          </a>
+          <a href="#" class="card" id="explore-etf-cloner">
+            <div class="explore-icon">&#x1F9EC;</div>
+            <h3 class="card-title">ETF Cloner</h3>
+            <p class="card-desc">Type an ETF and get a Composer symphony that clones its holdings: top names live, or the full basket from a file.</p>
+          </a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="js/app.js"></script>
+  <script>
+    (function () {
+      document.getElementById('hero-strategies-link').href = u('/strategies.html');
+      document.getElementById('explore-strategies').href = u('/strategies.html');
+      document.getElementById('explore-database').href = u('/database.html');
+      document.getElementById('explore-rsi').href = u('/rsi.html');
+      document.getElementById('explore-signal-miner').href = u('/signal-miner.html');
+      document.getElementById('explore-glossary').href = u('/glossary.html');
+      document.getElementById('explore-converter').href = u('/converter.html');
+      document.getElementById('explore-nodes').href = u('/nodes.html');
+      document.getElementById('explore-k1').href = u('/k1.html');
+      document.getElementById('explore-rsi-backtest').href = u('/rsi-backtest.html');
+      document.getElementById('explore-overfit').href = u('/overfit.html');
+      document.getElementById('explore-etf-cloner').href = u('/etf-cloner.html');
+      document.getElementById('explore-referral').href = u('/referral.html');
+    })();
+  </script>
+</body>
+</html>

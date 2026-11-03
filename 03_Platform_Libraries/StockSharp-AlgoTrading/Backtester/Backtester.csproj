@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\common_versions.props" />
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="StockSharp.Algo" Version="$(StockSharpVer)" />
+    <PackageReference Include="StockSharp.Algo.Compilation" Version="$(StockSharpVer)" />
+    <PackageReference Include="StockSharp.Samples.HistoryData" Version="$(StockSharpVer)" />
+  </ItemGroup>
+
+</Project>

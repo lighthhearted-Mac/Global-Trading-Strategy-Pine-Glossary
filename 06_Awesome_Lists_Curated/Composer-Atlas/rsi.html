@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/rsi">
+  <link rel="canonical" href="https://composeratlas.com/rsi">
+  <meta property="og:title" content="Live RSI Signals for Strategy Tickers">
+  <meta property="og:description" content="Live 10-day RSI for every ETF ticker used as a signal in Frontrunner-family Composer strategies, refreshed daily, with the levels that trigger a switch.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Live 10-day RSI for every ETF ticker used as a signal in Frontrunner-family Composer strategies, refreshed daily, with the levels that trigger a switch.">
+  <title>RSI Signals: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+
+      <div style="max-width:600px;margin-bottom:32px">
+        <h1 style="color:var(--color-primary);margin-bottom:8px">RSI Signals</h1>
+        <p style="color:var(--color-secondary);font-size:1.0625rem">
+          Current 10-day RSI for the ETF tickers used as dip-buy signals in Frontrunner-family strategies, plus the Russell 2000 (IWM) and the Dow (DIA). Low RSI means a ticker is oversold and a Frontrunner branch built around it may be active; high RSI means it's overbought.
+        </p>
+        <p style="margin-top:12px;font-size:0.9375rem"><a id="rsi-backtest-link" href="rsi-backtest.html" style="color:var(--color-blue)">Backtest any RSI rule &rarr;</a> Pick a ticker, a level and a fund to buy, and see what it would have returned.</p>
+        <div id="rsi-refreshed" style="margin-top:12px"></div>
+      </div>
+
+      <div id="rsi-content">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="data/rsi.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (function () {
+      document.getElementById('rsi-backtest-link').href = u('/rsi-backtest.html');
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'RSI Signals' },
+      ]);
+
+      let sortField = 'rsi_10';
+      let sortDir = 'desc';
+      let tickers = [];
+
+      function signalInfo(rsi) {
+        if (rsi >= 79) return { label: 'Extreme Overbought', cls: 'rsi-extreme-overbought' };
+        if (rsi >= 70) return { label: 'Overbought', cls: 'rsi-overbought' };
+        if (rsi >= 42) return { label: 'Neutral', cls: 'rsi-neutral' };
+        if (rsi >= 29) return { label: 'Oversold', cls: 'rsi-oversold' };
+        return { label: 'Extreme Oversold', cls: 'rsi-extreme-oversold' };
+      }
+
+      function sortIndicator(key) {
+        if (sortField !== key) return '<span class="db-sort-arrow">&#8597;</span>';
+        return `<span class="db-sort-arrow active">${sortDir === 'asc' ? '&#9650;' : '&#9660;'}</span>`;
+      }
+
+      function applySort() {
+        const dir = sortDir === 'asc' ? 1 : -1;
+        tickers.sort((a, b) => {
+          const av = a[sortField];
+          const bv = b[sortField];
+          if (av < bv) return -1 * dir;
+          if (av > bv) return 1 * dir;
+          return 0;
+        });
+      }
+
+      function render() {
+        const headerCells = [
+          { key: 'symbol', label: 'Ticker' },
+          { key: 'name', label: 'Name' },
+          { key: 'rsi_10', label: 'RSI (10d)' },
+        ].map(col => `<th class="sortable" data-sort="${col.key}">${col.label} ${sortIndicator(col.key)}</th>`).join('')
+          + '<th>Signal</th>';
+
+        const rows = tickers.map(t => {
+          const sig = signalInfo(t.rsi_10);
+          return `
+            <tr>
+              <td>${t.symbol}</td>
+              <td class="text-secondary">${t.name}</td>
+              <td class="${sig.cls}">${t.rsi_10.toFixed(1)}</td>
+              <td class="${sig.cls}">${sig.label}</td>
+            </tr>
+          `;
+        }).join('');
+
+        document.getElementById('rsi-content').innerHTML = `
+          <div class="db-table-wrap">
+            <table class="db-table">
+              <thead><tr>${headerCells}</tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        `;
+
+        document.querySelectorAll('.db-table th.sortable').forEach(th => {
+          th.addEventListener('click', () => {
+            const key = th.dataset.sort;
+            if (sortField === key) {
+              sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+              sortField = key;
+              sortDir = 'asc';
+            }
+            applySort();
+            render();
+          });
+        });
+      }
+
+      async function loadRsi() {
+        if (window.RSI_DATA) return window.RSI_DATA;
+        const res = await fetch(`${BASE}/data/rsi.json`);
+        if (!res.ok) throw new Error('Failed to load rsi.json');
+        return res.json();
+      }
+
+      (async function () {
+        const payload = await loadRsi();
+        tickers = payload.tickers;
+        // the close the values come from: a refresh time alone can look current
+        // while the data is a day behind
+        const closeDate = tickers.map(t => t.price_date).filter(Boolean).sort().pop();
+        const closeStr = closeDate ? new Date(closeDate + 'T12:00:00').toLocaleDateString('en-US', { dateStyle: 'medium' }) : '';
+        const refreshedStr = new Date(payload.refreshed_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+        document.getElementById('rsi-refreshed').innerHTML =
+          `<span class="updated-badge"><span class="updated-badge-dot"></span>${closeStr ? `As of ${closeStr} close &middot; ` : ''}refreshed ${refreshedStr}</span>`;
+        applySort();
+        render();
+      })().catch(err => {
+        document.getElementById('rsi-content').innerHTML = `
+          <div class="error-state">
+            <h2>Failed to load RSI data</h2>
+            <p>${err.message}</p>
+          </div>`;
+      });
+    })();
+  </script>
+</body>
+</html>

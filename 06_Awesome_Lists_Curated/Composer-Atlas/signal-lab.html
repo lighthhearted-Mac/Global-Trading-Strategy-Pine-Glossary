@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Signal Lab was renamed to Signal Miner (v1.16.6). This page only exists to
+       redirect old links to the new URL; it is intentionally not indexed. -->
+  <meta name="robots" content="noindex">
+  <title>Signal Lab has moved to Signal Miner</title>
+  <link rel="canonical" href="signal-miner.html">
+  <meta http-equiv="refresh" content="0; url=signal-miner.html">
+  <link rel="stylesheet" href="css/main.css">
+  <script>
+    // Preserve any query string when forwarding.
+    location.replace('signal-miner.html' + location.search + location.hash);
+  </script>
+</head>
+<body>
+  <div class="container" style="padding:64px 0;text-align:center">
+    <p style="color:var(--color-secondary)">Signal Lab is now <strong>Signal Miner</strong>. Redirecting&hellip;</p>
+    <p><a class="btn btn-green" href="signal-miner.html">Go to Signal Miner</a></p>
+  </div>
+</body>
+</html>

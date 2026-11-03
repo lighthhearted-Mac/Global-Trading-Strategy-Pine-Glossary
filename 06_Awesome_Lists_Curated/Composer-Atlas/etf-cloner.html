@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/etf-cloner">
+  <link rel="canonical" href="https://composeratlas.com/etf-cloner">
+  <meta property="og:title" content="ETF to Composer Cloner">
+  <meta property="og:description" content="Type an ETF ticker and get a Composer.trade symphony that clones its top holdings, with matched or equal weights, ready to paste.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Type an ETF ticker and get a Composer.trade symphony that clones its top holdings, with matched or equal weights, ready to paste.">
+  <title>ETF → Composer Cloner: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .ec-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+    .ec-label { display: block; font-size: 0.8125rem; font-weight: 600; color: var(--color-primary); margin-bottom: 8px; }
+    .ec-hint { font-size: 0.8125rem; color: var(--color-secondary); margin-bottom: 12px; line-height: 1.6; }
+    .ec-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    #ec-ticker {
+      flex: 0 0 auto; width: 180px; box-sizing: border-box; text-transform: uppercase;
+      background: var(--color-bg); color: var(--color-primary);
+      border: 1px solid var(--color-border-strong); border-radius: 8px; padding: 10px 14px;
+      font-family: var(--font-mono); font-size: 1rem; letter-spacing: 0.04em;
+    }
+    #ec-ticker:focus { outline: 2px solid var(--color-blue); outline-offset: -1px; }
+    .ec-opts { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 16px; font-size: 0.8125rem; color: var(--color-secondary); }
+    .ec-opts label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+    .ec-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+    .ec-suggest button { font-family: var(--font-mono); font-size: 0.75rem; padding: 3px 10px; border-radius: 6px;
+      background: var(--color-surface-raised); border: 1px solid var(--color-border); color: var(--color-secondary); cursor: pointer; }
+    .ec-suggest button:hover { color: var(--color-primary); border-color: var(--color-blue); }
+    .ec-msg { margin-top: 14px; font-size: 0.875rem; line-height: 1.6; }
+    .ec-msg.err { color: var(--color-pink); }
+    .ec-msg.info { color: var(--color-secondary); }
+    .ec-msg a { color: var(--color-blue); }
+
+    .ec-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .ec-section-head h2 { color: var(--color-primary); font-size: 1rem; font-weight: 600; margin: 0; }
+    .ec-copy { font-size: 0.75rem; padding: 5px 12px; }
+
+    .ec-summary { display: flex; flex-wrap: wrap; gap: 10px 28px; }
+    .ec-summary .k { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-disabled); display: block; margin-bottom: 2px; }
+    .ec-summary .v { font-size: 0.9375rem; color: var(--color-primary); font-family: var(--font-mono); }
+
+    table.ec-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+    table.ec-table th, table.ec-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--color-border); }
+    table.ec-table th { color: var(--color-disabled); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+    table.ec-table td.num { text-align: right; font-family: var(--font-mono); color: var(--color-primary); }
+    table.ec-table td.sym { font-family: var(--font-mono); color: var(--color-green); font-weight: 600; }
+    table.ec-table td.name { color: var(--color-secondary); }
+    .ec-tablewrap { overflow-x: auto; }
+
+    pre.ec-json {
+      margin: 0; max-height: 520px; overflow: auto;
+      background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px;
+      padding: 16px; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.65;
+      color: var(--color-secondary); white-space: pre;
+    }
+    .ec-note { font-size: 0.75rem; color: var(--color-disabled); margin-top: 10px; line-height: 1.6; }
+
+    .ec-drop {
+      border: 1.5px dashed var(--color-border); border-radius: 10px; padding: 22px 18px;
+      text-align: center; color: var(--color-secondary); font-size: 0.875rem; cursor: pointer;
+      transition: border-color .15s, background .15s; background: var(--color-bg);
+    }
+    .ec-drop:hover, .ec-drop.drag { border-color: var(--color-blue); background: var(--color-surface-raised); color: var(--color-primary); }
+    .ec-drop strong { color: var(--color-primary); }
+    .ec-drop input[type=file] {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; opacity: 0; pointer-events: none;
+    }
+    .ec-mode-tag { display: inline-block; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 2px 8px; border-radius: 5px; font-weight: 600; }
+    .ec-mode-live { background: rgba(88,166,255,0.14); color: var(--color-blue); }
+    .ec-mode-full { background: rgba(63,185,80,0.16); color: var(--color-green); }
+    .ec-links { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: 0.75rem; }
+    .ec-links a { color: var(--color-blue); }
+  </style>
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+
+      <div style="max-width:720px;margin-bottom:28px">
+        <h1 style="color:var(--color-primary);margin-bottom:8px">ETF → Composer Cloner</h1>
+        <p style="color:var(--color-secondary);font-size:1.0625rem;line-height:1.6">
+          Type an ETF ticker. This pulls the fund's largest current holdings live, in your browser,
+          and hands you a <strong>Composer.trade symphony</strong> that clones them, weighted to match
+          the fund or spread equally. Copy the JSON and paste it straight into Composer.
+        </p>
+      </div>
+
+      <div class="ec-panel">
+        <label class="ec-label" for="ec-ticker">ETF ticker</label>
+        <p class="ec-hint">Works for most US-listed ETFs. Returns the fund's top holdings (typically ~25) with live weights.</p>
+        <div class="ec-row">
+          <input id="ec-ticker" type="text" value="SPY" spellcheck="false" autocomplete="off" placeholder="SPY" maxlength="8">
+          <button id="ec-fetch" class="btn btn-green">Fetch holdings</button>
+        </div>
+        <div class="ec-suggest" id="ec-suggest"></div>
+        <div id="ec-msg" class="ec-msg"></div>
+      </div>
+
+      <div class="ec-panel">
+        <div class="ec-section-head">
+          <h2 style="margin:0;color:var(--color-primary);font-size:1rem;font-weight:600">Want the <em>full</em> basket? Upload the issuer file</h2>
+          <span class="ec-mode-tag ec-mode-full">Full holdings</span>
+        </div>
+        <p class="ec-hint">
+          The live fetch above returns a fund's top ~25 holdings. To clone every position, download the
+          holdings file straight from the fund's issuer (a normal download, so no browser limit applies),
+          then drop it here. Parsed entirely on your device, nothing is uploaded anywhere.
+        </p>
+        <label class="ec-drop" id="ec-drop">
+          <input type="file" id="ec-file" accept=".csv,.xlsx,.txt">
+          <div><strong>Drop a holdings file here</strong> or click to choose</div>
+          <div style="font-size:0.75rem;color:var(--color-disabled);margin-top:6px">Accepts .csv and .xlsx (Excel) from most ETF issuers</div>
+        </label>
+        <p class="ec-note">The file must contain a <strong>Ticker</strong> column and a <strong>Weight</strong> column (issuer holdings files include both). Column order and extra columns do not matter, and header labels like "Symbol" or "Weight (%)" are recognized too.</p>
+        <div class="ec-links">
+          <span style="color:var(--color-disabled)">Get the file:</span>
+          <a href="https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spy.xlsx" target="_blank" rel="noopener">SPY (State Street .xlsx)</a>
+          <a href="https://www.invesco.com/us/financial-products/etfs/holdings/main/holdings/0?audienceType=Investor&action=download&ticker=QQQ" target="_blank" rel="noopener">QQQ (Invesco .csv)</a>
+          <a href="https://www.ishares.com/us/products/etf-investments" target="_blank" rel="noopener">iShares funds (.csv)</a>
+        </div>
+      </div>
+
+      <div id="ec-out" style="display:none">
+        <div class="ec-panel">
+          <div class="ec-section-head"><h2>Fund</h2></div>
+          <div id="ec-summary" class="ec-summary"></div>
+        </div>
+
+        <div class="ec-panel">
+          <div class="ec-section-head">
+            <h2 id="ec-holdings-title" style="margin:0">Holdings</h2>
+            <div class="ec-opts" style="margin-top:0">
+              <span style="color:var(--color-disabled);text-transform:uppercase;font-size:0.6875rem;letter-spacing:0.04em">Weighting</span>
+              <label><input type="radio" name="ec-wt" value="specified" checked> Match ETF weights</label>
+              <label><input type="radio" name="ec-wt" value="equal"> Equal weight</label>
+            </div>
+          </div>
+          <div class="ec-tablewrap"><table class="ec-table" id="ec-table"></table></div>
+          <p class="ec-note" id="ec-weight-note"></p>
+        </div>
+
+        <div class="ec-panel">
+          <div class="ec-section-head">
+            <h2>Composer symphony</h2>
+            <div style="display:flex;gap:8px">
+              <button id="ec-copy" class="btn btn-green ec-copy">Copy JSON</button>
+              <button id="ec-download" class="btn btn-outline ec-copy">Download .json</button>
+            </div>
+          </div>
+          <pre id="ec-json" class="ec-json"></pre>
+          <p class="ec-note">Paste into Composer via <strong>New symphony → paste</strong>. Weights are renormalized to 100% across the holdings shown. Verify tickers before trading; leveraged, delisted, or non-US names may need manual edits.</p>
+        </div>
+      </div>
+
+      <div class="ec-panel" style="max-width:720px">
+        <div class="ec-section-head"><h2>How it works &amp; limits</h2></div>
+        <p class="ec-hint" style="margin-bottom:8px">
+          Holdings are fetched live from a public data source through a CORS relay, since ETF issuer
+          files block direct browser requests. That means:
+        </p>
+        <ul style="color:var(--color-secondary);font-size:0.8125rem;line-height:1.7;margin:0;padding-left:20px">
+          <li>The live fetch gives the fund's <strong>top holdings</strong> (usually the largest ~25), not the full basket. For broad-index funds this still captures the bulk of the exposure, and the JSON renormalizes those names to 100%. For <strong>every</strong> position, use the upload panel above with the issuer's own holdings file.</li>
+          <li>The live path depends on a third-party relay, so an occasional fetch may fail. Just retry, try another ticker, or upload the file instead.</li>
+          <li>Weights are a live snapshot and drift daily. Re-fetch or re-upload for the current picture.</li>
+          <li>Uploaded files are parsed entirely on your device (no network), including .xlsx, which is unzipped natively in the browser. Very large baskets create large symphonies; Composer handles them, but they can be unwieldy to edit by hand.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="js/app.js"></script>
+  <script>
+    (function () {
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'ETF Cloner' },
+      ]);
+
+      var msgEl = document.getElementById('ec-msg');
+      var outEl = document.getElementById('ec-out');
+      var tickerEl = document.getElementById('ec-ticker');
+      var fetchBtn = document.getElementById('ec-fetch');
+      var SUGGEST = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'SCHD', 'XLK', 'SMH'];
+      var lastModel = null; // {ticker, fund, count, date, kept:[{sym,name,pct}], weighting}
+
+      // ---- suggestion chips ----
+      var sg = document.getElementById('ec-suggest');
+      SUGGEST.forEach(function (t) {
+        var b = document.createElement('button');
+        b.textContent = t;
+        b.addEventListener('click', function () { tickerEl.value = t; run(); });
+        sg.appendChild(b);
+      });
+
+      function setMsg(text, cls) { msgEl.textContent = text; msgEl.className = 'ec-msg' + (cls ? ' ' + cls : ''); }
+
+      // ---- data source + proxies ----
+      function targetUrl(ticker) {
+        return 'https://stockanalysis.com/etf/' + encodeURIComponent(ticker) +
+          '/holdings/__data.json?x-sveltekit-invalidated=001';
+      }
+      // Each entry: build a proxied URL, and how to read the body.
+      var PROXIES = [
+        { name: 'cors.sh', wrap: function (t) { return 'https://proxy.cors.sh/' + t; }, unwrap: function (txt) { return txt; } },
+        { name: 'allorigins', wrap: function (t) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(t); }, unwrap: function (txt) { return txt; } },
+        { name: 'codetabs', wrap: function (t) { return 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(t); }, unwrap: function (txt) { return txt; } }
+      ];
+
+      async function fetchRaw(ticker) {
+        var target = targetUrl(ticker);
+        var lastErr = null;
+        for (var i = 0; i < PROXIES.length; i++) {
+          var p = PROXIES[i];
+          try {
+            var res = await fetch(p.wrap(target));
+            if (!res.ok) { lastErr = new Error(p.name + ' HTTP ' + res.status); continue; }
+            var txt = p.unwrap(await res.text());
+            if (txt && txt.charAt(0) === '{') return txt;
+            lastErr = new Error(p.name + ' returned non-JSON');
+          } catch (e) { lastErr = e; }
+        }
+        throw lastErr || new Error('All relays failed');
+      }
+
+      // ---- decode stockanalysis SvelteKit deduped payload ----
+      function decode(text) {
+        var d = JSON.parse(text);
+        var nodes = d.nodes || [];
+        for (var n = 0; n < nodes.length; n++) {
+          var pool = nodes[n].data;
+          if (!Array.isArray(pool)) continue;
+          var D = function (x) { return (typeof x === 'number' && x >= 0 && x < pool.length) ? pool[x] : x; };
+          var top = pool[0];
+          if (!top || typeof top !== 'object' || Array.isArray(top) || !('holdings' in top)) continue;
+          var hl = D(top.holdings);
+          if (!Array.isArray(hl)) continue;
+          var rows = [];
+          for (var r = 0; r < hl.length; r++) {
+            var o = D(hl[r]);
+            if (!o || typeof o !== 'object') continue;
+            rows.push({ no: D(o.no), name: D(o.n), sym: D(o.s), pctRaw: D(o.as), sharesRaw: D(o.sh) });
+          }
+          var it = D(top.infoTable), info = {};
+          if (it && typeof it === 'object') {
+            info = {
+              assetClass: D(it.assetClass), category: D(it.category),
+              aum: D(it.aum), top10: D(it.top10)
+            };
+          }
+          return { rows: rows, count: D(top.count), info: info, date: D(top.date) };
+        }
+        return null;
+      }
+
+      function cleanSym(s) {
+        if (typeof s !== 'string') return null;
+        var t = s.replace(/^\$/, '').trim().toUpperCase();
+        if (!/^[A-Z][A-Z.\-]{0,9}$/.test(t)) return null;
+        // Composer and Crescendo want share-class tickers with a slash (BRK/B),
+        // but holdings feeds use a dot (BRK.B) or dash (BRK-B). Normalize a
+        // trailing single-letter class suffix to the slash form; a symphony
+        // containing the dot/dash form will not save or backtest on either
+        // platform. Only a trailing "<sep><one letter>" is rewritten, so plain
+        // tickers are untouched.
+        return t.replace(/[.\-]([A-Z])$/, '/$1');
+      }
+      // Keep only real company holdings. Issuer files list cash, futures, collateral,
+      // pending dividends, currency, etc. as line items whose "ticker" can even collide
+      // with a real symbol (e.g. cash "USD" vs. the USD ETF); drop those entirely.
+      var CASH_TICKER = /^(USD|EUR|GBP|JPY|CAD|AUD|CHF|CNY|CNH|HKD|SGD|MXN|BRL|INR|KRW|SEK|NOK|DKK|NZD|ZAR|TRY|RUB|ILS|PLN|THB|IDR|MYR|PHP|TWD|AED|SAR|CASH)$/;
+      var NON_COMPANY = /\b(cash|collateral|futures?|pending|dividends?|receivabl\w*|payabl\w*|accrued|currency|currencies|money ?market|repurchase|net other|other asset\w*|contra|equivalents?|margin deposit|t-bill|treasury bill)\b/i;
+      function isCompany(sym, name) {
+        if (!sym) return false;
+        if (CASH_TICKER.test(sym)) return false;
+        if (name && NON_COMPANY.test(name)) return false;
+        return true;
+      }
+      function pctNum(s) {
+        if (typeof s !== 'string') return NaN;
+        var v = parseFloat(s.replace('%', '').replace(/,/g, ''));
+        return isNaN(v) ? NaN : v;
+      }
+
+      // ---- Composer JSON scaffolding (mirrors real export schema) ----
+      function uid() {
+        if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (ch) {
+          var rr = Math.random() * 16 | 0, v = ch === 'x' ? rr : (rr & 0x3 | 0x8); return v.toString(16);
+        });
+      }
+      function shortId() {
+        var cs = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', s = '';
+        for (var i = 0; i < 20; i++) s += cs[Math.random() * cs.length | 0];
+        return s;
+      }
+
+      // Integer weights over DEN that sum exactly to DEN. DEN is large so hundreds of
+      // tiny full-basket positions never round down to a zero weight.
+      var DEN = 1000000;
+      function specifiedWeights(kept) {
+        var sum = kept.reduce(function (a, h) { return a + (h.pct > 0 ? h.pct : 0); }, 0);
+        var nums;
+        if (sum <= 0) {
+          var base = Math.floor(DEN / kept.length);
+          nums = kept.map(function () { return base; });
+        } else {
+          nums = kept.map(function (h) { return Math.round((h.pct > 0 ? h.pct : 0) / sum * DEN); });
+          nums = nums.map(function (v, i) { return (kept[i].pct > 0 && v === 0) ? 1 : v; }); // no zero-weight holdings
+        }
+        var diff = DEN - nums.reduce(function (a, b) { return a + b; }, 0);
+        if (diff !== 0) { // push rounding remainder onto the largest weight
+          var mi = 0; for (var i = 1; i < nums.length; i++) if (nums[i] > nums[mi]) mi = i;
+          nums[mi] += diff;
+        }
+        return nums;
+      }
+
+      function buildSymphony(model) {
+        var kept = model.kept;
+        var equal = model.weighting === 'equal';
+        var children;
+        if (equal) {
+          children = kept.map(function (h) {
+            return { id: uid(), step: 'asset', suppress_incomplete_warnings: false, ticker: h.sym, name: h.name };
+          });
+        } else {
+          var nums = specifiedWeights(kept);
+          children = kept.map(function (h, i) {
+            return { id: uid(), step: 'asset', suppress_incomplete_warnings: false, ticker: h.sym, name: h.name, weight: { num: nums[i], den: DEN } };
+          });
+        }
+        var weightNode = {
+          id: uid(), step: equal ? 'wt-cash-equal' : 'wt-cash-specified',
+          name: 'Weight', suppress_incomplete_warnings: true, children: children
+        };
+        return {
+          id: shortId(), step: 'root',
+          name: model.ticker + ' holdings clone' + (equal ? ' (equal weight)' : ''),
+          children: [weightNode],
+          description: 'Clone of ' + (model.full ? 'all ' : 'the top ') + kept.length + ' holdings of ' + model.ticker + ', ' +
+            (equal ? 'equal-weighted' : 'weighted to match the fund') +
+            '. Built with Composer Atlas ETF Cloner.',
+          rebalance: 'daily'
+        };
+      }
+
+      // ---- syntax-highlighted JSON ----
+      function highlight(obj) {
+        var json = JSON.stringify(obj, null, 2);
+        json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return json.replace(/("(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)/g,
+          function (m) {
+            var cls = 'j-num';
+            if (/^"/.test(m)) cls = /:$/.test(m) ? 'j-key' : 'j-str';
+            else if (/true|false/.test(m)) cls = 'j-bool';
+            else if (/null/.test(m)) cls = 'j-null';
+            return '<span class="' + cls + '">' + m + '</span>';
+          });
+      }
+
+      // ---- render ----
+      function render(model) {
+        lastModel = model;
+        var kept = model.kept;
+
+        var totalPct = kept.reduce(function (a, h) { return a + (h.pct > 0 ? h.pct : 0); }, 0);
+        var info = model.info || {};
+        var cat = [info.assetClass, info.category].filter(Boolean).join(' · ');
+        var srcTag = model.full
+          ? '<span class="ec-mode-tag ec-mode-full">Full basket · uploaded file</span>'
+          : '<span class="ec-mode-tag ec-mode-live">Live · top holdings</span>';
+        document.getElementById('ec-summary').innerHTML =
+          '<div><span class="k">Ticker</span><span class="v">' + esc(model.ticker) + '</span></div>' +
+          '<div><span class="k">Source</span><span class="v" style="font-family:inherit">' + srcTag + '</span></div>' +
+          (cat ? '<div><span class="k">Category</span><span class="v" style="font-family:inherit">' + esc(cat) + '</span></div>' : '') +
+          (typeof info.aum === 'number' ? '<div><span class="k">AUM</span><span class="v">' + fmtAum(info.aum) + '</span></div>' : '') +
+          '<div><span class="k">Holdings</span><span class="v">' + kept.length +
+            (model.full ? ' (full)' : (model.count ? ' of ' + model.count : '')) + '</span></div>' +
+          '<div><span class="k">Coverage</span><span class="v">' + totalPct.toFixed(1) + '% of fund</span></div>' +
+          (model.date ? '<div><span class="k">As of</span><span class="v">' + esc(String(model.date)) + '</span></div>' : '');
+
+        var equal = model.weighting === 'equal';
+        var nums = equal ? null : specifiedWeights(kept);
+        var rowsHtml = '<tr><th>#</th><th>Ticker</th><th>Name</th><th style="text-align:right">Fund %</th><th style="text-align:right">Clone %</th></tr>';
+        kept.forEach(function (h, i) {
+          var clone = equal ? (100 / kept.length) : (nums[i] / DEN * 100);
+          rowsHtml += '<tr><td class="num" style="color:var(--color-disabled)">' + (i + 1) + '</td>' +
+            '<td class="sym">' + h.sym + '</td>' +
+            '<td class="name">' + esc(h.name || '') + '</td>' +
+            '<td class="num">' + (h.pct > 0 ? h.pct.toFixed(2) + '%' : 'n/a') + '</td>' +
+            '<td class="num">' + clone.toFixed(2) + '%</td></tr>';
+        });
+        document.getElementById('ec-table').innerHTML = rowsHtml;
+        document.getElementById('ec-holdings-title').textContent = 'Holdings (' + kept.length + ')';
+        document.getElementById('ec-weight-note').textContent = equal
+          ? 'Equal weight: each holding gets ' + (100 / kept.length).toFixed(2) + '%.'
+          : 'Matched weights renormalized so the shown holdings sum to 100%.';
+
+        var symph = buildSymphony(model);
+        document.getElementById('ec-json').innerHTML = highlight(symph);
+        outEl.style.display = 'block';
+      }
+
+      function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+      function fmtAum(n) {
+        if (n >= 1e12) return '$' + (n / 1e12).toFixed(2) + 'T';
+        if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
+        if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+        return '$' + n.toLocaleString();
+      }
+
+      // ---- orchestration ----
+      async function run() {
+        var ticker = (tickerEl.value || '').trim().toUpperCase().replace(/[^A-Z0-9.\-]/g, '');
+        tickerEl.value = ticker;
+        if (!ticker) { setMsg('Enter an ETF ticker.', 'err'); return; }
+        outEl.style.display = 'none';
+        fetchBtn.disabled = true;
+        setMsg('Fetching ' + ticker + ' holdings…', 'info');
+        try {
+          var raw = await fetchRaw(ticker);
+          var decoded = decode(raw);
+          if (!decoded || !decoded.rows || !decoded.rows.length) {
+            setMsg('No holdings found for "' + ticker + '". Check the ticker is a US-listed ETF.', 'err');
+            fetchBtn.disabled = false; return;
+          }
+          var kept = [];
+          decoded.rows.forEach(function (r) {
+            var sym = cleanSym(r.sym);
+            if (!sym || !isCompany(sym, r.name)) return;
+            kept.push({ sym: sym, name: r.name || '', pct: pctNum(r.pctRaw) });
+          });
+          if (!kept.length) {
+            setMsg('Holdings for "' + ticker + '" could not be mapped to tradable tickers (it may hold bonds, cash, or non-US names).', 'err');
+            fetchBtn.disabled = false; return;
+          }
+          var weighting = document.querySelector('input[name="ec-wt"]:checked').value;
+          render({ ticker: ticker, info: decoded.info, count: decoded.count, date: decoded.date, kept: kept, weighting: weighting });
+          setMsg('Loaded ' + kept.length + ' holdings for ' + ticker + '.', 'info');
+        } catch (e) {
+          setMsg('Could not fetch holdings (the data relay may be busy). Try again in a moment, or try another ticker. [' + (e && e.message ? e.message : 'error') + ']', 'err');
+        } finally {
+          fetchBtn.disabled = false;
+        }
+      }
+
+      // re-render (no refetch) when weighting toggles, if we have data
+      document.querySelectorAll('input[name="ec-wt"]').forEach(function (el) {
+        el.addEventListener('change', function () {
+          if (lastModel) { lastModel.weighting = el.value; render(lastModel); }
+        });
+      });
+
+      fetchBtn.addEventListener('click', run);
+      tickerEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
+
+      document.getElementById('ec-copy').addEventListener('click', function () {
+        if (!lastModel) return;
+        var json = JSON.stringify(buildSymphony(lastModel), null, 2);
+        var btn = this;
+        navigator.clipboard.writeText(json).then(function () {
+          var old = btn.textContent; btn.textContent = 'Copied!';
+          setTimeout(function () { btn.textContent = old; }, 1400);
+        });
+      });
+      document.getElementById('ec-download').addEventListener('click', function () {
+        if (!lastModel) return;
+        var json = JSON.stringify(buildSymphony(lastModel), null, 2);
+        var blob = new Blob([json], { type: 'application/json' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = lastModel.ticker + '-holdings-clone.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+      });
+
+      // ================= FULL-BASKET FILE MODE =================
+
+      // ---- CSV (RFC-4180-ish, handles quotes/embedded commas) ----
+      function parseCSV(text) {
+        var rows = [], row = [], cur = '', inq = false;
+        for (var i = 0; i < text.length; i++) {
+          var ch = text[i];
+          if (inq) {
+            if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else inq = false; }
+            else cur += ch;
+          } else {
+            if (ch === '"') inq = true;
+            else if (ch === ',') { row.push(cur); cur = ''; }
+            else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+            else if (ch === '\r') { /* skip */ }
+            else cur += ch;
+          }
+        }
+        if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+        return rows;
+      }
+
+      // ---- native xlsx reader: ZIP central directory + DecompressionStream ----
+      async function inflateRaw(u8) {
+        var ds = new DecompressionStream('deflate-raw');
+        var stream = new Blob([u8]).stream().pipeThrough(ds);
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      }
+      async function openZip(buf) {
+        var dv = new DataView(buf), u8 = new Uint8Array(buf);
+        var eocd = -1, min = Math.max(0, u8.length - 22 - 65536);
+        for (var i = u8.length - 22; i >= min; i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+        if (eocd < 0) throw new Error('not a valid .xlsx (no ZIP directory)');
+        var count = dv.getUint16(eocd + 10, true), off = dv.getUint32(eocd + 16, true);
+        var entries = {}, p = off, td = new TextDecoder();
+        for (var n = 0; n < count; n++) {
+          if (dv.getUint32(p, true) !== 0x02014b50) break;
+          var method = dv.getUint16(p + 10, true);
+          var compSize = dv.getUint32(p + 20, true);
+          var nameLen = dv.getUint16(p + 28, true);
+          var extraLen = dv.getUint16(p + 30, true);
+          var commentLen = dv.getUint16(p + 32, true);
+          var lho = dv.getUint32(p + 42, true);
+          var name = td.decode(u8.subarray(p + 46, p + 46 + nameLen));
+          entries[name] = { method: method, compSize: compSize, lho: lho };
+          p += 46 + nameLen + extraLen + commentLen;
+        }
+        async function read(name) {
+          var e = entries[name]; if (!e) return null;
+          if (dv.getUint32(e.lho, true) !== 0x04034b50) throw new Error('bad local header');
+          var nl = dv.getUint16(e.lho + 26, true), xl = dv.getUint16(e.lho + 28, true);
+          var start = e.lho + 30 + nl + xl;
+          var comp = u8.subarray(start, start + e.compSize);
+          var raw = e.method === 0 ? comp : await inflateRaw(comp);
+          return new TextDecoder('utf-8').decode(raw);
+        }
+        return { entries: entries, read: read };
+      }
+      function colToIdx(ref) {
+        var m = /^([A-Z]+)/.exec(ref || ''); if (!m) return -1;
+        var n = 0, s = m[1]; for (var i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+        return n - 1;
+      }
+      function sheetToRows(sharedXml, sheetXml) {
+        var parser = new DOMParser(), strings = [];
+        if (sharedXml) {
+          var sdoc = parser.parseFromString(sharedXml, 'application/xml');
+          var sis = sdoc.getElementsByTagNameNS('*', 'si');
+          for (var i = 0; i < sis.length; i++) {
+            var ts = sis[i].getElementsByTagNameNS('*', 't'), s = '';
+            for (var j = 0; j < ts.length; j++) s += ts[j].textContent;
+            strings.push(s);
+          }
+        }
+        var doc = parser.parseFromString(sheetXml, 'application/xml');
+        var rowEls = doc.getElementsByTagNameNS('*', 'row'), rows = [];
+        for (var r = 0; r < rowEls.length; r++) {
+          var cells = rowEls[r].getElementsByTagNameNS('*', 'c'), arr = [];
+          for (var k = 0; k < cells.length; k++) {
+            var c = cells[k], t = c.getAttribute('t'), ci = colToIdx(c.getAttribute('r')), val = '';
+            if (t === 'inlineStr') { var is = c.getElementsByTagNameNS('*', 't'); val = is.length ? is[0].textContent : ''; }
+            else { var vs = c.getElementsByTagNameNS('*', 'v'); var v = vs.length ? vs[0].textContent : ''; val = (t === 's') ? (strings[parseInt(v, 10)] || '') : v; }
+            if (ci >= 0) arr[ci] = val;
+          }
+          rows.push(arr);
+        }
+        return rows;
+      }
+
+      // ---- map an arbitrary 2D table -> [{sym,name,pct}] ----
+      function mapTable(rows) {
+        var cell = function (r, i) { return (r && r[i] != null) ? String(r[i]).trim() : ''; };
+        var hi = -1;
+        for (var i = 0; i < Math.min(rows.length, 60); i++) {
+          var lc = (rows[i] || []).map(function (c) { return String(c == null ? '' : c).toLowerCase(); });
+          var hasT = lc.some(function (c) { return /(^|[^a-z])(ticker|symbol)([^a-z]|$)/.test(c); });
+          var hasW = lc.some(function (c) { return /weight|% of|allocation|percent/.test(c); });
+          if (hasT && hasW) { hi = i; break; }
+        }
+        if (hi < 0) return null;
+        var hdr = (rows[hi] || []).map(function (c) { return String(c == null ? '' : c).trim().toLowerCase(); });
+        function pick(res) {
+          var best = -1, bestScore = -1;
+          hdr.forEach(function (h, idx) {
+            for (var s = 0; s < res.length; s++) {
+              if (res[s].test(h)) {
+                var score = res.length - s; if (/fund/.test(h)) score -= 100;
+                if (score > bestScore) { bestScore = score; best = idx; }
+                break;
+              }
+            }
+          });
+          return best;
+        }
+        var ti = pick([/^ticker$/, /^symbol$/, /holding ticker/, /\bticker\b/, /\bsymbol\b/]);
+        var wi = pick([/^weight ?\(%\)$/, /^weight$/, /^% of/, /weight/, /allocation/, /percent/]);
+        var ni = pick([/^name$/, /security name/, /^description$/, /security/, /\bname\b/, /description/]);
+        if (ti < 0 || wi < 0) return null;
+        var out = [];
+        for (var r = hi + 1; r < rows.length; r++) {
+          var sym = cleanSym(cell(rows[r], ti));
+          if (!sym) continue;
+          var nm = ni >= 0 ? cell(rows[r], ni) : '';
+          if (!isCompany(sym, nm)) continue; // drop cash, futures, collateral, dividends, currency
+          var pct = pctNum(cell(rows[r], wi));
+          out.push({ sym: sym, name: nm, pct: isNaN(pct) ? 0 : pct });
+        }
+        if (!out.length) return null;
+        // if weights look like fractions (sum ~1), scale to percent
+        var sum = out.reduce(function (a, h) { return a + (h.pct > 0 ? h.pct : 0); }, 0);
+        if (sum > 0 && sum < 2) out.forEach(function (h) { h.pct *= 100; });
+        return out;
+      }
+
+      function fileTicker(fn) {
+        var base = fn.replace(/\.[^.]+$/, '');
+        var cleaned = base.replace(/holdings|daily|detailed|fund|data|us|en|_/gi, ' ').trim();
+        var m = /([A-Za-z]{1,6})/.exec(cleaned) || /([A-Za-z]{1,6})/.exec(base);
+        return (m ? m[1] : 'ETF').toUpperCase();
+      }
+
+      async function handleFile(file) {
+        if (!file) return;
+        outEl.style.display = 'none';
+        setMsg('Reading ' + file.name + '…', 'info');
+        try {
+          var rows, lower = file.name.toLowerCase();
+          if (lower.endsWith('.xlsx')) {
+            if (typeof DecompressionStream === 'undefined')
+              throw new Error('this browser can’t unzip .xlsx; try CSV, or a current Chrome/Edge/Firefox/Safari');
+            var zip = await openZip(await file.arrayBuffer());
+            var shared = await zip.read('xl/sharedStrings.xml');
+            var sheetName = zip.entries['xl/worksheets/sheet1.xml'] ? 'xl/worksheets/sheet1.xml'
+              : Object.keys(zip.entries).filter(function (n) { return /^xl\/worksheets\/sheet\d+\.xml$/.test(n); }).sort()[0];
+            if (!sheetName) throw new Error('no worksheet found in the file');
+            rows = sheetToRows(shared, await zip.read(sheetName));
+          } else if (lower.endsWith('.csv') || lower.endsWith('.txt')) {
+            rows = parseCSV(await file.text());
+          } else {
+            throw new Error('unsupported file type: upload a .csv or .xlsx holdings file');
+          }
+          var kept = mapTable(rows);
+          if (!kept) throw new Error('couldn’t find a holdings table (needs Ticker and Weight columns) in that file');
+          var weighting = document.querySelector('input[name="ec-wt"]:checked').value;
+          render({ ticker: fileTicker(file.name), info: {}, count: kept.length, date: null, kept: kept, weighting: weighting, full: true });
+          setMsg('Loaded ' + kept.length + ' holdings from ' + esc(file.name) + ' (full basket).', 'info');
+          outEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (e) {
+          setMsg('Could not read that file: ' + (e && e.message ? e.message : 'error') + '.', 'err');
+        }
+      }
+
+      var drop = document.getElementById('ec-drop'), fileInput = document.getElementById('ec-file');
+      fileInput.addEventListener('change', function () { if (this.files && this.files[0]) handleFile(this.files[0]); this.value = ''; });
+      ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('drag'); }); });
+      ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); }); });
+      drop.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+      // auto-run the SPY default example on load
+      run();
+    })();
+  </script>
+</body>
+</html>

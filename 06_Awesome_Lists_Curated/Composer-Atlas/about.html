@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/about">
+  <link rel="canonical" href="https://composeratlas.com/about">
+  <meta property="og:title" content="About This Site and Why It Exists">
+  <meta property="og:description" content="An independent reference for systematic investors using Composer.trade: backtested performance, logic breakdowns, and plain explanations of the ideas.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="An independent reference for systematic investors using Composer.trade: backtested performance, logic breakdowns, and plain explanations of the ideas.">
+  <title>About: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <h1 style="color:var(--color-primary);margin-bottom:8px">About Composer Atlas</h1>
+      <p style="color:var(--color-secondary);font-size:1.0625rem;margin-bottom:40px">A strategy reference for Composer.trade investors.</p>
+
+      <div class="about-content">
+        <p>
+          Composer Atlas is a reference library for systematic investors using
+          <a href="https://composer.trade" target="_blank" rel="noopener noreferrer">Composer.trade</a> ,
+          a platform for building and running rules-based investment symphonies.
+        </p>
+        <p>
+          This site presents backtested performance data, strategy logic breakdowns, and educational
+          explanations of the concepts behind systematic investing, making it easier to evaluate
+          and understand algorithmic strategies before putting real capital to work.
+        </p>
+
+        <h2>What's Here</h2>
+        <ul>
+          <li>25 Composer.trade strategy symphonies with full backtested metrics</li>
+          <li>Strategy logic breakdowns: signals, conditions, and exit rules</li>
+          <li>Glossary of indicators, risk metrics, and strategy concepts</li>
+          <li>Cross-linked concepts: every strategy links to relevant glossary terms</li>
+        </ul>
+
+        <h2>Data &amp; Disclaimers</h2>
+        <p>
+          All performance metrics are <strong>backtested</strong>, derived from historical simulation,
+          not live trading results. Backtested performance does not guarantee or predict future returns.
+        </p>
+        <p>
+          Composer Atlas is <strong>not affiliated with, endorsed by, or associated with
+          Composer Technologies, Inc.</strong> or any of the strategy authors.
+          Strategy names, URLs, and attribution are presented for educational reference only.
+        </p>
+        <p>
+          Nothing on this site constitutes financial advice, investment advice, or a recommendation
+          to buy or sell any security or strategy. Use this information as a starting point for
+          your own research.
+        </p>
+
+        <h2>Built With</h2>
+        <ul>
+          <li>Vanilla HTML, CSS, and JavaScript: no build step required</li>
+          <li>CSS custom properties: design token system</li>
+          <li>Google Fonts: Inter + JetBrains Mono</li>
+          <li>GitHub Pages: static hosting</li>
+        </ul>
+
+        <h2>Strategy Data</h2>
+        <p>
+          All strategy metrics are sourced from Composer.trade backtests as of June 2026.
+          Metrics are updated periodically, see the <code>last_updated</code> field on each
+          strategy for the most recent data date.
+        </p>
+        <p>
+          Strategies are authored by community members and shared publicly on Composer.trade.
+          Composer Atlas provides educational context only; always review a strategy's full logic
+          on Composer.trade before investing.
+        </p>
+
+        <h2>More From <a href="https://azqato.com/" target="_blank" rel="noopener noreferrer">Azqato</a></h2>
+        <p>
+          Composer Atlas is one of a few sibling sites built and maintained by the same author,
+          covering adjacent corners of systematic and self-directed investing.
+        </p>
+
+        <h3 style="color:var(--color-primary);font-size:1rem;font-weight:600;margin:20px 0 8px">Individual Stocks</h3>
+        <p>
+          A companion resource for researching individual stock picks, a different discipline
+          from the rules-based, symphony-driven strategies covered here, but a natural complement
+          for Composer.trade users who also hold or evaluate single-stock positions alongside
+          their systematic allocations.
+        </p>
+        <p>
+          <a href="https://azqato.com/stocks/" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm">Visit Individual Stocks &rarr;</a>
+        </p>
+
+        <h3 style="color:var(--color-primary);font-size:1rem;font-weight:600;margin:20px 0 8px">Leveraged Strategies</h3>
+        <p>
+          A companion resource focused specifically on leveraged ETF strategies, the same asset
+          class (3x leveraged and inverse ETFs like TQQQ, SOXL, and SPXU) that shows up throughout
+          Composer Atlas's own strategy library, explored there in more depth and breadth.
+        </p>
+        <p>
+          <a href="https://azqato.com/leveraged-strategies/" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm">Visit Leveraged Strategies &rarr;</a>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="data/strategies.js"></script>
+  <script src="data/glossary.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

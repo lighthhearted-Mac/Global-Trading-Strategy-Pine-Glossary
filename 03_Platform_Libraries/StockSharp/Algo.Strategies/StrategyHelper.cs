@@ -1,0 +1,601 @@
+﻿namespace StockSharp.Algo.Strategies;
+
+using StockSharp.Algo.Strategies.Optimization;
+
+/// <summary>
+/// Extension class for <see cref="Strategy"/>.
+/// </summary>
+public static partial class StrategyHelper
+{
+	/// <summary>
+	/// Compile a fitness formula string into an evaluation function.
+	/// </summary>
+	/// <param name="provider"><see cref="IFitnessFormulaProvider"/></param>
+	/// <param name="formula">The formula string (e.g., "PnL", "PnL * SharpeRatio").</param>
+	/// <returns>A function that evaluates a strategy and returns a fitness value.</returns>
+	[Obsolete("Blocking sync-over-async wrapper. Use CompileAsync instead.")]
+	public static Func<Strategy, decimal> Compile(this IFitnessFormulaProvider provider, string formula)
+	{
+		if (provider is null)
+			throw new ArgumentNullException(nameof(provider));
+
+		return AsyncHelper.Run(() => provider.CompileAsync(formula, default));
+	}
+
+	#region Strategy rules
+
+	private abstract class StrategyRule<TArg>(IStrategy strategy) : MarketRule<IStrategy, TArg>(strategy)
+	{
+		protected IStrategy Strategy { get; } = strategy ?? throw new ArgumentNullException(nameof(strategy));
+	}
+
+	private sealed class PnLManagerStrategyRule : StrategyRule<decimal>
+	{
+		private readonly Func<decimal, bool> _changed;
+
+		public PnLManagerStrategyRule(IStrategy strategy)
+			: this(strategy, v => true)
+		{
+			Name = LocalizedStrings.PnLChange;
+		}
+
+		public PnLManagerStrategyRule(IStrategy strategy, Func<decimal, bool> changed)
+			: base(strategy)
+		{
+			_changed = changed ?? throw new ArgumentNullException(nameof(changed));
+
+			Strategy.PnLChanged += OnPnLChanged;
+		}
+
+		private void OnPnLChanged()
+		{
+			if (_changed(Strategy.PnL))
+				Activate(Strategy.PnL);
+		}
+
+		protected override void DisposeManaged()
+		{
+			Strategy.PnLChanged -= OnPnLChanged;
+			base.DisposeManaged();
+		}
+	}
+
+	private sealed class PositionManagerStrategyRule : StrategyRule<decimal>
+	{
+		private readonly Func<decimal, bool> _changed;
+
+		public PositionManagerStrategyRule(IStrategy strategy)
+			: this(strategy, v => true)
+		{
+			Name = LocalizedStrings.Positions;
+		}
+
+		public PositionManagerStrategyRule(IStrategy strategy, Func<decimal, bool> changed)
+			: base(strategy)
+		{
+			_changed = changed ?? throw new ArgumentNullException(nameof(changed));
+
+			((IPositionProvider)Strategy).PositionChanged += OnPositionChanged;
+		}
+
+		private void OnPositionChanged(Position position)
+		{
+			if (Strategy.Security != position.Security || Strategy.Portfolio != position.Portfolio)
+				return;
+
+			if (_changed(position.CurrentValue ?? 0))
+				Activate(Strategy.Position);
+		}
+
+		protected override void DisposeManaged()
+		{
+			((IPositionProvider)Strategy).PositionChanged -= OnPositionChanged;
+			base.DisposeManaged();
+		}
+	}
+
+	[Obsolete]
+	private sealed class NewMyTradeStrategyRule : StrategyRule<MyTrade>
+	{
+		public NewMyTradeStrategyRule(IStrategy strategy)
+			: base(strategy)
+		{
+			Name = LocalizedStrings.NewTrades + " " + strategy;
+			Strategy.NewMyTrade += OnStrategyNewMyTrade;
+		}
+
+		private void OnStrategyNewMyTrade(MyTrade trade)
+		{
+			Activate(trade);
+		}
+
+		protected override void DisposeManaged()
+		{
+			Strategy.NewMyTrade -= OnStrategyNewMyTrade;
+			base.DisposeManaged();
+		}
+	}
+
+	[Obsolete]
+	private sealed class OrderRegisteredStrategyRule : StrategyRule<Order>
+	{
+		public OrderRegisteredStrategyRule(IStrategy strategy)
+			: base(strategy)
+		{
+			Name = LocalizedStrings.Orders + " " + strategy;
+			Strategy.OrderRegistered += Activate;
+		}
+
+		protected override void DisposeManaged()
+		{
+			Strategy.OrderRegistered -= Activate;
+			base.DisposeManaged();
+		}
+	}
+
+	private sealed class ProcessStateChangedStrategyRule : StrategyRule<IStrategy>
+	{
+		private readonly Func<ProcessStates, bool> _condition;
+
+		public ProcessStateChangedStrategyRule(IStrategy strategy, Func<ProcessStates, bool> condition)
+			: base(strategy)
+		{
+			_condition = condition ?? throw new ArgumentNullException(nameof(condition));
+
+			Strategy.ProcessStateChanged += OnProcessStateChanged;
+		}
+
+		private void OnProcessStateChanged(IStrategy strategy)
+		{
+			if (_condition(Strategy.ProcessState))
+				Activate(Strategy);
+		}
+
+		protected override void DisposeManaged()
+		{
+			Strategy.ProcessStateChanged -= OnProcessStateChanged;
+			base.DisposeManaged();
+		}
+	}
+
+	private sealed class PropertyChangedStrategyRule : StrategyRule<IStrategy>
+	{
+		private readonly Func<IStrategy, bool> _condition;
+
+		public PropertyChangedStrategyRule(IStrategy strategy, Func<IStrategy, bool> condition)
+			: base(strategy)
+		{
+			_condition = condition ?? throw new ArgumentNullException(nameof(condition));
+
+			Strategy.PropertyChanged += OnPropertyChanged;
+		}
+
+		private void OnPropertyChanged(object sender, PropertyChangedEventArgs e)
+		{
+			if (_condition(Strategy))
+				Activate(Strategy);
+		}
+
+		protected override void DisposeManaged()
+		{
+			Strategy.PropertyChanged -= OnPropertyChanged;
+			base.DisposeManaged();
+		}
+	}
+
+	private sealed class ErrorStrategyRule : StrategyRule<Exception>
+	{
+		private readonly bool _processChildStrategyErrors;
+
+		public ErrorStrategyRule(IStrategy strategy, bool processChildStrategyErrors)
+			: base(strategy)
+		{
+			_processChildStrategyErrors = processChildStrategyErrors;
+
+			Name = strategy + LocalizedStrings.Error;
+			Strategy.Error += OnError;
+		}
+
+		private void OnError(IStrategy strategy, Exception error)
+		{
+			if (!_processChildStrategyErrors && !Equals(Strategy, strategy))
+				return;
+
+			Activate(error);
+		}
+
+		protected override void DisposeManaged()
+		{
+			Strategy.Error -= OnError;
+			base.DisposeManaged();
+		}
+	}
+
+	/// <summary>
+	/// To create a rule for the event of occurrence new strategy trade.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which trade occurrence will be traced.</param>
+	/// <returns>Rule.</returns>
+	[Obsolete("Use WhenOwnTradeReceived rule.")]
+	public static MarketRule<IStrategy, MyTrade> WhenNewMyTrade(this IStrategy strategy)
+	{
+		return new NewMyTradeStrategyRule(strategy);
+	}
+
+	/// <summary>
+	/// To create a rule for event of occurrence of new strategy order.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which order occurrence will be traced.</param>
+	/// <returns>Rule.</returns>
+	[Obsolete("Use ISubscriptionProvider overload.")]
+	public static MarketRule<IStrategy, Order> WhenOrderRegistered(this IStrategy strategy)
+	{
+		return new OrderRegisteredStrategyRule(strategy);
+	}
+
+	/// <summary>
+	/// To create a rule for the event of strategy position change.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which position change will be traced.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, decimal> WhenPositionChanged(this IStrategy strategy)
+	{
+		return new PositionManagerStrategyRule(strategy);
+	}
+
+	/// <summary>
+	/// To create a rule for event of position event reduction below the specified level.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which position change will be traced.</param>
+	/// <param name="value">The level. If the <see cref="Unit.Type"/> type equals to <see cref="UnitTypes.Absolute"/>, specified price is set. Otherwise, shift value is specified.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, decimal> WhenPositionLess(this IStrategy strategy, Unit value)
+	{
+		if (strategy == null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (value == null)
+			throw new ArgumentNullException(nameof(value));
+
+		var finishPosition = value.Type == UnitTypes.Absolute ? value : strategy.Position - value;
+
+		return new PositionManagerStrategyRule(strategy, pos => pos < finishPosition)
+		{
+			Name = $"Pos < {value}"
+		};
+	}
+
+	/// <summary>
+	/// To create a rule for event of position event increase above the specified level.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which position change will be traced.</param>
+	/// <param name="value">The level. If the <see cref="Unit.Type"/> type equals to <see cref="UnitTypes.Absolute"/>, specified price is set. Otherwise, shift value is specified.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, decimal> WhenPositionMore(this IStrategy strategy, Unit value)
+	{
+		if (strategy == null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (value == null)
+			throw new ArgumentNullException(nameof(value));
+
+		var finishPosition = value.Type == UnitTypes.Absolute ? value : strategy.Position + value;
+
+		return new PositionManagerStrategyRule(strategy, pos => pos > finishPosition)
+		{
+			Name = $"Pos > {value}"
+		};
+	}
+
+	/// <summary>
+	/// To create a rule for event of profit reduction below the specified level.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which the profit change will be traced.</param>
+	/// <param name="value">The level. If the <see cref="Unit.Type"/> type equals to <see cref="UnitTypes.Absolute"/>, specified price is set. Otherwise, shift value is specified.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, decimal> WhenPnLLess(this IStrategy strategy, Unit value)
+	{
+		if (strategy == null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (value == null)
+			throw new ArgumentNullException(nameof(value));
+
+		var finishPosition = value.Type == UnitTypes.Absolute ? value : strategy.PnL - value;
+
+		return new PnLManagerStrategyRule(strategy, pos => pos < finishPosition)
+		{
+			Name = $"P&L < {value}"
+		};
+	}
+
+	/// <summary>
+	/// To create a rule for event of profit increase above the specified level.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which the profit change will be traced.</param>
+	/// <param name="value">The level. If the <see cref="Unit.Type"/> type equals to <see cref="UnitTypes.Absolute"/>, specified price is set. Otherwise, shift value is specified.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, decimal> WhenPnLMore(this IStrategy strategy, Unit value)
+	{
+		if (strategy == null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (value == null)
+			throw new ArgumentNullException(nameof(value));
+
+		var finishPosition = value.Type == UnitTypes.Absolute ? value : strategy.PnL + value;
+
+		return new PnLManagerStrategyRule(strategy, pos => pos > finishPosition)
+		{
+			Name = $"P&L > {value}"
+		};
+	}
+
+	/// <summary>
+	/// To create a rule for event of profit change.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which the profit change will be traced.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, decimal> WhenPnLChanged(this IStrategy strategy)
+	{
+		return new PnLManagerStrategyRule(strategy);
+	}
+
+	/// <summary>
+	/// To create a rule for event of start of strategy operation.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which the start of strategy operation will be expected.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, IStrategy> WhenStarted(this IStrategy strategy)
+	{
+		return new ProcessStateChangedStrategyRule(strategy, s => s == ProcessStates.Started)
+		{
+			Name = strategy + LocalizedStrings.Started,
+		};
+	}
+
+	/// <summary>
+	/// To create a rule for event of beginning of the strategy operation stop.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which the beginning of stop will be determined.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, IStrategy> WhenStopping(this IStrategy strategy)
+	{
+		return new ProcessStateChangedStrategyRule(strategy, s => s == ProcessStates.Stopping)
+		{
+			Name = strategy + LocalizedStrings.Stopping,
+		};
+	}
+
+	/// <summary>
+	/// To create a rule for event full stop of strategy operation.
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which the full stop will be expected.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, IStrategy> WhenStopped(this IStrategy strategy)
+	{
+		return new ProcessStateChangedStrategyRule(strategy, s => s == ProcessStates.Stopped)
+		{
+			Name = strategy + LocalizedStrings.Stopped,
+		};
+	}
+
+	/// <summary>
+	/// To create a rule for event of strategy error (transition of state <see cref="Strategy.ErrorState"/> into <see cref="LogLevels.Error"/>).
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which error will be expected.</param>
+	/// <param name="processChildStrategyErrors">Process the child strategies errors.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, Exception> WhenError(this IStrategy strategy, bool processChildStrategyErrors = false)
+	{
+		return new ErrorStrategyRule(strategy, processChildStrategyErrors);
+	}
+
+	/// <summary>
+	/// To create a rule for event of strategy warning (transition of state <see cref="Strategy.ErrorState"/> into <see cref="LogLevels.Warning"/>).
+	/// </summary>
+	/// <param name="strategy">The strategy, based on which the warning will be expected.</param>
+	/// <returns>Rule.</returns>
+	public static MarketRule<IStrategy, IStrategy> WhenWarning(this IStrategy strategy)
+	{
+		return new PropertyChangedStrategyRule(strategy, s => s.ErrorState == LogLevels.Warning)
+		{
+			Name = strategy + LocalizedStrings.Warning,
+		};
+	}
+
+	#endregion
+
+	#region Order actions
+
+	/// <summary>
+	/// To create an action, registering the order.
+	/// </summary>
+	/// <param name="rule">Rule.</param>
+	/// <param name="order">The order to be registered.</param>
+	/// <returns>Rule.</returns>
+	public static IMarketRule Register(this IMarketRule rule, Order order)
+	{
+		if (rule == null)
+			throw new ArgumentNullException(nameof(rule));
+
+		if (order == null)
+			throw new ArgumentNullException(nameof(order));
+
+		return rule.Do(() => GetRuleStrategy(rule).RegisterOrder(order));
+	}
+
+	/// <summary>
+	/// To create an action, re-registering the order.
+	/// </summary>
+	/// <param name="rule">Rule.</param>
+	/// <param name="oldOrder">The order to be re-registered.</param>
+	/// <param name="newOrder">Information about new order.</param>
+	/// <returns>Rule.</returns>
+	public static IMarketRule ReRegister(this IMarketRule rule, Order oldOrder, Order newOrder)
+	{
+		if (rule == null)
+			throw new ArgumentNullException(nameof(rule));
+
+		if (oldOrder == null)
+			throw new ArgumentNullException(nameof(oldOrder));
+
+		if (newOrder == null)
+			throw new ArgumentNullException(nameof(newOrder));
+
+		return rule.Do(() => GetRuleStrategy(rule).ReRegisterOrder(oldOrder, newOrder));
+	}
+
+	/// <summary>
+	/// To create an action, cancelling the order.
+	/// </summary>
+	/// <param name="rule">Rule.</param>
+	/// <param name="order">The order to be cancelled.</param>
+	/// <returns>Rule.</returns>
+	public static IMarketRule Cancel(this IMarketRule rule, Order order)
+	{
+		if (rule == null)
+			throw new ArgumentNullException(nameof(rule));
+
+		if (order == null)
+			throw new ArgumentNullException(nameof(order));
+
+		return rule.Do(() => GetRuleStrategy(rule).CancelOrder(order));
+	}
+
+	#endregion
+
+	private static Strategy GetRuleStrategy(IMarketRule rule)
+	{
+		if (rule == null)
+			throw new ArgumentNullException(nameof(rule));
+
+		if (rule.Container is not Strategy strategy)
+			throw new ArgumentException(LocalizedStrings.RuleNotRegisteredInStrategy.Put(rule), nameof(rule));
+
+		return strategy;
+	}
+
+	/// <summary>
+	/// Stop a started strategy that has no market data to run on, with an error that says so: it asked for none, or all it
+	/// asked for was refused. A run over history replays only the market data subscribed and would wait forever for such a
+	/// strategy. Called once the strategy has started, when it has asked for its data.
+	/// </summary>
+	/// <param name="strategy"><see cref="Strategy"/>.</param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/>.</param>
+	/// <returns><see langword="true"/> if the strategy was stopped.</returns>
+	public static async ValueTask<bool> StopIfNoMarketDataAsync(this Strategy strategy, CancellationToken cancellationToken)
+	{
+		if (strategy is null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (strategy.ProcessState != ProcessStates.Started || strategy.HasMarketData)
+			return false;
+
+		await strategy.StopAsync(new InvalidOperationException(LocalizedStrings.NoData), cancellationToken);
+		return true;
+	}
+
+	/// <summary>
+	/// Execute strategy.
+	/// </summary>
+	/// <param name="strategy"><see cref="Strategy"/>.</param>
+	/// <param name="extra">Extra action.</param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/>.</param>
+	/// <returns><see cref="ValueTask"/>.</returns>
+	public static async ValueTask<(bool completed, Exception error)> ExecAsync(this Strategy strategy, Func<CancellationToken, ValueTask> extra, CancellationToken cancellationToken)
+	{
+		if (strategy is null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (extra is null)
+			throw new ArgumentNullException(nameof(extra));
+
+		if (strategy.ProcessState != ProcessStates.Stopped)
+			throw new ArgumentException($"State is {strategy.ProcessState}.", nameof(strategy));
+
+		var tcs = AsyncHelper.CreateTaskCompletionSource<int>();
+		var started = AsyncHelper.CreateTaskCompletionSource<bool>();
+
+		const int canceled = 1;
+		const int completed = 2;
+		const int error = 3;
+
+		var finalResult = 0;
+
+		using var registration = cancellationToken.Register(() =>
+		{
+			if (Interlocked.CompareExchange(ref finalResult, canceled, 0) == 0)
+				tcs.TrySetResult(canceled);
+		});
+
+		void OnProcessStateChanged(IStrategy s)
+		{
+			if (s != strategy)
+				return;
+
+			if (s.ProcessState == ProcessStates.Stopped)
+			{
+				if (finalResult != 0)
+					return;
+
+				var result = s.LastError is null ? completed : error;
+
+				if (Interlocked.CompareExchange(ref finalResult, result, 0) == 0)
+					tcs.TrySetResult(result);
+			}
+			else if (s.ProcessState == ProcessStates.Started)
+			{
+				started.TrySetResult(true);
+			}
+		}
+
+		strategy.ProcessStateChanged += OnProcessStateChanged;
+
+		try
+		{
+			await Task.Yield();
+
+			await strategy.StartAsync();
+
+			await extra(cancellationToken);
+
+			// By the time it is started the strategy has asked for the market data it trades on.
+			if (await Task.WhenAny(started.Task, tcs.Task) == started.Task && !tcs.Task.IsCompleted)
+				await strategy.StopIfNoMarketDataAsync(cancellationToken);
+
+			var res = await tcs.Task;
+
+			return (res == completed, strategy.LastError);
+		}
+		finally
+		{
+			strategy.ProcessStateChanged -= OnProcessStateChanged;
+
+			if (finalResult == canceled)
+				await strategy.StopAsync();
+		}
+	}
+
+	/// <summary>
+	/// The volume that leaves the strategy holding <see cref="Strategy.Volume"/> on the other side of zero.
+	/// </summary>
+	/// <param name="strategy">The strategy that is reversing.</param>
+	/// <returns>Volume to trade, never more than twice <see cref="Strategy.Volume"/>.</returns>
+	/// <remarks>
+	/// The obvious form is Volume + |Position|, and it has no ceiling. That matters because a position is not
+	/// moved by the strategy's own fills alone - in emulation, stored candle processing, order matching and
+	/// ProcessTime each report one - so <see cref="Strategy.Position"/> can read larger than what the strategy
+	/// put on. Uncapped, the next reversal then trades about twice what the last one did, and a month of
+	/// crossovers ends in a position no money could hold.
+	/// </remarks>
+	public static decimal ReversalVolume(this Strategy strategy)
+	{
+		if (strategy is null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		var position = strategy.Position;
+
+		return position == 0 ? strategy.Volume : position.Abs().Min(strategy.Volume) * 2;
+	}
+}

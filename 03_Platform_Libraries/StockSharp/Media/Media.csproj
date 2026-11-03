@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <Import Project="..\props\common_target_netwindows.props" />
+  <PropertyGroup>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="logos\*.svg" />
+    <None Remove="logos\*.svg" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Remove="*.gif" />
+    <None Remove="*.png" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\props\common_localization.props" />
+  <ItemGroup>
+    <PackageReference Include="Ecng.ComponentModel" Version="$(EcngVer)" />
+  </ItemGroup>
+  <ItemGroup>
+    <AdditionalFiles Include="strings.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Localization.Generator\Localization.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

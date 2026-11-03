@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/k1">
+  <link rel="canonical" href="https://composeratlas.com/k1">
+  <meta property="og:title" content="Does This ETF Issue a K-1?">
+  <meta property="og:description" content="Check whether an ETF issues a Schedule K-1 instead of a 1099. Type a ticker for an instant answer, with the fund's legal structure and the tax form it sends.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Check whether an ETF issues a Schedule K-1 instead of a 1099. Type a ticker for an instant answer, with the fund's legal structure and the tax form it sends.">
+  <title>K1 Lookup: Does This ETF Issue a K-1?: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .k1-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+    .k1-label { display: block; font-size: 0.8125rem; font-weight: 600; color: var(--color-primary); margin-bottom: 8px; }
+    .k1-hint { font-size: 0.8125rem; color: var(--color-secondary); margin-bottom: 12px; line-height: 1.6; }
+    .k1-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    #k1-in {
+      flex: 1 1 220px; min-width: 0; box-sizing: border-box;
+      background: var(--color-bg); color: var(--color-primary);
+      border: 1px solid var(--color-border-strong); border-radius: 8px; padding: 12px 14px;
+      font-family: var(--font-mono); font-size: 1rem; text-transform: uppercase;
+    }
+    #k1-in:focus { outline: 2px solid var(--color-blue); outline-offset: -1px; }
+    .k1-msg { margin-top: 14px; font-size: 0.875rem; line-height: 1.6; }
+    .k1-msg.err { color: var(--color-pink); }
+    .k1-msg.info { color: var(--color-secondary); }
+    .k1-msg a { color: var(--color-blue); }
+    .k1-live { display: inline-block; font-size: 0.6875rem; text-transform: uppercase;
+      letter-spacing: 0.04em; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+      background: var(--color-yellow); color: var(--color-bg); vertical-align: middle; margin-left: 8px; }
+
+    .k1-verdict { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+    .k1-verdict .v { font-family: var(--font-mono); font-size: 2.5rem; line-height: 1; font-weight: 600; }
+    .k1-verdict .v.yes { color: var(--color-yellow); }
+    .k1-verdict .v.no { color: var(--color-green); }
+    .k1-verdict .v.unknown { color: var(--color-disabled); }
+    .k1-verdict .lbl { font-size: 1rem; color: var(--color-secondary); }
+    .k1-sub { font-size: 0.9375rem; color: var(--color-primary); margin-top: 12px; }
+    .k1-sub .meta { color: var(--color-disabled); font-size: 0.8125rem; display: block; margin-top: 4px; font-family: var(--font-mono); }
+
+    .k1-facts { display: flex; flex-wrap: wrap; gap: 12px 28px; margin-top: 18px; }
+    .k1-facts .k { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-disabled); display: block; margin-bottom: 3px; }
+    .k1-facts .val { font-size: 0.9375rem; color: var(--color-primary); font-family: var(--font-mono); }
+
+    table.k1-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    table.k1-table th, table.k1-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border); }
+    table.k1-table th { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-disabled); font-weight: 600; }
+    table.k1-table td.t { font-family: var(--font-mono); color: var(--color-yellow); }
+    table.k1-table td.t a { color: inherit; text-decoration: none; }
+    table.k1-table td.t a:hover, table.k1-table td.t a:focus { text-decoration: underline; }
+    table.k1-table td.nm { color: var(--color-secondary); }
+    .k1-wrap { overflow-x: auto; max-height: 60vh; overflow-y: auto; }
+    .k1-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .k1-filter { font-family: inherit; font-size: 0.8125rem; padding: 5px 12px; border-radius: 6px;
+      border: 1px solid var(--color-border); background: transparent; color: var(--color-secondary); cursor: pointer; }
+    .k1-filter:hover { color: var(--color-primary); border-color: var(--color-disabled); }
+    .k1-filter.on { background: var(--color-green); border-color: var(--color-green); color: var(--color-bg); font-weight: 600; }
+    .k1-filter.k1-export { margin-left: auto; }
+    .k1-filter.k1-toggle { margin-left: 0; }
+    table.k1-table td.yes { color: var(--color-green); font-family: var(--font-mono); }
+    table.k1-table td.no { color: var(--color-secondary); font-family: var(--font-mono); }
+    table.k1-table th { position: sticky; top: 0; background: var(--color-surface); z-index: 1; padding: 0; }
+    button.k1-sort { width: 100%; font: inherit; color: inherit; text-transform: inherit;
+      letter-spacing: inherit; background: none; border: 0; padding: 8px 10px; text-align: left;
+      cursor: pointer; display: flex; align-items: center; gap: 5px; }
+    button.k1-sort:hover { color: var(--color-primary); }
+    button.k1-sort .arrow { opacity: 0; font-size: 0.75rem; line-height: 1; }
+    button.k1-sort[aria-sort] .arrow { opacity: 1; color: var(--color-green); }
+    .k1-note { font-size: 0.8125rem; color: var(--color-secondary); line-height: 1.7; margin-top: 14px; }
+    .k1-warn { margin-top: 14px; padding: 12px 14px; border-radius: 6px;
+      border: 1px solid var(--color-pink); background: rgba(255, 0, 102, 0.06);
+      color: var(--color-primary); font-size: 0.8125rem; line-height: 1.7; }
+    .k1-warn strong { color: var(--color-pink); }
+    .k1-warn a { color: var(--color-blue); }
+    /* Deliberately quieter than .k1-warn. The pink block means "the answer on this page may
+       be wrong"; this one means "the answer is right, and here is a different risk that the
+       answer does not cover". Same weight would train a reader to skim both. */
+    .k1-etn { margin-top: 14px; padding: 12px 14px; border-radius: 6px;
+      border: 1px solid var(--color-blue); background: rgba(0, 132, 255, 0.06);
+      color: var(--color-primary); font-size: 0.8125rem; line-height: 1.7; }
+    .k1-etn strong { color: var(--color-blue); }
+    .k1-tag { display: inline-block; font-size: 0.625rem; text-transform: uppercase;
+      letter-spacing: 0.05em; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+      border: 1px solid var(--color-blue); color: var(--color-blue);
+      font-family: var(--font-mono); margin-left: 7px; vertical-align: middle; }
+    .k1-note code { font-size: 0.75rem; }
+    .k1-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .k1-head h2 { color: var(--color-primary); font-size: 1rem; font-weight: 600; margin: 0; }
+    .k1-count { font-size: 0.8125rem; color: var(--color-disabled); font-family: var(--font-mono); }
+    .k1-body { font-size: 0.875rem; color: var(--color-secondary); line-height: 1.75; }
+    .k1-body strong { color: var(--color-primary); }
+    .k1-body p { margin: 0 0 10px; }
+    .k1-body table { margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+
+      <div style="max-width:680px;margin-bottom:28px">
+        <h1 style="color:var(--color-primary);margin-bottom:8px">K1 Lookup</h1>
+        <p style="color:var(--color-secondary);font-size:1.0625rem;line-height:1.6">
+          Type a ticker and find out whether it sends you a <strong>Schedule K-1</strong> instead of
+          a 1099. A K-1 arrives late, complicates a return, and can hand you taxable income in a year
+          you sold nothing. Plenty of symphonies hold one without their author noticing.
+        </p>
+      </div>
+
+      <div class="k1-panel">
+        <label class="k1-label" for="k1-in">Ticker</label>
+        <p class="k1-hint">
+          For example <code>USO</code>, <code>UVXY</code>, <code>TQQQ</code>, or <code>GLD</code>.
+        </p>
+        <div class="k1-form">
+          <input id="k1-in" type="text" spellcheck="false" autocomplete="off"
+                 placeholder="Enter a ticker" maxlength="12">
+          <button id="btn-check" class="btn btn-green">Check</button>
+          <button id="btn-clear" class="btn btn-outline">Clear</button>
+        </div>
+        <div id="k1-msg" class="k1-msg"></div>
+      </div>
+
+      <div id="k1-out" style="display:none">
+        <div class="k1-panel">
+          <div class="k1-verdict">
+            <span class="v" id="k1-verdict">?</span>
+            <span class="lbl" id="k1-verdict-label"></span>
+          </div>
+          <div class="k1-sub" id="k1-name"></div>
+          <div class="k1-facts" id="k1-facts"></div>
+          <div class="k1-warn" id="k1-warn" hidden></div>
+          <div class="k1-etn" id="k1-etn" hidden></div>
+          <p class="k1-note" id="k1-note"></p>
+        </div>
+      </div>
+
+      <div class="k1-panel">
+        <div class="k1-head">
+          <h2>Every fund in this database</h2>
+          <span class="k1-count" id="k1-summary"></span>
+        </div>
+        <div class="k1-filters">
+          <button type="button" class="k1-filter on" data-filter="all">All</button>
+          <button type="button" class="k1-filter" data-filter="yes">K-1</button>
+          <button type="button" class="k1-filter" data-filter="no">No K-1</button>
+          <button type="button" class="k1-filter" data-filter="etn">ETN</button>
+          <button type="button" class="k1-filter k1-export" id="btn-export">Export</button>
+          <button type="button" class="k1-filter k1-toggle" id="btn-collapse"
+                  aria-expanded="false" aria-controls="k1-wrap">Expand</button>
+        </div>
+        <div class="k1-wrap" id="k1-wrap" hidden>
+          <table class="k1-table">
+            <thead><tr>
+              <th><button type="button" class="k1-sort" data-col="ticker">Ticker<span class="arrow"></span></button></th>
+              <th><button type="button" class="k1-sort" data-col="k1">K1<span class="arrow"></span></button></th>
+              <th><button type="button" class="k1-sort" data-col="name">Name<span class="arrow"></span></button></th>
+            </tr></thead>
+            <tbody id="k1-list"></tbody>
+          </table>
+        </div>
+        <p class="k1-note" id="k1-refreshed"></p>
+      </div>
+
+      <div class="k1-panel">
+        <div class="k1-head"><h2>How this is worked out</h2></div>
+        <div class="k1-body">
+          <p>
+            <strong>Three readings, and they have to agree.</strong> The first is etfdb's own
+            <code>Distributes K1</code> field, which answers this question directly and is the
+            primary check.
+          </p>
+          <p>
+            <strong>The second is the fund's legal structure</strong>, which reaches the same answer
+            independently, because structure determines the tax form its holders receive. It is not
+            redundant. Some funds carry no structure field, and this is the reading that answers the
+            question of <em>which</em> form a "no" means. It is also the tie-breaker, for the reason
+            below the table.
+          </p>
+          <div class="k1-wrap">
+            <table class="k1-table">
+              <thead><tr><th>Structure</th><th>You receive</th><th>Why</th></tr></thead>
+              <tbody>
+                <tr><td>Commodity Pool</td><td>Schedule K-1</td><td>A partnership for tax purposes, so income, gains and losses pass through to holders</td></tr>
+                <tr><td>ETF</td><td>Form 1099</td><td>A regulated investment company under the 1940 Act</td></tr>
+                <tr><td>ETN</td><td>Form 1099-B</td><td>A senior unsecured debt note, not a fund at all. <strong>See the warning below</strong></td></tr>
+                <tr><td>Grantor Trust</td><td>Form 1099-B</td><td>A direct undivided interest in the underlying, as with the physical metal trusts</td></tr>
+                <tr><td>UIT</td><td>Form 1099</td><td>A unit investment trust, which is what SPY, QQQ and DIA are</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin-top:14px">
+            <strong>One row in that table is worth more than the tax answer beside it.</strong> An
+            ETN sends you a 1099-B, which is the easy form, and that is the least interesting thing
+            about it. An exchange-traded note is a bank's unsecured promise to pay you the index
+            return. Nothing is held on your behalf, so there is no basket to liquidate if the issuer
+            fails, and the issuer may call the note or stop creating new units whenever it likes.
+            A note with creations suspended can trade well away from the value it tracks and stay
+            there. This database flags every ETN it knows about, on the answer panel and with a tag
+            in the table, and the <strong>ETN</strong> filter lists them on their own. There are
+            <strong id="k1-etn-count">several</strong> of them here, and they are among the most
+            heavily traded tickers on the site.
+          </p>
+          <p style="margin-top:14px">
+            <strong>Every verdict is corroborated by a second, independent field.</strong> Maximum
+            short- and long-term capital gains rates fall out of the structure rather than being
+            copied from it. A commodity pool reads <code>27.84% / 27.84%</code>, identical and
+            matching neither standard rate, because Section 1256 contracts get a fixed 60/40 blend. A
+            grantor trust reads <code>39.60% / 28.00%</code>, the collectibles rate. Everything else
+            reads <code>39.60% / 20.00%</code>. Where readings disagree this page says so
+            rather than picking one quietly.
+          </p>
+          <p>
+            <strong>When the direct answer and the structure contradict each other, this page warns
+            you and asks you to go further.</strong> That is not caution for its own sake. etfdb
+            answers <code>Distributes K1: No</code> for <strong>SOYB</strong> and
+            <strong>TAGS</strong>, and both funds send K-1s: Teucrium's own annual report says the
+            funds are "treated as a partnership for U.S. federal income tax purposes" and that
+            partners report their share of the fund's income on their own returns, and the trust
+            does not appear in the SEC's register of 1940-Act funds. So the direct field is the best
+            single signal available and is still occasionally wrong. On a contested fund the verdict
+            shown follows the structure, and the warning tells you to confirm it in the fund's
+            prospectus or annual report before you act on it.
+          </p>
+          <p>
+            <strong>Limitations, stated plainly.</strong> This covers exchange-traded products that
+            appear in the database below; individual stocks and MLPs are out of scope, and an MLP
+            does issue a K-1. Structures change only if a fund reorganises, which is rare but not
+            impossible. The verdict here is a strong indicator and not tax advice: before it matters
+            to a return, confirm it against the fund's own prospectus or its issuer's tax centre.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="data/k1.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (function () {
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'K1 Lookup' },
+      ]);
+
+      var HUMAN_URL = function (t) { return 'https://etfdb.com/etf/' + encodeURIComponent(t) + '/#expense'; };
+
+      var msgEl = document.getElementById('k1-msg');
+      var outEl = document.getElementById('k1-out');
+      var inputEl = document.getElementById('k1-in');
+      var DB = null;
+
+      function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+      function setMsg(html, cls) {
+        msgEl.className = 'k1-msg ' + (cls || '');
+        msgEl.innerHTML = html || '';
+      }
+      function fact(k, v) {
+        return '<div><span class="k">' + esc(k) + '</span><span class="val">' + esc(v) + '</span></div>';
+      }
+
+      // The lookup is local: data/k1.js ships with the page, so an answer costs no
+      // network call and works offline. etfdb sits behind bot mitigation and sends no
+      // CORS header, so a live per-visitor lookup was never possible; the fetching
+      // happens in scripts/refresh_k1.py on a maintainer's machine instead.
+      function loadDb() {
+        if (window.K1_DATA) return Promise.resolve(window.K1_DATA);
+        return fetch(BASE + '/data/k1.json').then(function (r) {
+          if (!r.ok) throw new Error('Failed to load k1.json');
+          return r.json();
+        });
+      }
+
+      function render(ticker, row) {
+        var vEl = document.getElementById('k1-verdict');
+        var lEl = document.getElementById('k1-verdict-label');
+
+        if (row.k1 === true) {
+          vEl.textContent = 'Yes'; vEl.className = 'v yes';
+          lEl.textContent = 'this one sends a Schedule K-1';
+        } else if (row.k1 === false) {
+          vEl.textContent = 'No'; vEl.className = 'v no';
+          lEl.textContent = 'no K-1, you get a ' + (row.tax_form || '1099');
+        } else {
+          vEl.textContent = 'Unknown'; vEl.className = 'v unknown';
+          lEl.textContent = 'neither source answered for this fund';
+        }
+
+        document.getElementById('k1-name').innerHTML =
+          '<strong>' + esc(ticker) + '</strong>' +
+          (row.live ? '<span class="k1-live">live, unverified</span>' : '') +
+          (row.name ? '  ' + esc(row.name) : '') +
+          '<span class="meta">' + esc(row.brand || 'unknown issuer') +
+          (row.checked ? '  &middot;  checked ' + esc(row.checked) : '') +
+          (row.live ? '  &middot;  fetched just now, not from this site\'s database' : '') +
+          '</span>';
+
+        var facts = '';
+        if (row.distributes_k1 === true || row.distributes_k1 === false) {
+          facts += fact('etfdb "Distributes K1"', row.distributes_k1 ? 'Yes' : 'No');
+        }
+        if (row.structure) facts += fact('Structure', row.structure);
+        // Joined into k1.json at build time by refresh_k1.py, not loaded from
+        // data/ticker_inception.js. The page needs one date, and that file is
+        // ~100 KB; loading it would charge every visitor 100 KB to render ~25
+        // bytes. Rendered only when present: a ticker nobody has looked up and
+        // a fund with no start date are different claims, and a missing key is
+        // not evidence of either.
+        if (row.inception) facts += fact('Inception', row.inception);
+        if (row.tax_form) facts += fact('Tax form', row.tax_form);
+        if (row.st_rate) facts += fact('Max short-term rate', row.st_rate);
+        if (row.lt_rate) facts += fact('Max long-term rate', row.lt_rate);
+        document.getElementById('k1-facts').innerHTML = facts;
+
+        // The loud case: etfdb's own two fields contradict each other. This is not styled
+        // like the rest of the notes on purpose. A reader who acts on a wrong answer here
+        // files their taxes wrong, so it must not read as one more caveat in grey text.
+        var warnEl = document.getElementById('k1-warn');
+        if (row.contested) {
+          warnEl.innerHTML =
+            '<strong>Sources disagree on this fund. Do not stop here.</strong> etfdb answers ' +
+            '"Distributes K1: ' + (row.distributes_k1 ? 'Yes' : 'No') + '" while describing the ' +
+            'fund as a <strong>' + esc(row.structure || 'unknown structure') + '</strong>, which ' +
+            'implies the opposite. The verdict above follows the structure, because the one time ' +
+            'this happened and was chased down (SOYB and TAGS, both Teucrium) the structure was ' +
+            'right and the flag was wrong. That is one precedent, not a rule. ' +
+            '<strong>Confirm this one yourself before you act on it:</strong> read the fund\'s ' +
+            'own prospectus or annual report, which states its tax treatment directly, or check ' +
+            'whether the issuer appears in SEC EDGAR\'s register of 1940-Act funds. A fund taxed ' +
+            'as a partnership sends a K-1.';
+          warnEl.hidden = false;
+        } else {
+          warnEl.innerHTML = '';
+          warnEl.hidden = true;
+        }
+
+        // An ETN is the one structure where the tax answer is the less important fact.
+        // The verdict above is still correct (no K-1, a 1099-B), but a reader who came for
+        // the tax question and leaves without knowing they are holding unsecured bank debt
+        // has been told the smaller half of the truth. Shown for live rows too, since
+        // classifyLive parses the same Structure field.
+        var etnEl = document.getElementById('k1-etn');
+        if ((row.structure || '').toUpperCase() === 'ETN') {
+          etnEl.innerHTML =
+            '<strong>This is an ETN, not a fund.</strong> You do not own a basket of anything. ' +
+            'An exchange-traded note is <strong>senior unsecured debt of the bank that issued ' +
+            'it</strong>, and a promise to pay whatever the index returns. There are no assets ' +
+            'held on your behalf and nothing to liquidate, so if the issuer fails you are an ' +
+            'unsecured creditor of a failed bank rather than an owner of securities. ' +
+            'The issuer can also <strong>call it, suspend new issuance, or delist it</strong> ' +
+            'at its discretion, and a note trading with issuance suspended can drift far from ' +
+            'the value of the index it tracks. That is a separate question from the tax form, ' +
+            'and this page only answers the tax form. Read the issuer\'s pricing supplement ' +
+            'before holding one.';
+          etnEl.hidden = false;
+        } else {
+          etnEl.innerHTML = '';
+          etnEl.hidden = true;
+        }
+
+        var note;
+        if (row.live) {
+          note = '<strong>This answer was fetched live and has not been reviewed.</strong> Every ' +
+            'other verdict on this page comes from a database built on a maintainer\'s machine ' +
+            'and checked in; this one was parsed in your browser, just now, from a third party\'s ' +
+            'rendering of the etfdb page, and nobody has looked at it. ' +
+            (row.agrees === false
+              ? 'Its structure and capital gains rates also <strong>disagree</strong>, so treat it ' +
+                'as a lead rather than an answer. '
+              : '') +
+            'Confirm it before acting on it: ';
+        } else if (row.override) {
+          note = '<strong>This row was corrected by hand after an independent check.</strong> ' +
+            esc(row.override);
+        } else if (row.agrees === false) {
+          note = '<strong>The two readings disagree for this fund.</strong> Its structure says one ' +
+            'thing and its capital gains rates say another, which normally means the fund is ' +
+            'unusual or the source page changed shape. Treat this answer as unconfirmed and check ' +
+            'the prospectus.';
+        } else if (row.agrees === true) {
+          note = row.source_field === 'structure'
+            ? 'etfdb publishes no "Distributes K1" answer for this fund, so the verdict comes from ' +
+              'its legal structure, and the capital gains rates agree with that structure.'
+            : 'etfdb answers this question directly for this fund, and its structure and capital ' +
+              'gains rates agree with that answer. All three readings point the same way.';
+        } else {
+          note = 'Only one reading was available for this fund, with nothing else on the page to ' +
+            'corroborate it.';
+        }
+        note += ' Verify for yourself: <a href="' + HUMAN_URL(ticker) + '" target="_blank" rel="noopener noreferrer">etfdb.com/etf/' + esc(ticker) + '</a>';
+        document.getElementById('k1-note').innerHTML = note;
+
+        outEl.style.display = 'block';
+      }
+
+      // Keep the address bar showing what is on screen, so the URL is always copyable and
+      // reloading reproduces the same answer. replaceState rather than pushState on purpose:
+      // pushState would make Back walk through every ticker someone tried instead of leaving
+      // the page. Wrapped because replaceState throws a SecurityError over file://, which this
+      // page is expected to work under, and a failed URL update must not stop the lookup.
+      function setUrl(ticker) {
+        if (!window.history || !window.history.replaceState) { return; }
+        try {
+          window.history.replaceState(
+            null, '',
+            window.location.pathname +
+            (ticker ? '?t=' + encodeURIComponent(ticker) : '') +
+            window.location.hash
+          );
+        } catch (err) { /* file://, or a browser that refuses. Not worth surfacing. */ }
+      }
+
+      // ---------------------------------------------------------------- live fallback
+      //
+      // For a ticker the shipped database has never seen, the page asks etfdb directly. It
+      // cannot do that itself: etfdb sends no access-control-allow-origin header, so the
+      // browser discards the response, and every general-purpose CORS relay tested (cors.sh,
+      // allorigins, codetabs, corsproxy.io, cors.lol) is either blocked by etfdb's Cloudflare
+      // bot mitigation, paid, or rate-limited on the first request. r.jina.ai is a reader
+      // service that renders the page server-side and does send CORS headers, so it is the
+      // one route that works from a browser.
+      //
+      // **A live answer is not a database answer and must never look like one.** These rows
+      // are parsed from a third party's rendering of a page, on the fly, with none of the
+      // review a committed row has had. Every live result is badged and says so.
+      var LIVE_URL = function (ticker) {
+        return 'https://r.jina.ai/https://etfdb.com/etf/' + encodeURIComponent(ticker) + '/';
+      };
+
+      // Mirrors TAX_FORMS and K1_STRUCTURES in scripts/refresh_k1.py. Two copies of one fact
+      // is a real cost, accepted because the alternative is shipping a data file to describe
+      // five strings. If the Python table changes, change this one in the same commit.
+      var FORMS = {
+        'commodity pool': 'Schedule K-1',
+        'etf': 'Form 1099',
+        'etn': 'Form 1099-B',
+        'grantor trust': 'Form 1099-B',
+        'uit': 'Form 1099',
+        'unit investment trust': 'Form 1099'
+      };
+
+      var LIVE_CACHE = {};
+
+      function parseLive(text) {
+        function grab(re) { var m = text.match(re); return m ? m[1].trim() : null; }
+        // Anchored to a line start and case-sensitive on purpose: the page also contains a
+        // lowercase "structure](https://etfdb.com/energy-infrastructure..." category link,
+        // and an unanchored match reads that instead of the field.
+        var structure = grab(/\nStructure ([^\n[]+)/);
+        return {
+          name: grab(/^Title:\s*(.+)$/m),
+          // The primary check, same field and same two literal answers the build script reads.
+          distributes_k1: grab(/Distributes K-?1\s+\|?\s*(Yes|No)\b/),
+          brand: grab(/\nBrand\[([^\]]+)\]/),
+          structure: structure,
+          st_rate: grab(/Max ST Capital Gains Rate\s+([\d.]+%)/),
+          lt_rate: grab(/Max LT Capital Gains Rate\s+([\d.]+%)/)
+        };
+      }
+
+      // Mirrors classify() in scripts/refresh_k1.py: same three signals, same precedence,
+      // same contested rule. If that function changes, change this one in the same commit.
+      function classifyLive(parsed) {
+        var key = (parsed.structure || '').trim().toLowerCase();
+        var stated = parsed.distributes_k1 === null || parsed.distributes_k1 === undefined
+          ? null : parsed.distributes_k1.toLowerCase() === 'yes';
+        var known = FORMS.hasOwnProperty(key);
+        var fromStructure = known ? key === 'commodity pool' : null;
+
+        var row = {
+          name: parsed.name, brand: parsed.brand, structure: parsed.structure,
+          distributes_k1: stated, k1: null, source_field: null, contested: false,
+          tax_form: known ? FORMS[key] : null,
+          st_rate: parsed.st_rate, lt_rate: parsed.lt_rate,
+          agrees: null, live: true
+        };
+
+        if (stated !== null && fromStructure !== null && stated !== fromStructure) {
+          row.contested = true;
+          row.k1 = fromStructure;
+          row.source_field = 'structure';
+        } else if (stated !== null) {
+          row.k1 = stated;
+          row.source_field = 'distributes_k1';
+        } else if (fromStructure !== null) {
+          row.k1 = fromStructure;
+          row.source_field = 'structure';
+        }
+        if (row.tax_form === null && row.k1 === true) { row.tax_form = 'Schedule K-1'; }
+
+        var conflicts = row.contested;
+        if (parsed.st_rate && parsed.lt_rate && known) {
+          var expected = key === 'commodity pool' ? ['27.84%', '27.84%']
+                       : key === 'grantor trust' ? ['39.60%', '28.00%']
+                       : ['39.60%', '20.00%'];
+          conflicts = conflicts || parsed.st_rate !== expected[0] || parsed.lt_rate !== expected[1];
+        }
+        if (stated !== null || known) { row.agrees = !conflicts; }
+        return row;
+      }
+
+      function lookupLive(ticker) {
+        if (LIVE_CACHE[ticker]) { return Promise.resolve(LIVE_CACHE[ticker]); }
+        var ctrl = window.AbortController ? new AbortController() : null;
+        var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 25000) : null;
+        return fetch(LIVE_URL(ticker), ctrl ? { signal: ctrl.signal } : {})
+          .then(function (res) {
+            if (timer) { clearTimeout(timer); }
+            if (res.status === 429) { throw new Error('rate-limited'); }
+            if (!res.ok) { throw new Error('HTTP ' + res.status); }
+            return res.text();
+          })
+          .then(function (text) {
+            // The reader service answers 200 even when the upstream page is a 404: it returns
+            // etfdb's own "Page Not Found" document, which has a Title and a URL Source like
+            // any other. It does however record the upstream status, and that line is the
+            // only reliable signal. Without this check a nonexistent ticker reports itself as
+            // a real fund named "ETF Database | Page Not Found" with no Structure field.
+            if (/Target URL returned error 404/.test(text)) { throw new Error('no-page'); }
+            if (text.indexOf('URL Source:') === -1) { throw new Error('unreadable'); }
+            var row = classifyLive(parseLive(text));
+            LIVE_CACHE[ticker] = row;
+            return row;
+          })
+          .then(null, function (err) {
+            if (timer) { clearTimeout(timer); }
+            throw err;
+          });
+      }
+
+      function liveMiss(raw, why) {
+        setMsg(
+          '<strong>' + esc(raw) + '</strong> is not in this database, and the live check ' +
+          esc(why) + '. Check it directly: ' +
+          '<a href="' + HUMAN_URL(raw) + '" target="_blank" rel="noopener noreferrer">etfdb.com/etf/' + esc(raw) + '</a>, ' +
+          'and read the <strong>Structure</strong> field. Commodity Pool means a K-1.',
+          'info'
+        );
+      }
+
+      function checkLive(raw) {
+        setMsg('<strong>' + esc(raw) + '</strong> is not in this database. Checking etfdb live, one moment.', 'info');
+        lookupLive(raw).then(function (row) {
+          // Before v1.27.7 a missing Structure field meant no answer at all, which is what
+          // DRAM used to hit. The Distributes K1 flag answers most of those, so the dead end
+          // is now only for a page carrying neither field.
+          if (row.k1 === null) {
+            outEl.style.display = 'none';
+            // The capital gains rates are deliberately NOT used to guess here. SOYB and TAGS
+            // are commodity pools that publish 39.60%/20.00%, the ordinary-rate signature, so
+            // ordinary-looking rates do not mean "no K-1". Guessing from them would produce a
+            // confident wrong answer about someone's taxes.
+            setMsg(
+              '<strong>' + esc(raw) + '</strong>' + (row.name ? ', ' + esc(row.name) + ',' : '') +
+              ' was fetched live, but <strong>etfdb publishes neither a "Distributes K1" ' +
+              'answer nor a Structure field for it</strong>, and those are the two fields this ' +
+              'tool reads. There is no answer to give. Its capital ' +
+              'gains rates are not a substitute: some funds that do send a K-1 publish ' +
+              'ordinary-looking rates. Read the fund\'s own prospectus, or check ' +
+              '<a href="' + HUMAN_URL(raw) + '" target="_blank" rel="noopener noreferrer">etfdb.com/etf/' + esc(raw) + '</a>.',
+              'info'
+            );
+            return;
+          }
+          setMsg('', '');
+          render(raw, row);
+        }, function (err) {
+          outEl.style.display = 'none';
+          var why = err && err.message === 'rate-limited'
+            ? 'was rate-limited by the relay it goes through'
+            : err && err.message === 'no-page'
+            ? 'found no such fund on etfdb'
+            : err && err.message === 'unreadable'
+            ? 'got a response it could not read'
+            : 'could not reach etfdb';
+          liveMiss(raw, why);
+        });
+      }
+
+      function check() {
+        var raw = (inputEl.value || '').trim().toUpperCase().replace(/^\$/, '');
+        if (!raw) { setMsg('Enter a ticker first.', 'err'); outEl.style.display = 'none'; return; }
+        if (!DB) { setMsg('The database is still loading.', 'info'); return; }
+
+        // Set before branching, so all three outcomes are linkable, not just a found row.
+        setUrl(raw);
+
+        var row = DB.tickers[raw];
+        if (!row) {
+          outEl.style.display = 'none';
+          checkLive(raw);
+          return;
+        }
+        if (row.not_found) {
+          outEl.style.display = 'none';
+          setMsg(
+            '<strong>' + esc(raw) + '</strong> was looked up and is not an exchange-traded product ' +
+            'on record. If it is an individual stock then no K-1 applies, unless it is an MLP, ' +
+            'which is out of scope here.',
+            'info'
+          );
+          return;
+        }
+        setMsg('', '');
+        render(raw, row);
+      }
+
+      // The table and its collapsed state are a per-visitor convenience, so they live in
+      // localStorage: never sent anywhere, never read back by anything but this page in this
+      // browser. Every access is wrapped, because a private window or a browser set to block
+      // site data throws on the accessor itself rather than returning empty.
+      var STORE_KEY = 'composer-atlas.k1.view.v1';
+      var FILTER = 'all';
+      var OPEN = false;
+      var SORT = 'ticker';
+      var ASC = true;
+
+      function loadView() {
+        var raw = null;
+        try { raw = localStorage.getItem(STORE_KEY); } catch (e) { return; }
+        if (!raw) { return; }
+        try {
+          var v = JSON.parse(raw);
+          if (!v || typeof v !== 'object') { return; }
+          // Validated rather than trusted: a stale or hand-edited value must not put the page
+          // into a state it has no button for.
+          if (v.filter === 'all' || v.filter === 'yes' || v.filter === 'no' ||
+              v.filter === 'etn') { FILTER = v.filter; }
+          if (v.sort === 'ticker' || v.sort === 'name' || v.sort === 'k1') { SORT = v.sort; }
+          if (typeof v.asc === 'boolean') { ASC = v.asc; }
+          OPEN = v.open === true;
+        } catch (e) { /* unparseable, so keep the defaults */ }
+      }
+
+      function saveView() {
+        try {
+          localStorage.setItem(STORE_KEY, JSON.stringify(
+            { filter: FILTER, open: OPEN, sort: SORT, asc: ASC }));
+        } catch (e) { /* storage unavailable. The page still works, it just forgets. */ }
+      }
+
+      // The filtered, sorted row list the table shows. Factored out so the CSV export and
+      // the table cannot disagree about what "the table" currently is: one comparator, one
+      // filter, both readers.
+      function currentRows() {
+        // Rows recorded as not_found are not exchange-traded products at all, so they are
+        // counted in the footnote but never listed: a table of funds should not contain
+        // individual stocks that happen to have been checked.
+        var visible = [];
+
+        Object.keys(DB.tickers).forEach(function (t) {
+          var r = DB.tickers[t];
+          if (r.k1 !== true && r.k1 !== false) { return; }
+          if (FILTER === 'yes' && r.k1 !== true) { return; }
+          if (FILTER === 'no' && r.k1 !== false) { return; }
+          // The ETN filter cuts across the other two rather than sitting beside them: it
+          // asks about structure, not about the tax form. Every ETN is also a No, so it
+          // reads as a narrowing of that list rather than a fourth mutually exclusive state.
+          if (FILTER === 'etn' && (r.structure || '').toUpperCase() !== 'ETN') { return; }
+          visible.push([t, r]);
+        });
+
+        visible.sort(function (a, b) {
+          var d = 0;
+          if (SORT === 'name') {
+            // A fund with no name sorts to the bottom either way rather than leading the
+            // table with a blank cell. There are none today; the parser can always meet a
+            // page it cannot read a name from.
+            var an = a[1].name || '', bn = b[1].name || '';
+            if (!an !== !bn) { return an ? -1 : 1; }
+            d = an.localeCompare(bn);
+          } else if (SORT === 'k1') {
+            d = (a[1].k1 ? 1 : 0) - (b[1].k1 ? 1 : 0);
+          }
+          // Ticker is both the default sort and the tiebreak, so the order is total: two
+          // rows never swap places between renders of the same data.
+          if (d === 0) { return a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0); }
+          return ASC ? d : -d;
+        });
+        if (!ASC && SORT === 'ticker') { visible.reverse(); }
+        return visible;
+      }
+
+      function renderList() {
+        var yes = 0, no = 0, other = 0;
+        Object.keys(DB.tickers).forEach(function (t) {
+          var r = DB.tickers[t];
+          if (r.k1 === true) { yes++; } else if (r.k1 === false) { no++; } else { other++; }
+        });
+
+        var visible = currentRows();
+        var rows = '', shown = visible.length;
+        visible.forEach(function (pair) {
+          var t = pair[0], r = pair[1];
+          rows += '<tr><td class="t"><a href="?t=' + encodeURIComponent(t) + '">' +
+            esc(t) + '</a>' +
+            ((r.structure || '').toUpperCase() === 'ETN' ? '<span class="k1-tag">ETN</span>' : '') +
+            '</td>' +
+            '<td class="' + (r.k1 ? 'yes' : 'no') + '">' + (r.k1 ? 'Yes' : 'No') + '</td>' +
+            '<td class="nm">' + esc(r.name || '') + '</td></tr>';
+        });
+
+        document.getElementById('k1-list').innerHTML = rows ||
+          '<tr><td colspan="3" class="nm">Nothing matches this filter.</td></tr>';
+
+        var listed = yes + no;
+        document.getElementById('k1-summary').textContent =
+          FILTER === 'all' ? shown + ' funds, ' + yes + ' issuing a K-1'
+            : FILTER === 'etn' ? shown + ' of ' + listed + ' are ETNs, not funds'
+            : shown + ' of ' + listed + ' funds';
+
+        var etnCount = 0;
+        Object.keys(DB.tickers).forEach(function (t) {
+          if ((DB.tickers[t].structure || '').toUpperCase() === 'ETN') { etnCount++; }
+        });
+        var etnEl2 = document.getElementById('k1-etn-count');
+        if (etnEl2) { etnEl2.textContent = etnCount === 1 ? 'one' : etnCount; }
+
+        document.getElementById('k1-refreshed').textContent =
+          listed + ' funds checked against etfdb.com, ' + yes + ' issuing a K-1 and ' + no +
+          ' not.' + (other ? ' A further ' + other + (other === 1 ? ' ticker was' : ' tickers were') +
+          ' checked and turned out not to be an ETF, so ' + (other === 1 ? 'it is' : 'they are') +
+          ' not listed here.' : '') +
+          (DB.refreshed_at ? ' Last refreshed ' + DB.refreshed_at + '.' : '');
+      }
+
+      function applyView() {
+        var wrap = document.getElementById('k1-wrap');
+        var toggle = document.getElementById('btn-collapse');
+        wrap.hidden = !OPEN;
+        toggle.textContent = OPEN ? 'Collapse' : 'Expand';
+        toggle.setAttribute('aria-expanded', OPEN ? 'true' : 'false');
+        Array.prototype.forEach.call(
+          document.querySelectorAll('.k1-filter[data-filter]'),
+          function (b) { b.classList.toggle('on', b.getAttribute('data-filter') === FILTER); }
+        );
+        Array.prototype.forEach.call(
+          document.querySelectorAll('button.k1-sort'),
+          function (b) {
+            var on = b.getAttribute('data-col') === SORT;
+            // aria-sort is what the arrow's CSS keys off, so the visible state and the state
+            // announced to a screen reader cannot drift apart.
+            if (on) { b.setAttribute('aria-sort', ASC ? 'ascending' : 'descending'); }
+            else { b.removeAttribute('aria-sort'); }
+            b.querySelector('.arrow').textContent = on ? (ASC ? '\u25B2' : '\u25BC') : '';
+          }
+        );
+        if (DB) { renderList(); }
+      }
+
+      document.getElementById('btn-check').addEventListener('click', check);
+      inputEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); check(); }
+      });
+      Array.prototype.forEach.call(
+        document.querySelectorAll('.k1-filter[data-filter]'),
+        function (b) {
+          b.addEventListener('click', function () {
+            FILTER = b.getAttribute('data-filter');
+            // Picking a filter while collapsed would otherwise look like a dead button.
+            OPEN = true;
+            applyView();
+            saveView();
+          });
+        }
+      );
+
+      Array.prototype.forEach.call(
+        document.querySelectorAll('button.k1-sort'),
+        function (b) {
+          b.addEventListener('click', function () {
+            var col = b.getAttribute('data-col');
+            // Clicking the active column flips direction; clicking a new one starts ascending,
+            // rather than inheriting a direction the reader set for a different column.
+            if (col === SORT) { ASC = !ASC; } else { SORT = col; ASC = true; }
+            applyView();
+            saveView();
+          });
+        }
+      );
+
+      // Delegated, because the rows are rebuilt on every sort and filter and per-row
+      // listeners would have to be rebound each time. A modified click (new tab, new window)
+      // is left alone so the href behaves like the link it is.
+      document.getElementById('k1-list').addEventListener('click', function (e) {
+        var a = e.target.closest ? e.target.closest('a') : null;
+        if (!a) { return; }
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) { return; }
+        e.preventDefault();
+        inputEl.value = a.textContent.trim();
+        check();
+        outEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+
+      // ---------------------------------------------------------------- CSV export
+      //
+      // Exports exactly what the table is showing: the active filter and sort, so the file
+      // matches the screen rather than quietly disagreeing with it. With the default All
+      // filter that is the whole database, and the filename says which of the three it is.
+      //
+      // The columns go beyond the three on screen on purpose. A row whose sources contest
+      // each other carries a warning on the page, and a CSV that dropped that column would
+      // strip the warning off the answer while keeping the answer, which is the one export
+      // bug here that could actually cost someone money.
+      function csvCell(value) {
+        var s = value === null || value === undefined ? '' : String(value);
+        // A leading =, +, - or @ is executed as a formula by Excel and Sheets when the file
+        // is opened. This is not hypothetical here: SVIX is named "-1x Short VIX Futures
+        // ETF". Prefixing with an apostrophe is the standard defusing, and spreadsheets hide
+        // the apostrophe on display.
+        if (/^[=+\-@\t\r]/.test(s)) { s = "'" + s; }
+        if (/[",\r\n]/.test(s)) { s = '"' + s.replace(/"/g, '""') + '"'; }
+        return s;
+      }
+
+      function exportCsv() {
+        var rows = currentRows();
+        var head = ['Ticker', 'K1', 'Name', 'Structure', 'Tax form',
+                    'etfdb Distributes K1', 'Sources disagree', 'Checked'];
+        var lines = [head.join(',')];
+        rows.forEach(function (pair) {
+          var t = pair[0], r = pair[1];
+          lines.push([
+            t,
+            r.k1 ? 'Yes' : 'No',
+            r.name || '',
+            r.structure || '',
+            r.tax_form || '',
+            r.distributes_k1 === true ? 'Yes' : r.distributes_k1 === false ? 'No' : '',
+            r.contested ? 'Yes, verify this row' : '',
+            r.checked || ''
+          ].map(csvCell).join(','));
+        });
+
+        // CRLF per RFC 4180, and a BOM so Excel reads it as UTF-8 rather than as the local
+        // codepage, which is what turns fund names with accents into mojibake.
+        var blob = new Blob(['\ufeff' + lines.join('\r\n') + '\r\n'],
+                            { type: 'text/csv;charset=utf-8' });
+        var name = 'composer-atlas-k1-' +
+          (FILTER === 'yes' ? 'issuers' : FILTER === 'no' ? 'no-k1'
+            : FILTER === 'etn' ? 'etn' : 'all') +
+          '-' + (DB.refreshed_at || '').slice(0, 10) + '.csv';
+
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Revoked on a later tick: revoking synchronously can beat the download starting.
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      }
+
+      document.getElementById('btn-export').addEventListener('click', exportCsv);
+
+      document.getElementById('btn-collapse').addEventListener('click', function () {
+        OPEN = !OPEN;
+        applyView();
+        saveView();
+      });
+
+      document.getElementById('btn-clear').addEventListener('click', function () {
+        inputEl.value = '';
+        setMsg('', '');
+        outEl.style.display = 'none';
+        setUrl('');
+        inputEl.focus();
+      });
+
+      loadView();
+      applyView();
+
+      loadDb().then(function (db) {
+        DB = db;
+        renderList();
+        // ?t=USO deep-links a verdict, so an answer can be linked to directly.
+        var q = new URLSearchParams(window.location.search).get('t');
+        if (q) { inputEl.value = q.toUpperCase(); check(); }
+      }).catch(function (err) {
+        setMsg('Could not load the K-1 database: ' + esc(err.message), 'err');
+      });
+    })();
+  </script>
+</body>
+</html>

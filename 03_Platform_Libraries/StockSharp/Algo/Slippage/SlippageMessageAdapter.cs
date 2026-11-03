@@ -1,0 +1,45 @@
+namespace StockSharp.Algo.Slippage;
+
+/// <summary>
+/// The message adapter, automatically calculating slippage.
+/// </summary>
+/// <remarks>
+/// Initializes a new instance of the <see cref="SlippageMessageAdapter"/>.
+/// </remarks>
+/// <param name="innerAdapter">The adapter, to which messages will be directed.</param>
+/// <param name="slippageManager">Slippage manager.</param>
+public class SlippageMessageAdapter(IMessageAdapter innerAdapter, ISlippageManager slippageManager) : MessageAdapterWrapper(innerAdapter)
+{
+	private readonly ISlippageManager _slippageManager = slippageManager ?? throw new ArgumentNullException(nameof(slippageManager));
+
+	/// <inheritdoc />
+	protected override ValueTask OnSendInMessageAsync(Message message, CancellationToken cancellationToken)
+	{
+		_slippageManager.ProcessMessage(message);
+		return base.OnSendInMessageAsync(message, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	protected override ValueTask OnInnerAdapterNewOutMessageAsync(Message message, CancellationToken cancellationToken)
+	{
+		if (message.Type != MessageTypes.Reset)
+		{
+			var slippage = _slippageManager.ProcessMessage(message);
+
+			if (slippage is decimal s && message is ExecutionMessage execMsg)
+				execMsg.Slippage ??= s;
+		}
+
+		return base.OnInnerAdapterNewOutMessageAsync(message, cancellationToken);
+	}
+
+	/// <summary>
+	/// Create a copy of <see cref="SlippageMessageAdapter"/>.
+	/// </summary>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns>Copy.</returns>
+	public override async ValueTask<IMessageAdapter> CloneAsync(CancellationToken cancellationToken)
+	{
+		return new SlippageMessageAdapter(await InnerAdapter.CloneAsync(cancellationToken), await _slippageManager.CloneAsync(cancellationToken));
+	}
+}

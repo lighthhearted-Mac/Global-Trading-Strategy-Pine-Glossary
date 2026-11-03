@@ -1,0 +1,704 @@
+namespace StockSharp.Tests;
+
+using StockSharp.Algo.Basket;
+
+/// <summary>
+/// General BasketMessageAdapter tests: connection, reset, pending, disconnect.
+/// White-box: validates all internal state objects at every step.
+/// </summary>
+[TestClass]
+public class BasketMessageAdapterTests : BasketTestBase
+{
+	#region Connection
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task Connect_SingleAdapter_ReturnsConnectMessage()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, _) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting,
+			twoAdapters: false);
+
+		// --- Before connect: all state clean ---
+		connectionState.ConnectedCount.AssertEqual(0, "ConnectedCount before connect");
+		connectionState.HasPendingAdapters.AssertFalse("HasPendingAdapters before connect");
+		connectionState.AllFailed.AssertFalse("AllFailed before connect");
+		connectionState.AllDisconnectedOrFailed.AssertTrue("AllDisconnectedOrFailed before connect");
+		pendingState.Count.AssertEqual(0, "PendingState.Count before connect");
+
+		// --- Send ConnectMessage ---
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+
+		// --- After connect: validate all state ---
+		connectionState.ConnectedCount.AssertEqual(1, "ConnectedCount after connect");
+		connectionState.HasPendingAdapters.AssertFalse("HasPendingAdapters after connect");
+		connectionState.AllFailed.AssertFalse("AllFailed after connect");
+		connectionState.AllDisconnectedOrFailed.AssertFalse("AllDisconnectedOrFailed after connect");
+		connectionState.TryGetAdapterState(adapter1, out var state1, out _).AssertTrue("Adapter1 should have state");
+		state1.AssertEqual(ConnectionStates.Connected, "Adapter1 should be Connected");
+		pendingState.Count.AssertEqual(0, "PendingState.Count after connect");
+
+		// --- Output validation ---
+		adapter1.GetMessages<ConnectMessage>().Count().AssertEqual(1, "Adapter should receive exactly 1 ConnectMessage");
+
+		var connectOuts = GetOut<ConnectMessage>();
+		connectOuts.Length.AssertEqual(2, "Basket should emit 2 ConnectMessages: 1 from routing manager + 1 passthrough from inner adapter");
+		connectOuts[0].Error.AssertNull();
+	}
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task Connect_TwoAdapters_OnFirst_ReturnsAfterFirstConnects()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		connectionManager.ConnectDisconnectEventOnFirstAdapter = true;
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, adapter2) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting);
+
+		// --- Before connect ---
+		connectionState.ConnectedCount.AssertEqual(0);
+		connectionState.HasPendingAdapters.AssertFalse();
+		pendingState.Count.AssertEqual(0);
+
+		// --- Send ConnectMessage ---
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+
+		// --- After connect: both connected ---
+		connectionState.ConnectedCount.AssertEqual(2, "Both adapters should be connected");
+		connectionState.HasPendingAdapters.AssertFalse();
+		connectionState.AllFailed.AssertFalse();
+		connectionState.TryGetAdapterState(adapter1, out var s1, out _).AssertTrue();
+		s1.AssertEqual(ConnectionStates.Connected);
+		connectionState.TryGetAdapterState(adapter2, out var s2, out _).AssertTrue();
+		s2.AssertEqual(ConnectionStates.Connected);
+		pendingState.Count.AssertEqual(0);
+
+		// --- Output ---
+		var connectOuts = GetOut<ConnectMessage>();
+		connectOuts.Length.AssertEqual(3, "Basket should emit ConnectMessage (1 routing + 2 passthrough)");
+		AreSame(basket, connectOuts[1].Adapter,
+			"OnFirst mode should emit the aggregate ConnectMessage after the first adapter response");
+		AreNotSame(basket, connectOuts[0].Adapter);
+		AreNotSame(basket, connectOuts[2].Adapter);
+	}
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task Connect_TwoAdapters_WaitAll_ReturnsAfterBothConnect()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		connectionManager.ConnectDisconnectEventOnFirstAdapter = false;
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, adapter2) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting);
+
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+
+		// --- After connect ---
+		connectionState.ConnectedCount.AssertEqual(2);
+		connectionState.HasPendingAdapters.AssertFalse();
+		connectionState.AllFailed.AssertFalse();
+		connectionState.AllDisconnectedOrFailed.AssertFalse();
+		connectionState.TryGetAdapterState(adapter1, out var s1, out _).AssertTrue();
+		s1.AssertEqual(ConnectionStates.Connected);
+		connectionState.TryGetAdapterState(adapter2, out var s2, out _).AssertTrue();
+		s2.AssertEqual(ConnectionStates.Connected);
+		pendingState.Count.AssertEqual(0);
+
+		var connectOuts = GetOut<ConnectMessage>();
+		connectOuts.Length.AssertEqual(3, "Basket should emit ConnectMessage after all connected (1 routing + 2 passthrough)");
+		AreSame(basket, connectOuts[2].Adapter,
+			"WaitAll mode should emit the aggregate ConnectMessage after both adapter responses");
+		AreNotSame(basket, connectOuts[0].Adapter);
+		AreNotSame(basket, connectOuts[1].Adapter);
+	}
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task Connect_AdapterFails_AllFailed_ReturnsError()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, adapter2) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting);
+
+		adapter1.ConnectError = new InvalidOperationException("fail1");
+		adapter2.ConnectError = new InvalidOperationException("fail2");
+
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+
+		// --- After connect with errors ---
+		connectionState.AllFailed.AssertTrue("AllFailed should be true");
+		connectionState.ConnectedCount.AssertEqual(0, "No adapters connected");
+		connectionState.HasPendingAdapters.AssertFalse("No pending adapters");
+		connectionState.AllDisconnectedOrFailed.AssertTrue("AllDisconnectedOrFailed should be true");
+		connectionState.TryGetAdapterState(adapter1, out var s1, out _).AssertTrue();
+		s1.AssertEqual(ConnectionStates.Failed, "Adapter1 should be Failed");
+		connectionState.TryGetAdapterState(adapter2, out var s2, out _).AssertTrue();
+		s2.AssertEqual(ConnectionStates.Failed, "Adapter2 should be Failed");
+		pendingState.Count.AssertEqual(0);
+
+		// --- Output ---
+		var connectOuts = GetOut<ConnectMessage>();
+		connectOuts.Length.AssertEqual(3, "Basket should emit ConnectMessages (1 routing + 2 passthrough)");
+		connectOuts.Count(c => c.Error != null).AssertEqual(3, "Every failed ConnectMessage should contain an error");
+
+		var aggregate = connectOuts.Single(c => ReferenceEquals(c.Adapter, basket));
+		var aggregateError = aggregate.Error as AggregateException;
+		aggregateError.AssertNotNull("Basket aggregate ConnectMessage should contain AggregateException");
+		aggregateError.InnerExceptions.Count.AssertEqual(2);
+		aggregateError.InnerExceptions.Select(e => e.Message)
+			.ToHashSet().SetEquals(["fail1", "fail2"])
+			.AssertTrue("Aggregate error should retain both adapter failures");
+		connectionManager.CurrentState.AssertEqual(ConnectionStates.Failed);
+	}
+
+	#endregion
+
+	#region Reset
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task Reset_ClearsAllState()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, _) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting,
+			twoAdapters: false);
+
+		// --- Connect ---
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+		connectionState.ConnectedCount.AssertEqual(1);
+		connectionState.TryGetAdapterState(adapter1, out var cs1, out _).AssertTrue();
+		cs1.AssertEqual(ConnectionStates.Connected);
+
+		// --- Subscribe to create routing state ---
+		var transId = basket.TransactionIdGenerator.GetNextId();
+		await SendToBasket(basket, new MarketDataMessage
+		{
+			SecurityId = SecId1,
+			DataType2 = DataType.Ticks,
+			IsSubscribe = true,
+			TransactionId = transId,
+		}, TestContext.CancellationToken);
+
+		// --- Validate state after subscription ---
+		subscriptionRouting.TryGetSubscription(transId, out _, out _, out _).AssertTrue("Subscription should exist");
+		connectionState.ConnectedCount.AssertEqual(1);
+		pendingState.Count.AssertEqual(0);
+
+		ClearOut();
+
+		// --- Reset ---
+		await SendToBasket(basket, new ResetMessage(), TestContext.CancellationToken);
+
+		// --- After reset: ALL state should be cleared ---
+		subscriptionRouting.TryGetSubscription(transId, out _, out _, out _)
+			.AssertFalse("Subscription routing should be cleared after reset");
+		connectionState.ConnectedCount.AssertEqual(0, "ConnectedCount should be 0 after reset");
+		connectionState.HasPendingAdapters.AssertFalse("HasPendingAdapters should be false after reset");
+		pendingState.Count.AssertEqual(0, "PendingState should be empty after reset");
+	}
+
+	#endregion
+
+	#region Pending Messages
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task MessageBeforeConnect_IsPended_ThenProcessedAfterConnect()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, _) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting,
+			twoAdapters: false);
+
+		adapter1.AutoRespond = false;
+
+		// --- Send ConnectMessage (adapter will NOT auto-respond) ---
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+
+		// --- After connect sent but no response: adapter is pending ---
+		connectionState.HasPendingAdapters.AssertTrue("Adapter should be pending (connecting)");
+		connectionState.ConnectedCount.AssertEqual(0, "No adapters connected yet");
+		connectionState.TryGetAdapterState(adapter1, out var state, out _).AssertTrue();
+		state.AssertEqual(ConnectionStates.Connecting, "Adapter1 should be Connecting");
+		pendingState.Count.AssertEqual(0, "No pending messages yet");
+
+		// --- Send SecurityLookup while connecting ---
+		var transId = basket.TransactionIdGenerator.GetNextId();
+		await SendToBasket(basket, new SecurityLookupMessage
+		{
+			TransactionId = transId,
+		}, TestContext.CancellationToken);
+
+		// --- After sending message during connecting: message should be pended ---
+		pendingState.Count.AssertEqual(1, "Pending state should have messages");
+		connectionState.HasPendingAdapters.AssertTrue("Still pending");
+		connectionState.ConnectedCount.AssertEqual(0, "Still not connected");
+
+		adapter1.GetMessages<SecurityLookupMessage>().Count()
+			.AssertEqual(0, "Adapter should NOT receive SecurityLookupMessage while connecting");
+
+		// subscriptionRouting should NOT have the subscription yet (it's pended)
+		subscriptionRouting.TryGetSubscription(transId, out _, out _, out _)
+			.AssertFalse("Pended message should not create subscription routing");
+
+		// --- Now adapter connects ---
+		adapter1.AutoRespond = true;
+		await adapter1.SendOutMessageAsync(new ConnectMessage(), TestContext.CancellationToken);
+
+		// --- After adapter connected: pending should be drained ---
+		connectionState.ConnectedCount.AssertEqual(1, "Adapter now connected");
+		connectionState.HasPendingAdapters.AssertFalse("No more pending adapters");
+		connectionState.TryGetAdapterState(adapter1, out var state2, out _).AssertTrue();
+		state2.AssertEqual(ConnectionStates.Connected, "Adapter1 should be Connected");
+		pendingState.Count.AssertEqual(0, "Pending state should be empty after connect");
+
+		var released = GetOut<SecurityLookupMessage>().Single(m => m.IsBack());
+		released.TransactionId.AssertEqual(transId);
+
+		await SendToBasket(basket, released, TestContext.CancellationToken);
+		adapter1.GetMessages<SecurityLookupMessage>().Count()
+			.AssertEqual(1, "Released pending lookup should reach the connected adapter");
+		GetOut<SubscriptionResponseMessage>()
+			.Any(r => r.OriginalTransactionId == transId && r.Error != null)
+			.AssertFalse("Released pending lookup must not be rejected as unsupported");
+	}
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task MessagePended_TwoAdapters_OneFailsOneConnects_ReleasedToLive()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, adapter2) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting,
+			twoAdapters: true);
+
+		adapter1.AutoRespond = false;
+		adapter2.AutoRespond = false;
+
+		// --- Send ConnectMessage ---
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+
+		// --- Both adapters pending ---
+		connectionState.HasPendingAdapters.AssertTrue("Both adapters should be pending");
+		connectionState.ConnectedCount.AssertEqual(0);
+		connectionState.TryGetAdapterState(adapter1, out var sa1, out _).AssertTrue();
+		sa1.AssertEqual(ConnectionStates.Connecting);
+		connectionState.TryGetAdapterState(adapter2, out var sa2, out _).AssertTrue();
+		sa2.AssertEqual(ConnectionStates.Connecting);
+		pendingState.Count.AssertEqual(0);
+
+		// --- Send MarketData while both connecting ---
+		var transId = basket.TransactionIdGenerator.GetNextId();
+		var mdMsg = new MarketDataMessage
+		{
+			SecurityId = SecId1,
+			DataType2 = DataType.Ticks,
+			IsSubscribe = true,
+			TransactionId = transId,
+		};
+		await SendToBasket(basket, mdMsg, TestContext.CancellationToken);
+
+		// --- Message should be pended ---
+		pendingState.Count.AssertEqual(1, "Message should be pended while adapters connecting");
+		connectionState.HasPendingAdapters.AssertTrue("Still pending");
+		connectionState.ConnectedCount.AssertEqual(0);
+
+		adapter1.GetMessages<MarketDataMessage>().Count()
+			.AssertEqual(0, "Adapter1 should not receive MarketData while connecting");
+		adapter2.GetMessages<MarketDataMessage>().Count()
+			.AssertEqual(0, "Adapter2 should not receive MarketData while connecting");
+
+		// --- Adapter1 connects ---
+		adapter1.AutoRespond = true;
+		await adapter1.SendOutMessageAsync(new ConnectMessage(), TestContext.CancellationToken);
+
+		connectionState.ConnectedCount.AssertEqual(1, "Adapter1 connected");
+		connectionState.HasPendingAdapters.AssertTrue("Adapter2 still connecting");
+		connectionState.TryGetAdapterState(adapter1, out var sa1b, out _).AssertTrue();
+		sa1b.AssertEqual(ConnectionStates.Connected);
+		connectionState.TryGetAdapterState(adapter2, out var sa2b, out _).AssertTrue();
+		sa2b.AssertEqual(ConnectionStates.Connecting);
+		pendingState.Count.AssertEqual(1, "Message should still be pended");
+
+		adapter1.GetMessages<MarketDataMessage>().Count()
+			.AssertEqual(0, "Adapter1 should not receive MarketData yet");
+
+		// --- Adapter2 fails ---
+		await adapter2.SendOutMessageAsync(new ConnectMessage { Error = new Exception("Connection refused") }, TestContext.CancellationToken);
+
+		connectionState.HasPendingAdapters.AssertFalse("No more pending");
+		connectionState.ConnectedCount.AssertEqual(1);
+		connectionState.TryGetAdapterState(adapter2, out var sa2c, out _).AssertTrue();
+		sa2c.AssertEqual(ConnectionStates.Failed, "Adapter2 should be Failed");
+		pendingState.Count.AssertEqual(0, "Pending should be drained");
+
+		// --- Process loopback messages ---
+		var loopbacks = OutMessages.Where(m => m.IsBack()).ToArray();
+		loopbacks.Length.AssertEqual(1, "Should have loopback messages from released pending");
+
+		foreach (var lb in loopbacks)
+		{
+			lb.BackMode = MessageBackModes.None;
+			await SendToBasket(basket, lb, TestContext.CancellationToken);
+		}
+
+		// --- After loopback processed: adapter1 should receive MarketData ---
+		adapter1.GetMessages<MarketDataMessage>().Count()
+			.AssertEqual(1, "Adapter1 should receive MarketData after pending released");
+		adapter2.GetMessages<MarketDataMessage>().Count()
+			.AssertEqual(0, "Failed adapter2 should not receive MarketData");
+
+		// --- Validate subscription routing after processing ---
+		// The subscription should now be routed through adapter1
+		subscriptionRouting.TryGetSubscription(transId, out _, out var adapters, out _)
+			.AssertTrue("Subscription routing should have entry for transId");
+	}
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task OrderPendedWhileConnecting_AllAdaptersFail_IsAnsweredWithOrderFail()
+	{
+		// An order held while the adapters connect, and then left with no adapter at all, must be
+		// rejected by transaction the same way the immediate no-adapter path rejects it: without an
+		// OrderFail naming the transaction, the order stays pending for ever.
+		var token = CancellationToken;
+
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, _) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting,
+			twoAdapters: false);
+
+		adapter1.AutoRespond = false;
+
+		await SendToBasket(basket, new ConnectMessage(), token);
+
+		connectionState.HasPendingAdapters.AssertTrue("Adapter should be connecting");
+		connectionState.ConnectedCount.AssertEqual(0);
+
+		var transId = basket.TransactionIdGenerator.GetNextId();
+
+		await SendToBasket(basket, new OrderRegisterMessage
+		{
+			SecurityId = SecId1,
+			PortfolioName = Portfolio1,
+			Side = Sides.Buy,
+			Price = 100m,
+			Volume = 1m,
+			TransactionId = transId,
+		}, token);
+
+		pendingState.Count.AssertEqual(1, "Order sent while connecting should be held");
+		adapter1.GetMessages<OrderRegisterMessage>().Count()
+			.AssertEqual(0, "Connecting adapter should not receive the order");
+
+		// The only adapter fails, so the held order can never be routed anywhere.
+		await adapter1.SendOutMessageAsync(new ConnectMessage { Error = new InvalidOperationException("Connection refused") }, token);
+
+		connectionState.HasPendingAdapters.AssertFalse("No more pending adapters");
+		connectionState.ConnectedCount.AssertEqual(0, "Nothing connected");
+		pendingState.Count.AssertEqual(0, "Held messages should be released");
+
+		adapter1.GetMessages<OrderRegisterMessage>().Count()
+			.AssertEqual(0, "Failed adapter should not receive the order");
+
+		var fail = GetOut<ExecutionMessage>().FirstOrDefault(m => m.OriginalTransactionId == transId && m.HasOrderInfo);
+		fail.AssertNotNull("Order that no adapter can take must be answered with an OrderFail naming its transaction");
+		fail.OrderState.AssertEqual(OrderStates.Failed, "Order should be failed");
+		fail.Error.AssertNotNull("OrderFail should carry the reason");
+	}
+
+	#endregion
+
+	#region Pinned adapter data forwarding
+
+	/// <summary>
+	/// Adapter-level analog of BasketRoutingManagerTests.ProcessOutMessage_DataMessage_PinnedAdapterSubscription_StillForwarded.
+	///
+	/// A subscription pinned to a specific adapter (Message.Adapter set) is sent in through
+	/// BasketMessageAdapter. For non-MarketData subscriptions (here SecurityLookupMessage), the basket
+	/// must still register the direct subscription in routing state even though no parent-child mapping
+	/// is created for this known, active subscription.
+	///
+	/// When out-data for that subscription arrives (a SecurityMessage carrying the subscription's own
+	/// transaction id), OnInnerAdapterNewOutMessage routes it through the Security branch, which calls
+	/// ApplyParentLookupId. Direct subscription ids recorded in the routing state must be accepted
+	/// unchanged; otherwise the data is silently dropped instead of being forwarded out.
+	///
+	/// Canonical contract: data for a known pinned subscription MUST reach the outer subscriber.
+	/// This test asserts the message IS forwarded, so it is RED on the current engine (drop) and would
+	/// go GREEN once the pinned-subscription data path stops being dropped.
+	/// </summary>
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task PinnedAdapterSubscription_OutData_IsForwarded_NotDropped()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, _) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting,
+			twoAdapters: false);
+
+		// --- Connect so adapter1 is registered in the basket wrappers ---
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+		connectionState.ConnectedCount.AssertEqual(1, "Adapter1 should be connected");
+		adapter1.AutoRespond = false;
+
+		ClearOut();
+
+		// --- Pin a subscription to adapter1 (Message.Adapter set) ---
+		// Keep the mock from auto-finishing the lookup before we emit data for the active subscription.
+		var subTransId = basket.TransactionIdGenerator.GetNextId();
+		await SendToBasket(basket, new SecurityLookupMessage
+		{
+			TransactionId = subTransId,
+			Adapter = adapter1,
+		}, TestContext.CancellationToken);
+
+		// Sanity: the pinned lookup really reached adapter1 (the pinned route worked).
+		adapter1.GetMessages<SecurityLookupMessage>().Count()
+			.AssertEqual(1, "Pinned SecurityLookup should be delivered to the pinned adapter");
+
+		ClearOut();
+
+		// --- Out-data for the pinned subscription arrives from adapter1 ---
+		// It carries the subscription's own transaction id and belongs to a known, active subscription.
+		var dataMsg = new SecurityMessage { SecurityId = SecId1 };
+		dataMsg.SetSubscriptionIds([subTransId]);
+
+		await adapter1.SendOutMessageAsync(dataMsg, TestContext.CancellationToken);
+
+		// --- Canonical contract: the data must be forwarded out, not dropped ---
+		var outSecs = GetOut<SecurityMessage>();
+		outSecs.Length.AssertEqual(1, "Data for a known pinned subscription must be forwarded, not dropped");
+		((ISubscriptionIdMessage)outSecs[0]).GetSubscriptionIds()
+			.Contains(subTransId).AssertTrue("The pinned subscription id must be preserved on the forwarded data");
+	}
+
+	#endregion
+
+	#region Disconnect
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task Disconnect_AllAdaptersDisconnected_ReturnsDisconnectMessage()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, adapter2) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting);
+
+		// --- Connect ---
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+		connectionState.ConnectedCount.AssertEqual(2);
+		connectionState.TryGetAdapterState(adapter1, out var cs1, out _).AssertTrue();
+		cs1.AssertEqual(ConnectionStates.Connected);
+		connectionState.TryGetAdapterState(adapter2, out var cs2, out _).AssertTrue();
+		cs2.AssertEqual(ConnectionStates.Connected);
+		ClearOut();
+
+		// --- Disconnect ---
+		await SendToBasket(basket, new DisconnectMessage(), TestContext.CancellationToken);
+
+		// --- After disconnect: validate all state ---
+		connectionState.AllDisconnectedOrFailed.AssertTrue("All should be disconnected");
+		connectionState.ConnectedCount.AssertEqual(0, "No connected adapters");
+		connectionState.HasPendingAdapters.AssertFalse();
+		connectionState.TryGetAdapterState(adapter1, out var ds1, out _).AssertTrue();
+		ds1.AssertEqual(ConnectionStates.Disconnected, "Adapter1 should be Disconnected");
+		connectionState.TryGetAdapterState(adapter2, out var ds2, out _).AssertTrue();
+		ds2.AssertEqual(ConnectionStates.Disconnected, "Adapter2 should be Disconnected");
+		pendingState.Count.AssertEqual(0);
+
+		// --- Output ---
+		adapter1.GetMessages<DisconnectMessage>().Count().AssertEqual(1, "Adapter1 should receive DisconnectMessage");
+		adapter2.GetMessages<DisconnectMessage>().Count().AssertEqual(1, "Adapter2 should receive DisconnectMessage");
+		GetOut<DisconnectMessage>().Length.AssertEqual(3, "Basket should emit DisconnectMessages (1 routing + 2 passthrough)");
+	}
+
+	[TestMethod]
+	[Timeout(10_000, CooperativeCancellation = true)]
+	public async Task Disconnect_CleansUpAdapters()
+	{
+		var connectionState = new AdapterConnectionState();
+		var connectionManager = new AdapterConnectionManager(connectionState);
+		var subscriptionRouting = new SubscriptionRoutingState();
+		var parentChildMap = new ParentChildMap();
+		var pendingState = new PendingMessageState();
+		var orderRouting = new OrderRoutingState();
+
+		var (basket, adapter1, _) = CreateBasket(
+			connectionState: connectionState,
+			connectionManager: connectionManager,
+			subscriptionRouting: subscriptionRouting,
+			parentChildMap: parentChildMap,
+			pendingState: pendingState,
+			orderRouting: orderRouting,
+			twoAdapters: false);
+
+		// --- Connect ---
+		await SendToBasket(basket, new ConnectMessage(), TestContext.CancellationToken);
+		connectionState.ConnectedCount.AssertEqual(1);
+		connectionState.TryGetAdapterState(adapter1, out var cs, out _).AssertTrue();
+		cs.AssertEqual(ConnectionStates.Connected);
+
+		// --- Subscribe ---
+		var transId = basket.TransactionIdGenerator.GetNextId();
+		await SendToBasket(basket, new MarketDataMessage
+		{
+			SecurityId = SecId1,
+			DataType2 = DataType.Ticks,
+			IsSubscribe = true,
+			TransactionId = transId,
+		}, TestContext.CancellationToken);
+
+		subscriptionRouting.TryGetSubscription(transId, out _, out _, out _)
+			.AssertTrue("Subscription should exist before disconnect");
+
+		ClearOut();
+
+		// --- Disconnect ---
+		await SendToBasket(basket, new DisconnectMessage(), TestContext.CancellationToken);
+
+		// --- After disconnect ---
+		connectionState.AllDisconnectedOrFailed.AssertTrue();
+		connectionState.ConnectedCount.AssertEqual(0);
+		connectionState.TryGetAdapterState(adapter1, out var ds, out _).AssertTrue();
+		ds.AssertEqual(ConnectionStates.Disconnected);
+		pendingState.Count.AssertEqual(0);
+	}
+
+	#endregion
+
+	#region Settings
+
+	/// <summary>
+	/// Saved settings of one adapter that cannot be applied do not stop the others from being loaded.
+	/// </summary>
+	[TestMethod]
+	public async Task Load_AdapterWithBrokenPriority_DoesNotStopTheOthers()
+	{
+		var (source, _, _) = CreateBasket();
+		var storage = await source.SaveAsync(CancellationToken);
+
+		var saved = storage.GetValue<SettingsStorage[]>(nameof(BasketMessageAdapter.InnerAdapters));
+		saved.Length.AssertEqual(2);
+		saved[0].SetValue("Priority", -5);
+
+		var (basket, _, _) = CreateBasket();
+		await basket.LoadAsync(storage, CancellationToken);
+
+		basket.InnerAdapters.Count().AssertEqual(1);
+	}
+
+	#endregion
+}

@@ -1,0 +1,409 @@
+namespace StockSharp.Diagram;
+
+using System.Security;
+
+using Ecng.Security;
+
+using Nito.AsyncEx;
+
+using StockSharp.Configuration;
+
+/// <summary>
+/// The storage of composite elements.
+/// </summary>
+public interface ICompositionRegistry
+{
+	/// <summary>
+	/// List of elements.
+	/// </summary>
+	INotifyList<DiagramElement> DiagramElements { get; }
+
+	/// <summary>
+	/// Load the elements of the composition that waited for their type. A composition deserialized before
+	/// a type was added to <see cref="DiagramElements"/> keeps an empty node in place of each element of
+	/// that type; the node gets its element here, in the nested compositions as well. An element that
+	/// cannot be loaded keeps waiting, and the error is thrown.
+	/// </summary>
+	/// <param name="composition"><see cref="CompositionDiagramElement"/></param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns><see cref="ValueTask"/></returns>
+	ValueTask LoadNotLoadedElementsAsync(CompositionDiagramElement composition, CancellationToken cancellationToken);
+
+	/// <summary>
+	/// To serialize the composite element.
+	/// </summary>
+	/// <param name="element"><see cref="CompositionDiagramElement"/></param>
+	/// <param name="storage">Settings storage.</param>
+	/// <param name="includeCoordinates">Include coordinates.</param>
+	/// <param name="password">Password.</param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns><see cref="ValueTask"/></returns>
+	ValueTask SerializeAsync(CompositionDiagramElement element, SettingsStorage storage, bool includeCoordinates, SecureString password, CancellationToken cancellationToken);
+
+	/// <summary>
+	/// To deserialize the composite element.
+	/// </summary>
+	/// <param name="element"><see cref="CompositionDiagramElement"/></param>
+	/// <param name="storage">Settings storage.</param>
+	/// <param name="getPassword">Get password handler.</param>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns>Is encryption used.</returns>
+	ValueTask<bool> DeserializeAsync(CompositionDiagramElement element, SettingsStorage storage, Func<SecureString> getPassword, CancellationToken cancellationToken);
+
+	/// <summary>
+	/// Create <see cref="CompositionDiagramElement"/> instance.
+	/// </summary>
+	/// <returns><see cref="CompositionDiagramElement"/></returns>
+	CompositionDiagramElement CreateComposition();
+}
+
+/// <summary>
+/// Default <see cref="ICompositionRegistry"/> implementation.
+/// </summary>
+/// <typeparam name="TNode">Node type.</typeparam>
+/// <typeparam name="TLink">Link type.</typeparam>
+public class CompositionRegistry<TNode, TLink> : ICompositionRegistry
+	where TNode : ICompositionModelNode, new()
+	where TLink : ICompositionModelLink, new()
+{
+	private class Keys
+	{
+		public const string Version = nameof(Version);
+		public const string Type = nameof(Type);
+		public const string Scheme = nameof(Scheme);
+		public const string Encrypted = nameof(Encrypted);
+		public const string Composition = nameof(Composition);
+		public const string Settings = nameof(Settings);
+		public const string TypeId = nameof(TypeId);
+		public const string ElementModel = nameof(ElementModel);
+	}
+
+	private static readonly Version _minVersion = new(1, 0);
+
+	private static readonly byte[] _initVectorBytes = "ss14fgty650h8u82".ASCII();
+
+	private readonly AsyncLock _loadLock = new();
+	private readonly Func<ICompositionModelBehavior<TNode, TLink>> _createBehavior;
+
+	private readonly SynchronizedSet<DiagramElement> _diagramElements = [];
+
+	/// <inheritdoc />
+	public INotifyList<DiagramElement> DiagramElements => _diagramElements;
+
+	/// <summary>
+	/// Initializes a new instance of the <see cref="CompositionRegistry{TNode,TLink}"/>.
+	/// </summary>
+	/// <param name="createBehavior"><see cref="ICompositionModelBehavior{TNode,TLink}"/></param>
+	public CompositionRegistry(Func<ICompositionModelBehavior<TNode, TLink>> createBehavior)
+	{
+		_createBehavior = createBehavior ?? throw new ArgumentNullException(nameof(createBehavior));
+	}
+
+	/// <inheritdoc />
+	public async ValueTask LoadNotLoadedElementsAsync(CompositionDiagramElement composition, CancellationToken cancellationToken)
+	{
+		if (composition is null)
+			throw new ArgumentNullException(nameof(composition));
+
+		var errors = new List<Exception>();
+
+		// one load at a time: two of them would give the same node two elements
+		using (await _loadLock.LockAsync(cancellationToken))
+			await LoadNotLoadedElementsAsync((CompositionModel<TNode, TLink>)composition.Model, errors, cancellationToken);
+
+		if (errors.Count > 0)
+			throw errors.SingleOrAggr();
+	}
+
+	private async ValueTask<bool> LoadNotLoadedElementsAsync(CompositionModel<TNode, TLink> model, List<Exception> errors, CancellationToken cancellationToken)
+	{
+		var isLoaded = false;
+
+		foreach (var node in model.Nodes.ToArray())
+		{
+			if (node.Element is CompositionDiagramElement { Model: CompositionModel<TNode, TLink> innerModel })
+			{
+				// an element loaded inside a composition can make it publish sockets its links were waiting for
+				if (await LoadNotLoadedElementsAsync(innerModel, errors, cancellationToken))
+				{
+					model.ConnectLinks(node);
+					isLoaded = true;
+				}
+
+				continue;
+			}
+
+			if (node.Element is not null)
+				continue;
+
+			var template = DiagramElements.FirstOrDefault(e => e.TypeId == node.TypeId);
+
+			if (template is null)
+				continue;
+
+			try
+			{
+				var element = await template.CloneAsync(false, cancellationToken);
+
+				if (node.ElementSettings != null)
+					await element.LoadAsync(node.ElementSettings, cancellationToken);
+
+				node.Element = element;
+				node.ElementSettings = null;
+				node.Text = null;
+
+				model.AttachElement(node);
+				isLoaded = true;
+			}
+			catch (Exception ex) when (ex is not OperationCanceledException)
+			{
+				// the node keeps its settings, so a later attempt can use them and a save does not lose them
+				errors.Add(ex);
+			}
+		}
+
+		return isLoaded;
+	}
+
+	private CompositionModel<TNode, TLink> CreateModel() => new(_createBehavior());
+
+	/// <inheritdoc />
+	public CompositionDiagramElement CreateComposition() => new(CreateModel());
+
+	/// <inheritdoc />
+	public async ValueTask SerializeAsync(CompositionDiagramElement element, SettingsStorage container, bool includeCoordinates, SecureString password, CancellationToken cancellationToken)
+	{
+		if (element is null)	throw new ArgumentNullException(nameof(element));
+		if (container is null)	throw new ArgumentNullException(nameof(container));
+
+		var settings = await SaveElementAsync(element, includeCoordinates, cancellationToken);
+
+		container.Set(Keys.Version, _minVersion.ToString());
+
+		if (password is null)
+		{
+			container.Set(Keys.Scheme, settings);
+		}
+		else
+		{
+			var encryptedStr = (await settings.SerializeInvariantAsync(true, cancellationToken))
+				.Encrypt(password.UnSecure(), _initVectorBytes, _initVectorBytes)
+				.Base64();
+
+			container
+				.Set(Keys.Encrypted, true)
+				.Set(Keys.Scheme, encryptedStr);
+		}
+	}
+
+	/// <inheritdoc />
+	public async ValueTask<bool> DeserializeAsync(CompositionDiagramElement element, SettingsStorage container, Func<SecureString> getPassword, CancellationToken cancellationToken)
+	{
+		if (element is null)		throw new ArgumentNullException(nameof(element));
+		if (container is null)		throw new ArgumentNullException(nameof(container));
+		if (getPassword is null)	throw new ArgumentNullException(nameof(getPassword));
+
+		var version = container.GetValue<Version>(Keys.Version);
+
+		if (version is null || version > _minVersion)
+			throw new InvalidOperationException(LocalizedStrings.UnsupportedSchemeVersionParams.Put(version));
+
+		var isEncrypted = container.GetValue<bool>(Keys.Encrypted);
+
+		SettingsStorage storage;
+
+		if (!isEncrypted)
+		{
+			storage = container.GetValue<SettingsStorage>(Keys.Scheme);
+		}
+		else
+		{
+			var scheme = container.GetValue<string>(Keys.Scheme);
+
+			storage = await scheme
+				.Base64()
+				.Decrypt(getPassword().UnSecure(), _initVectorBytes, _initVectorBytes)
+				.DeserializeInvariantAsync(cancellationToken);
+		}
+
+		await LoadElementAsync(element, storage, cancellationToken);
+
+		return isEncrypted;
+	}
+
+	private async Task LoadElementAsync(CompositionDiagramElement element, SettingsStorage storage, CancellationToken cancellationToken)
+	{
+		if (element is null)
+			throw new ArgumentNullException(nameof(element));
+
+		if (storage is null)
+			throw new ArgumentNullException(nameof(storage));
+
+		element.SchemaVersion = storage.GetValue(nameof(element.SchemaVersion), element.SchemaVersion);
+		element.Category = storage.GetValue(nameof(element.Category), string.Empty);
+		element.DocUrl = storage.GetValue(nameof(element.DocUrl), string.Empty);
+		element.Model = await DeserializeModelAsync(storage.GetValue<SettingsStorage>(nameof(element.Model)), cancellationToken);
+		await element.LoadAsync(storage.GetValue<SettingsStorage>(Keys.Composition), cancellationToken);
+	}
+
+	private async Task<SettingsStorage> SaveElementAsync(CompositionDiagramElement element, bool includeCoordinates, CancellationToken cancellationToken)
+	{
+		if (element is null)
+			throw new ArgumentNullException(nameof(element));
+
+		var storage = new SettingsStorage();
+
+		storage
+			.Set(nameof(element.SchemaVersion), element.SchemaVersion)
+			.Set(nameof(element.Category), element.Category)
+			.Set(nameof(element.DocUrl), element.DocUrl)
+			.Set(Keys.Composition, await element.SaveAsync(cancellationToken))
+			.Set(nameof(element.Model), await SerializeModelAsync((CompositionModel<TNode, TLink>)element.Model, includeCoordinates, cancellationToken))
+		;
+
+		return storage;
+	}
+
+	private async Task<SettingsStorage> SerializeModelAsync(CompositionModel<TNode, TLink> model, bool includeCoordinates, CancellationToken cancellationToken)
+	{
+		async Task<SettingsStorage> SerializeNodeAsync(TNode item)
+		{
+			var storage = new SettingsStorage();
+
+			storage
+				.Set(nameof(item.Key), item.Key)
+				.Set(nameof(item.Figure), item.Figure)
+			;
+
+			if (includeCoordinates)
+			{
+				storage
+					.Set(nameof(item.Location.X), item.Location.X)
+					.Set(nameof(item.Location.Y), item.Location.Y)
+				;
+			}
+
+			if (item.Element != null)
+			{
+				storage
+					.Set(Keys.TypeId, item.Element.TypeId)
+					.Set(Keys.Settings, await item.Element.SaveAsync(cancellationToken));
+			}
+			else
+			{
+				storage.SetValue(Keys.TypeId, item.TypeId);
+
+				if (item.ElementSettings != null)
+					storage.SetValue(Keys.Settings, item.ElementSettings);
+			}
+
+			return storage;
+		}
+
+		static SettingsStorage SerializeLink(TLink item) => new SettingsStorage()
+			.Set(nameof(item.From), item.From)
+			.Set(nameof(item.FromPort), item.FromPort)
+			.Set(nameof(item.To), item.To)
+			.Set(nameof(item.ToPort), item.ToPort)
+		;
+
+		var nodes = new List<SettingsStorage>();
+
+		foreach (var node in model.Nodes)
+			nodes.Add(await SerializeNodeAsync(node));
+
+		return new SettingsStorage()
+			.Set(nameof(model.Nodes), nodes.ToArray())
+			.Set(nameof(model.Links), model.Links.Select(SerializeLink).ToArray());
+	}
+
+	private async Task<ICompositionModel> DeserializeModelAsync(SettingsStorage storage, CancellationToken cancellationToken)
+	{
+		var model = CreateModel();
+
+		async Task<TNode> DeserializeNodeAsync(SettingsStorage storage)
+		{
+			static void SetNotLoaded(TNode baseElement, SettingsStorage settings, string error)
+			{
+				baseElement.Element = null;
+				baseElement.ElementSettings = settings;
+				baseElement.Text = error;
+			}
+
+			var x = storage.GetValue<float>(nameof(ICompositionModelNode.Location.X));
+			var y = storage.GetValue<float>(nameof(ICompositionModelNode.Location.Y));
+
+			var baseElement = new TNode
+			{
+				Key = storage.GetValue<string>(nameof(ICompositionModelNode.Key)),
+				Location = new(x, y),
+				Figure = storage.GetValue<string>(nameof(ICompositionModelNode.Figure)),
+			};
+
+			var hasModel = storage.ContainsKey(Keys.ElementModel);
+
+			if (!hasModel)
+			{
+				var typeId = storage.GetValue<string>(Keys.TypeId).To<Guid>();
+				var settings = storage.GetValue<SettingsStorage>(Keys.Settings);
+
+				baseElement.TypeId = typeId;
+
+				var element = DiagramElements.FirstOrDefault(e => e.TypeId == typeId);
+
+				if (element != null)
+				{
+					try
+					{
+						element = await element.CloneAsync(false, cancellationToken);
+
+						if (settings != null)
+							await element.LoadAsync(settings, cancellationToken);
+
+						baseElement.Element = element;
+					}
+					catch (Exception excp)
+					{
+						excp.LogError();
+
+						SetNotLoaded(baseElement, settings, excp.Message);
+					}
+				}
+				else
+					SetNotLoaded(baseElement, settings, LocalizedStrings.ElementWithTypeNotFound.Put(typeId));
+			}
+			else
+			{
+				var settings = storage.GetValue<SettingsStorage>(Keys.ElementModel);
+				var element = CreateComposition();
+
+				await LoadElementAsync(element, settings, cancellationToken);
+
+				baseElement.Element = element;
+			}
+
+			return baseElement;
+		}
+
+		static TLink DeserializeLink(SettingsStorage storage) => new()
+		{
+			From = storage.GetValue<string>(nameof(ICompositionModelLink.From)),
+			FromPort = storage.GetValue<string>(nameof(ICompositionModelLink.FromPort)),
+			To = storage.GetValue<string>(nameof(ICompositionModelLink.To)),
+			ToPort = storage.GetValue<string>(nameof(ICompositionModelLink.ToPort))
+		};
+
+		var nodes = new List<TNode>();
+
+		foreach (var nodeStorage in storage.GetValue<SettingsStorage[]>(nameof(model.Nodes)))
+			nodes.Add(await DeserializeNodeAsync(nodeStorage));
+
+		model.ExecuteTransaction("Load", m =>
+		{
+			m.Nodes = new ObservableCollection<TNode>(nodes);
+			m.Links = new ObservableCollection<TLink>(storage.GetValue<SettingsStorage[]>(nameof(m.Links)).Select(DeserializeLink));
+		});
+
+		return model;
+	}
+}

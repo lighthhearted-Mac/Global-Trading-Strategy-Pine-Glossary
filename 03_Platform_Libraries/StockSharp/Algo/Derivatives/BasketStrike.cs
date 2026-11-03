@@ -1,0 +1,171 @@
+namespace StockSharp.Algo.Derivatives;
+
+using System.Globalization;
+
+/// <summary>
+/// The virtual strike created from a combination of other strikes.
+/// </summary>
+/// <remarks>
+/// Initialize <see cref="BasketStrike"/>.
+/// </remarks>
+/// <param name="underlyingAsset">Underlying asset.</param>
+/// <param name="securityProvider">The provider of information about instruments.</param>
+/// <param name="dataProvider">The market data provider.</param>
+public abstract class BasketStrike(Security underlyingAsset, ISecurityProvider securityProvider, IMarketDataProvider dataProvider) : BasketSecurity
+{
+	private Security[] _derivatives;
+
+	/// <summary>
+	/// The provider of information about instruments.
+	/// </summary>
+	public ISecurityProvider SecurityProvider { get; } = securityProvider ?? throw new ArgumentNullException(nameof(securityProvider));
+
+	/// <summary>
+	/// The market data provider.
+	/// </summary>
+	public virtual IMarketDataProvider DataProvider { get; } = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
+
+	/// <summary>
+	/// Underlying asset.
+	/// </summary>
+	public Security UnderlyingAsset { get; } = underlyingAsset ?? throw new ArgumentNullException(nameof(underlyingAsset));
+
+	/// <summary>
+	/// Derivatives of <see cref="UnderlyingAsset"/> loaded by <see cref="LoadDerivativesAsync"/>.
+	/// </summary>
+	/// <exception cref="InvalidOperationException">The derivatives are not loaded yet.</exception>
+	protected IEnumerable<Security> Derivatives
+		=> _derivatives ?? throw new InvalidOperationException($"{nameof(LoadDerivativesAsync)} must be called first.");
+
+	/// <summary>
+	/// Loads the derivatives of <see cref="UnderlyingAsset"/> the strikes are chosen from.
+	/// Must be called before <see cref="InnerSecurityIds"/> is read.
+	/// </summary>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns><see cref="ValueTask"/></returns>
+	public async ValueTask LoadDerivativesAsync(CancellationToken cancellationToken)
+		=> _derivatives = await UnderlyingAsset.GetDerivativesAsync(SecurityProvider, ExpiryDate).ToArrayAsync(cancellationToken);
+
+	/// <inheritdoc />
+	public override IEnumerable<SecurityId> InnerSecurityIds
+	{
+		get
+		{
+			var derivatives = Derivatives;
+
+			var type = OptionType;
+
+			if (type != null)
+				derivatives = derivatives.Filter((OptionTypes)type);
+
+			if (UnderlyingAsset.GetCurrentPrice(DataProvider) is not decimal assetPrice)
+				return [];
+
+			return FilterStrikes(derivatives, assetPrice).Select(s => s.ToSecurityId());
+		}
+	}
+
+	/// <summary>
+	/// To get filtered strikes.
+	/// </summary>
+	/// <param name="allStrikes">All strikes.</param>
+	/// <param name="assetPrice">The asset price.</param>
+	/// <returns>Filtered strikes.</returns>
+	protected abstract IEnumerable<Security> FilterStrikes(IEnumerable<Security> allStrikes, decimal assetPrice);
+}
+
+/// <summary>
+/// The virtual strike including strikes of the specified shift boundary.
+/// </summary>
+/// <remarks>
+/// Initializes a new instance of the <see cref="OffsetBasketStrike"/>.
+/// </remarks>
+/// <param name="underlyingSecurity">Underlying asset.</param>
+/// <param name="securityProvider">The provider of information about instruments.</param>
+/// <param name="dataProvider">The market data provider.</param>
+/// <param name="strikeOffset">Boundaries of shift from the main strike (a negative value specifies the shift to options in the money, a positive value - out of the money).</param>
+[BasketCode(BasketCodes.OffsetStrike)]
+public class OffsetBasketStrike(Security underlyingSecurity, ISecurityProvider securityProvider, IMarketDataProvider dataProvider, Range<int> strikeOffset) : BasketStrike(underlyingSecurity, securityProvider, dataProvider)
+{
+	private Range<int> _strikeOffset = strikeOffset ?? throw new ArgumentNullException(nameof(strikeOffset));
+
+	/// <inheritdoc />
+	/// <remarks>An offset counts the strikes listed, however far apart they stand.</remarks>
+	protected override IEnumerable<Security> FilterStrikes(IEnumerable<Security> allStrikes, decimal assetPrice)
+	{
+		allStrikes = [.. allStrikes];
+
+		if (allStrikes.GetCentralStrike(assetPrice)?.Strike is not decimal central)
+			return [];
+
+		var strikes = allStrikes.Where(s => s.Strike != null).Select(s => s.Strike.Value).Distinct().OrderBy(s => s).ToArray();
+		var centralIndex = Array.IndexOf(strikes, central);
+
+		// Out of the money is up the strikes for a call and down them for a put.
+		HashSet<decimal> Within(int from, int to)
+			=> [.. strikes.Where((_, index) => index >= centralIndex + from && index <= centralIndex + to)];
+
+		var calls = Within(_strikeOffset.Min, _strikeOffset.Max);
+		var puts = Within(-_strikeOffset.Max, -_strikeOffset.Min);
+
+		return allStrikes
+			.Where(s => s.Strike is decimal strike && (s.OptionType == OptionTypes.Call ? calls.Contains(strike) : s.OptionType == OptionTypes.Put && puts.Contains(strike)))
+			.OrderBy(s => s.Strike);
+	}
+
+	/// <inheritdoc />
+	protected override string ToSerializedString()
+		=> FormattableString.Invariant($"{_strikeOffset.Min}:{_strikeOffset.Max}");
+
+	/// <inheritdoc />
+	protected override void FromSerializedString(string text)
+	{
+		var parts = text.Split(':');
+
+		if (parts.Length != 2)
+			throw new InvalidOperationException($"Invalid serialized string format: {text}");
+
+		_strikeOffset = new(int.Parse(parts[0], CultureInfo.InvariantCulture), int.Parse(parts[1], CultureInfo.InvariantCulture));
+	}
+}
+
+/// <summary>
+/// The virtual strike including strikes of the specified volatility boundary.
+/// </summary>
+/// <remarks>
+/// Initializes a new instance of the <see cref="VolatilityBasketStrike"/>.
+/// </remarks>
+/// <param name="underlyingAsset">Underlying asset.</param>
+/// <param name="securityProvider">The provider of information about instruments.</param>
+/// <param name="dataProvider">The market data provider.</param>
+/// <param name="volatilityRange">Volatility range.</param>
+[BasketCode(BasketCodes.VolatilityStrike)]
+public class VolatilityBasketStrike(Security underlyingAsset, ISecurityProvider securityProvider, IMarketDataProvider dataProvider, Range<decimal> volatilityRange) : BasketStrike(underlyingAsset, securityProvider, dataProvider)
+{
+	private Range<decimal> _volatilityRange = volatilityRange ?? throw new ArgumentNullException(nameof(volatilityRange));
+
+	/// <inheritdoc />
+	protected override IEnumerable<Security> FilterStrikes(IEnumerable<Security> allStrikes, decimal assetPrice)
+	{
+		return allStrikes.Where(s =>
+		{
+			var iv = (decimal?)DataProvider.GetSecurityValue(s, Level1Fields.ImpliedVolatility);
+			return iv != null && _volatilityRange.Contains(iv.Value);
+		});
+	}
+
+	/// <inheritdoc />
+	protected override string ToSerializedString()
+		=> FormattableString.Invariant($"{_volatilityRange.Min}:{_volatilityRange.Max}");
+
+	/// <inheritdoc />
+	protected override void FromSerializedString(string text)
+	{
+		var parts = text.Split(':');
+
+		if (parts.Length != 2)
+			throw new InvalidOperationException($"Invalid serialized string format: {text}");
+
+		_volatilityRange = new(decimal.Parse(parts[0], CultureInfo.InvariantCulture), decimal.Parse(parts[1], CultureInfo.InvariantCulture));
+	}
+}

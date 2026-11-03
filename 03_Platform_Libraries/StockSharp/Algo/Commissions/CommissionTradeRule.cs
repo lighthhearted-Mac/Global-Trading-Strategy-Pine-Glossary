@@ -1,0 +1,24 @@
+namespace StockSharp.Algo.Commissions;
+
+/// <summary>
+/// Trade commission.
+/// </summary>
+[Display(
+	ResourceType = typeof(LocalizedStrings),
+	Name = LocalizedStrings.TradeKey,
+	Description = LocalizedStrings.TradeCommissionKey,
+	GroupName = LocalizedStrings.TradesKey)]
+public class CommissionTradeRule : CommissionRule
+{
+	/// <inheritdoc />
+	protected override ValueTask<decimal?> OnProcessAsync(ExecutionMessage message, CancellationToken cancellationToken)
+		=> new(Calculate(message));
+
+	private decimal? Calculate(ExecutionMessage message)
+	{
+		if (message.HasTradeInfo())
+			return GetValue(message.TradePrice, message.TradeVolume);
+
+		return null;
+	}
+}

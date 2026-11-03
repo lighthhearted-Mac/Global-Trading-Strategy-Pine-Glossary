@@ -1,0 +1,7 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\common_samples_net.props" />
+  <ItemGroup>
+    <ProjectReference Include="$(RepoGitHubPath)Algo\Algo.csproj" />
+    <ProjectReference Include="$(ConnectorsGitHubPath)Binance\Binance.csproj" />
+  </ItemGroup>
+</Project>

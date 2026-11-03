@@ -1,0 +1,1945 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/database">
+  <link rel="canonical" href="https://composeratlas.com/database">
+  <meta property="og:title" content="Searchable Database of Community Symphonies">
+  <meta property="og:description" content="Browse thousands of community-built Composer.trade symphonies with a leaderboard, a screener, and full backtested metrics for every one. Refreshed weekly.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Browse thousands of community-built Composer.trade symphonies with a leaderboard, a screener, and full backtested metrics for every one. Refreshed weekly.">
+  <title>Database: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+
+      <div style="max-width:600px;margin-bottom:32px">
+        <h1 style="color:var(--color-primary);margin-bottom:8px">Database</h1>
+        <p style="color:var(--color-secondary);font-size:1.0625rem">
+          A community-sourced database of thousands of Composer.trade symphonies, not just the curated strategies.
+        </p>
+        <div id="db-updated-badge" style="margin-top:12px"></div>
+      </div>
+
+      <div class="db-tabs" role="tablist" aria-label="Database views">
+        <button class="db-tab active" role="tab" aria-selected="true" data-tab="all">All Strategies</button>
+        <button class="db-tab" role="tab" aria-selected="false" data-tab="leaderboard">Leaderboard</button>
+        <button class="db-tab" role="tab" aria-selected="false" data-tab="screener">Screener</button>
+        <button class="db-tab" role="tab" aria-selected="false" data-tab="metrics">Metrics</button>
+      </div>
+
+      <div id="tab-all" class="db-tab-panel" role="tabpanel">
+        <div id="content">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+
+      <div id="tab-leaderboard" class="db-tab-panel" role="tabpanel" hidden>
+        <div id="leaderboard-content">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+
+      <div id="tab-screener" class="db-tab-panel" role="tabpanel" hidden>
+        <div id="screener-content">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+
+      <div id="tab-metrics" class="db-tab-panel" role="tabpanel" hidden>
+        <div class="prose" style="max-width:760px">
+          <h2>Return Metrics</h2>
+          <p><strong>Annualized Rate of Return (ARR)</strong>: if you invested money in this strategy, how much bigger does it get in a typical year, as a percentage. ARR of 20% means $100 becomes $120 after a year, on average, every year.</p>
+          <p><strong>Cumulative Return</strong>: the total growth over the entire backtest from day one to now, expressed as one big multiplier rather than a yearly rate. A cumulative return of 4,000% means $100 grew into $4,100 across the strategy's whole history.</p>
+          <p><strong>Trailing One-Year Return</strong>: what actually happened to your money over the most recent 12 months, a real recorded result rather than a long-run average.</p>
+          <p><strong>Trailing Three-Month Return</strong>: what actually happened to your money over the most recent 3 months, a real recorded result rather than a long-run average.</p>
+          <p><strong>Trailing One-Month Return</strong>: what actually happened to your money over the most recent single month, a real recorded result rather than a long-run average.</p>
+          <p><strong>Trailing Two-Week Return</strong>: what actually happened to your money over the most recent two weeks, a real recorded result rather than a long-run average.</p>
+          <p><strong>Trailing One-Week Return</strong>: what actually happened to your money over the most recent week, a real recorded result rather than a long-run average.</p>
+          <p><strong>Trailing One-Day Return</strong>: what actually happened to your money on the most recent single trading day.</p>
+          <p><strong>Min</strong>: the single worst period (e.g. the worst month) this strategy has ever recorded.</p>
+          <p><strong>Mean</strong>: add up every period's return and divide by how many periods there are, a plain, unweighted average.</p>
+          <p><strong>Median</strong>: line up every period's return from worst to best; this is the value sitting exactly in the middle.</p>
+          <p><strong>Max</strong>: the single best period (e.g. the best month) this strategy has ever recorded.</p>
+
+          <h2>Risk Metrics</h2>
+          <p><strong>Max Drawdown</strong>: the biggest drop from a peak to a bottom before the strategy recovered, its single worst "ouch" moment. -30% means at some point your money shrank 30% from its highest point.</p>
+          <p><strong>Standard Deviation</strong>: how much the returns swing around on average, a measure of choppiness. A high number means a wild rollercoaster of ups and downs; a low number means smooth, predictable moves.</p>
+          <p><strong>Skewness</strong>: whether the strategy's good days tend to be bigger than its bad days, or the other way around, a measure of how lopsided the wins and losses are.</p>
+          <p><strong>Kurtosis</strong>: how likely rare, extreme swings are on any given day, versus everything staying close to typical. A high value warns that things are usually calm but occasionally shock hard in either direction.</p>
+          <p><strong>Tail Ratio</strong>: compares the size of the strategy's rare best days against the size of its rare worst days.</p>
+
+          <h2>Risk-Adjusted Ratios</h2>
+          <p><strong>Sharpe Ratio</strong>: divide the strategy's return by how much its returns bounce around, measuring how much reward you got for the total bumpiness of the ride. A higher number means a smoother path to the same or better payoff.</p>
+          <p><strong>Calmar Ratio</strong>: divide the strategy's yearly return by its worst-ever drop, measuring whether the payoff is big enough to justify the deepest pain it put you through. A strategy earning 50%/year with a 25% worst-ever drop scores a Calmar of 2.</p>
+          <p><strong>Sortino Ratio</strong>: divide the strategy's return by how much its returns bounce around only on the downside, ignoring any bounciness that came from winning big. Rewards a strategy that stays calm while losing and only gets wild while winning.</p>
+
+          <h2>Consistency &amp; Concentration</h2>
+          <p><strong>Win Rate</strong>: out of every day the strategy was active, the percentage that ended up profitable.</p>
+          <p><strong>Top One Day Contribution</strong>: how much of the strategy's entire return came from just its single best trading day. A large number means the overall success leans heavily on one lucky moment.</p>
+          <p><strong>Top Five Percent Day Contribution</strong>: how much of the strategy's entire return came from just its best 5% of trading days added together. A large number means a small slice of unusually good days is doing most of the work.</p>
+          <p><strong>Top Ten Percent Day Contribution</strong>: how much of the strategy's entire return came from just its best 10% of trading days added together. A large number means a modest slice of standout days is carrying most of the performance.</p>
+          <p><strong>Herfindahl Index</strong>: measures how concentrated the portfolio is in one or two holdings versus spread evenly across many. A higher number means more money riding on fewer assets.</p>
+
+          <h2>Trading Behavior &amp; Cost</h2>
+          <p><strong>Annualized Turnover</strong>: how often the strategy buys and sells positions over the course of a year. A higher number means more frequent trading, which tends to add more fees and tax drag.</p>
+          <p><strong>Total Costs</strong>: the actual dollar amount lost to trading fees, slippage, and related costs over the backtest.</p>
+
+          <h2>Holdings</h2>
+          <p><strong>Currently Holding (Ticker)</strong>: matches a strategy only if it held that ticker with a position above zero on the last market day of its backtest, as of that row's refresh date. <strong>This is a snapshot, not a list of everything the strategy can hold.</strong> A rotation strategy that was sitting in BIL on the day it was measured will not match a search for TQQQ, even when TQQQ is the position it exists to take. Use it to find what is held right now.</p>
+          <p><strong>All Tickers (Held or Not)</strong>: matches a strategy if that ticker appears anywhere in its holdings record, including at a zero position. A zero means the strategy can hold the ticker and simply was not holding it that day, so this is the field that answers "which strategies trade TQQQ". <strong>It covers assets the strategy can hold, not tickers it only reads.</strong> A strategy that checks QQQ's RSI to decide whether to buy TQQQ will match TQQQ and not QQQ, because QQQ is a signal it never owns.</p>
+
+          <h2>Longevity</h2>
+          <p><strong>Backtest Days</strong>: the number of trading days the strategy has actual history for. A larger number of days is stronger evidence, the same way flipping a coin 1,000 times tells you more than flipping it 10 times.</p>
+          <p><strong>OOS Days</strong>: the number of days since the strategy's rules were last edited. A large number means it has run untouched for a long stretch, so its recent results reflect real performance rather than rules that were just tweaked to fit the recent past.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <div id="modal-overlay" class="modal-overlay" hidden>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h2 id="modal-title"></h2>
+        <button class="modal-close" id="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="data/strategies.js"></script>
+  <script src="data/glossary.js"></script>
+  <script src="data/database_summary.js"></script>
+  <script src="data/oos.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    // Opens one of the four Database tabs. Assigned inside the tab-switching
+    // closure below; declared out here so the shared-link reader can call it.
+    let activateDbTab = () => { };
+
+    (function () {
+      renderBreadcrumb('breadcrumb-root', [
+        { label: 'Home', href: u('/') },
+        { label: 'Database' },
+      ]);
+
+      // ---- Tab switching ----
+      const tabs = document.querySelectorAll('.db-tab');
+      const panels = {
+        all: document.getElementById('tab-all'),
+        leaderboard: document.getElementById('tab-leaderboard'),
+        screener: document.getElementById('tab-screener'),
+        metrics: document.getElementById('tab-metrics'),
+      };
+      // Assigned into the module-scope binding above so a shared Screener link
+      // can open the Screener tab on load without repeating this DOM work.
+      // The selector is evaluated now, before any .db-tab button is rendered
+      // into a panel, so it holds these four and only these four.
+      activateDbTab = (name) => {
+        const target = Array.from(tabs).find(t => t.dataset.tab === name);
+        if (!target) return;
+        tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+        target.classList.add('active');
+        target.setAttribute('aria-selected', 'true');
+        Object.entries(panels).forEach(([key, panel]) => { panel.hidden = key !== name; });
+      };
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          activateDbTab(tab.dataset.tab);
+          // Switching away from the Screener clears its state from the URL, so
+          // a link copied while on another tab never carries stale filters.
+          writeScreenerHash();
+        });
+      });
+    })();
+
+    // ---- All Strategies tab: sortable, paginated data table ----
+    const PAGE_SIZE = 42;
+    let dbEntries = [];        // every loaded entry, unfiltered
+    let filteredEntries = [];  // dbEntries after flag mode + the active Filter Panel filters
+    let currentPage = 1;
+    let sortField = null;
+    let sortDir = 'desc'; // 'asc' | 'desc'
+    let allFlagMode = 'default';
+    let allNameQuery = '';
+
+    // ---- Filter Panel component (V1.11) ----
+    // Used by the All Strategies tab: hidden-by-default, specific-value
+    // field/operator/value filter builder. The Screener tab (V1.12) uses a
+    // separate always-visible bucketed filter grid instead (see below),
+    // per user decision - the two tabs intentionally have different filter
+    // UIs, not a shared component.
+    function oosDaysValue(e) {
+      const ts = e.oos_date;
+      if (!ts) return null;
+      const clean = ts.split('[')[0];
+      const d = new Date(clean);
+      if (isNaN(d.getTime())) return null;
+      return Math.floor((Date.now() - d.getTime()) / 86400000);
+    }
+
+    // ---- Flag-based noise filtering (V1.14 Part B) ----
+    // "excluded" (permanent 404/422 failures) and "caution" (Composer-flagged
+    // data_warnings) are data-quality noise ("Broken"). "duplicate" (V1.14
+    // Part A, placeholder - no row has this flag yet, the dedup pipeline
+    // that would set it hasn't been built) is a separate kind of noise
+    // ("Duplicates") - redundant with another row, not a data problem.
+    // "retry" (transient 429/500/503/timeout) is neither; those rows behave
+    // like any other row until the next refresh clears them naturally.
+    function isBrokenFlag(e) { return e.flag === 'caution' || e.flag === 'excluded'; }
+    function isDuplicateFlag(e) { return e.flag === 'duplicate'; }
+    function isNoiseFlag(e) { return isBrokenFlag(e) || isDuplicateFlag(e); }
+
+    const FLAG_MODES = ['default', 'flagged', 'duplicates', 'all'];
+    const FLAG_MODE_LABELS = { default: 'Working', flagged: 'Broken', duplicates: 'Duplicates', all: 'All' };
+
+    function applyFlagMode(entries, mode) {
+      if (mode === 'all') return entries;
+      if (mode === 'flagged') return entries.filter(isBrokenFlag);
+      if (mode === 'duplicates') return entries.filter(isDuplicateFlag);
+      return entries.filter(e => !isNoiseFlag(e)); // 'default' / Working: excludes Broken + Duplicates
+    }
+
+    function flagToggleHtml(mode, idPrefix) {
+      return FLAG_MODES.map(m =>
+        `<button class="db-tab${m === mode ? ' active' : ''}" data-flagmode="${m}" id="${idPrefix}-${m}" style="font-size:0.8125rem;padding:8px 14px">${FLAG_MODE_LABELS[m]}</button>`
+      ).join('');
+    }
+
+    const FILTER_FIELDS = [
+      { key: 'name', label: 'Symphony Name', type: 'text' },
+      { key: 'annualized_rate_of_return', label: 'ARR', type: 'number' },
+      { key: 'trailing_one_year_return', label: '1Y Return', type: 'number' },
+      { key: 'trailing_three_month_return', label: '3M Return', type: 'number' },
+      { key: 'trailing_one_month_return', label: '1M Return', type: 'number' },
+      { key: 'trailing_two_week_return', label: '2W Return', type: 'number' },
+      { key: 'max_drawdown', label: 'Max Drawdown', type: 'number' },
+      { key: 'standard_deviation', label: 'Standard Deviation', type: 'number' },
+      { key: 'sharpe_ratio', label: 'Sharpe Ratio', type: 'number' },
+      { key: 'calmar_ratio', label: 'Calmar Ratio', type: 'number' },
+      { key: 'sortino_ratio', label: 'Sortino Ratio', type: 'number' },
+      { key: 'win_rate', label: 'Win Rate', type: 'number' },
+      { key: 'median', label: 'Median Period Return', type: 'number' },
+      { key: 'skewness', label: 'Skewness', type: 'number' },
+      { key: 'kurtosis', label: 'Kurtosis', type: 'number' },
+      { key: 'tail_ratio', label: 'Tail Ratio', type: 'number' },
+      { key: 'top_one_day_contribution', label: 'Top 1-Day Contribution', type: 'number' },
+      { key: 'top_five_percent_day_contribution', label: 'Top 5% Contribution', type: 'number' },
+      { key: 'top_ten_percent_day_contribution', label: 'Top 10% Contribution', type: 'number' },
+      { key: 'backtest_days', label: 'Backtest Days', type: 'number' },
+      { key: 'oos_days', label: 'OOS Days', type: 'number', derived: oosDaysValue },
+      // Reads last_market_days_holdings, which is a snapshot of the positions
+      // held on the last market day of the backtest, as of this row's
+      // refresh_date. It is NOT every ticker the symphony can reach: a
+      // rotation strategy parked in BIL that day will not match a TQQQ filter
+      // even though TQQQ is central to its logic. The label says "Currently"
+      // so nobody reads it as the strategy's asset universe.
+      { key: 'holding', label: 'Currently Holding (Ticker)', type: 'holding' },
+      // Same map, keys instead of values. Verified against the symphony tree
+      // from /score for two strategies: the key set is exactly the set of
+      // asset-node tickers, zeros included. Tickers that appear only in
+      // conditions (QQQ, SPY, UVXY as signals) are correctly absent, because
+      // the symphony cannot hold them.
+      { key: 'anyticker', label: 'All Tickers (Held or Not)', type: 'anyticker' },
+    ];
+    const NUMBER_OPS = ['=', '>', '<', '>=', '<=', 'between'];
+    const HOLDING_OPS = ['contains', 'does not contain'];
+
+    function fieldDef(key) { return FILTER_FIELDS.find(f => f.key === key) || FILTER_FIELDS[0]; }
+
+    function fieldValue(e, key) {
+      const def = fieldDef(key);
+      return def.derived ? def.derived(e) : e[key];
+    }
+
+    function matchesFilter(e, filter) {
+      const def = fieldDef(filter.field);
+      const val = fieldValue(e, filter.field);
+
+      if (def.type === 'text') {
+        if (typeof val !== 'string') return false;
+        return val.toLowerCase().includes(String(filter.value).toLowerCase());
+      }
+
+      if (def.type === 'holding' || def.type === 'anyticker') {
+        const ticker = String(filter.value).toUpperCase().trim();
+        if (!ticker) return true; // incomplete input, don't filter out yet
+        const holdings = e.last_market_days_holdings;
+        // 'holding' wants a live position, so it tests the value. 'anyticker'
+        // wants the symphony's whole asset universe, so it tests the key and
+        // deliberately keeps the zeros: a zero means "can hold this, just is
+        // not holding it today", which is the question this field answers.
+        const present = holdings && typeof holdings === 'object'
+          && Object.keys(holdings).some(k => k.toUpperCase() === ticker
+            && (def.type === 'anyticker' || Number(holdings[k]) > 0));
+        return filter.operator === 'does not contain' ? !present : present;
+      }
+
+      // numeric
+      if (typeof val !== 'number') return false;
+      if (filter.operator === 'between') {
+        const parts = String(filter.value).split(',').map(s => parseFloat(s.trim()));
+        if (parts.length !== 2 || parts.some(isNaN)) return true; // incomplete input, don't filter out yet
+        return val >= Math.min(...parts) && val <= Math.max(...parts);
+      }
+      const num = parseFloat(filter.value);
+      if (isNaN(num)) return true; // incomplete input, don't filter out yet
+      switch (filter.operator) {
+        case '=': return val === num;
+        case '>': return val > num;
+        case '<': return val < num;
+        case '>=': return val >= num;
+        case '<=': return val <= num;
+        default: return true;
+      }
+    }
+
+    function matchesAllFilters(e, filters) {
+      return filters.every(f => matchesFilter(e, f));
+    }
+
+    // opts: { panelId, buttonId, onApply(activeFilters) }
+    function createFilterController(opts) {
+      let applied = [];
+      let pending = [];
+      let open = false;
+
+      function newRow() {
+        const def = FILTER_FIELDS[0];
+        return { field: def.key, operator: def.type === 'number' ? '=' : 'contains', value: '' };
+      }
+
+      function fieldOptionsHtml(selected) {
+        return FILTER_FIELDS.map(f => `<option value="${f.key}"${f.key === selected ? ' selected' : ''}>${f.label}</option>`).join('');
+      }
+
+      function operatorOptionsHtml(fieldKey, selected) {
+        const def = fieldDef(fieldKey);
+        const ops = def.type === 'number' ? NUMBER_OPS
+          : (def.type === 'holding' || def.type === 'anyticker') ? HOLDING_OPS : ['contains'];
+        return ops.map(op => `<option value="${op}"${op === selected ? ' selected' : ''}>${op}</option>`).join('');
+      }
+
+      function renderPanel() {
+        const panel = document.getElementById(opts.panelId);
+        if (!panel) return;
+        panel.hidden = !open;
+        if (!open) return;
+
+        const rowsHtml = pending.length === 0
+          ? `<div class="filter-empty">
+               <p class="filter-empty-title">No filters applied</p>
+               <p class="filter-empty-hint text-secondary">Add filters to refine your rows.</p>
+             </div>`
+          : pending.map((f, i) => {
+              const def = fieldDef(f.field);
+              const placeholder = def.type === 'number' && f.operator === 'between' ? 'e.g. 10, 50' : 'Enter a value...';
+              return `
+                <div class="filter-row" data-i="${i}">
+                  <span class="filter-row-label">Where</span>
+                  <select class="filter-field">${fieldOptionsHtml(f.field)}</select>
+                  <select class="filter-op">${operatorOptionsHtml(f.field, f.operator)}</select>
+                  <input type="text" class="filter-value" placeholder="${placeholder}" value="${escapeHtml(String(f.value))}">
+                  <button class="filter-remove" aria-label="Remove filter" title="Remove filter">&#128465;</button>
+                </div>
+              `;
+            }).join('');
+
+        panel.innerHTML = `
+          <div class="filter-panel-inner">
+            ${rowsHtml}
+            <div class="filter-panel-actions">
+              <button class="btn btn-outline btn-sm filter-add">+ Add filter</button>
+              <div class="filter-panel-buttons">
+                <button class="btn btn-outline btn-sm filter-cancel">Cancel</button>
+                <button class="btn btn-green btn-sm filter-apply">Apply</button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        panel.querySelectorAll('.filter-row').forEach(row => {
+          const i = Number(row.dataset.i);
+          row.querySelector('.filter-field').addEventListener('change', (e) => {
+            const def = fieldDef(e.target.value);
+            pending[i].field = e.target.value;
+            pending[i].operator = def.type === 'number' ? '=' : 'contains';
+            pending[i].value = '';
+            renderPanel();
+          });
+          row.querySelector('.filter-op').addEventListener('change', (e) => { pending[i].operator = e.target.value; renderPanel(); });
+          row.querySelector('.filter-value').addEventListener('input', (e) => { pending[i].value = e.target.value; });
+          row.querySelector('.filter-remove').addEventListener('click', () => { pending.splice(i, 1); renderPanel(); });
+        });
+
+        panel.querySelector('.filter-add').addEventListener('click', () => { pending.push(newRow()); renderPanel(); });
+        panel.querySelector('.filter-cancel').addEventListener('click', () => { open = false; renderPanel(); });
+        panel.querySelector('.filter-apply').addEventListener('click', () => {
+          applied = pending.filter(f => String(f.value).trim() !== '').map(f => ({ ...f }));
+          open = false;
+          renderPanel();
+          opts.onApply(applied);
+        });
+      }
+
+      function toggle() {
+        if (!open) pending = applied.map(f => ({ ...f }));
+        open = !open;
+        renderPanel();
+      }
+
+      // Re-attach the button listener and restore panel state; call after
+      // every innerHTML replacement of the container the button/panel live in.
+      function rewire() {
+        const btn = document.getElementById(opts.buttonId);
+        if (btn) btn.addEventListener('click', toggle);
+        renderPanel();
+      }
+
+      return {
+        rewire,
+        activeCount: () => applied.length,
+        filterFn: (e) => matchesAllFilters(e, applied),
+      };
+    }
+
+    function recomputeAllEntries() {
+      filteredEntries = applyFlagMode(dbEntries, allFlagMode).filter(allFilterController.filterFn);
+      if (allNameQuery) {
+        filteredEntries = filteredEntries.filter(e => String(e.name || '').toLowerCase().includes(allNameQuery));
+      }
+    }
+
+    const allFilterController = createFilterController({
+      panelId: 'filter-panel-all',
+      buttonId: 'filter-btn-all',
+      onApply: () => {
+        recomputeAllEntries();
+        applySort();
+        currentPage = 1;
+        renderTablePage();
+      },
+    });
+
+    // key: field on entry object | label: column header | fmt: value formatter
+    const COLUMNS = [
+      { key: 'name', label: 'Symphony', sortable: false },
+      { key: 'annualized_rate_of_return', label: 'ARR', fmt: formatPct, colored: true },
+      { key: 'trailing_one_year_return', label: '1Y Return', fmt: formatPct, colored: true },
+      { key: 'max_drawdown', label: 'Max Drawdown', fmt: formatPct, colored: true },
+      { key: 'sharpe_ratio', label: 'Sharpe', fmt: formatRatio, colored: true },
+      { key: 'calmar_ratio', label: 'Calmar', fmt: formatRatio, colored: true },
+      { key: 'sortino_ratio', label: 'Sortino', fmt: formatRatio, colored: true },
+      { key: 'win_rate', label: 'Win Rate', fmt: formatPct, colored: false },
+      { key: 'backtest_days', label: 'Backtest', fmt: (n) => `~${Math.round(n / 252)} years`, colored: false },
+      { key: 'oos_date', label: 'OOS', colored: false, isDuration: true },
+      // refresh_date (when we last hit the API) intentionally not shown to
+      // users - no reason to advertise how stale a row's data might be.
+    ];
+
+    function formatMetric(n, fmt) {
+      if (typeof n !== 'number') return '–';
+      return fmt(n);
+    }
+
+    // OOS ("out of sample") days: how long the symphony's logic has run
+    // untouched since its last edit. Computed at render time from the raw
+    // timestamp, not stored, since a stored value goes stale the moment a
+    // day passes without a fresh API call. The API's timestamp carries a
+    // trailing IANA zone annotation (e.g. "[America/New_York]") that
+    // JS's Date() can't parse, so it's stripped first.
+    function formatOosDays(iso) {
+      const clean = iso.split('[')[0];
+      const d = new Date(clean);
+      if (isNaN(d.getTime())) return '–';
+      const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+      return `${days.toLocaleString()}d`;
+    }
+
+    // Names in this dataset are community-sourced from many different authors
+    // (not curated), so they must be escaped before insertion into innerHTML
+    // or an HTML attribute (textContent->innerHTML alone doesn't escape quotes).
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function sortIndicator(key) {
+      if (sortField !== key) return '<span class="db-sort-arrow">&#8597;</span>';
+      return `<span class="db-sort-arrow active">${sortDir === 'asc' ? '&#9650;' : '&#9660;'}</span>`;
+    }
+
+    function applySort() {
+      if (!sortField) return;
+      const dir = sortDir === 'asc' ? 1 : -1;
+      filteredEntries.sort((a, b) => {
+        const av = a[sortField];
+        const bv = b[sortField];
+        const aNull = av === null || av === undefined;
+        const bNull = bv === null || bv === undefined;
+        if (aNull && bNull) return 0;
+        if (aNull) return 1;  // nulls always sort last
+        if (bNull) return -1;
+        if (av < bv) return -1 * dir;
+        if (av > bv) return 1 * dir;
+        return 0;
+      });
+    }
+
+    function renderTablePage() {
+      const totalPages = Math.max(1, Math.ceil(filteredEntries.length / PAGE_SIZE));
+      currentPage = Math.min(Math.max(1, currentPage), totalPages);
+      const start = (currentPage - 1) * PAGE_SIZE;
+      const pageRows = filteredEntries.slice(start, start + PAGE_SIZE);
+
+      const headerCells = COLUMNS.map(col => {
+        if (col.sortable === false) return `<th>${col.label}</th>`;
+        return `<th class="sortable" data-sort="${col.key}">${col.label} ${sortIndicator(col.key)}</th>`;
+      }).join('') + '<th></th>';
+
+      const rows = pageRows.map(e => {
+        const cells = COLUMNS.map(col => {
+          if (col.key === 'name') {
+            const fullName = e.name || e.symphony_id;
+            const shortName = fullName.length > 22 ? fullName.slice(0, 22) + '…' : fullName;
+            const url = encodeURI(e.symphony_url || '#');
+            return `<td><a href="${url}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(fullName)}">${escapeHtml(shortName)}</a></td>`;
+          }
+          const val = e[col.key];
+          const cls = col.colored && typeof val === 'number' ? colorClass(val) : (col.isDate || col.isDuration ? 'text-secondary' : '');
+          const display = col.isDate
+            ? (val ? formatDate(val) : '–')
+            : col.isDuration
+            ? (val ? formatOosDays(val) : '–')
+            : formatMetric(val, col.fmt);
+          return `<td class="${cls}">${display}</td>`;
+        }).join('');
+        const warning = e.flag === 'caution'
+          ? `<td><span class="db-warning" title="Composer flagged this backtest's data as potentially unreliable">&#9888;</span></td>`
+          : '<td></td>';
+        return `<tr>${cells}${warning}</tr>`;
+      }).join('');
+
+      const filterCount = allFilterController.activeCount();
+      const filterLabel = filterCount ? `Filter (${filterCount})` : 'Filter';
+
+      document.getElementById('content').innerHTML = `
+        <div class="db-toolbar">
+          <div>
+            <h2>All Strategies</h2>
+            <span class="db-count-pill">${filteredEntries.length.toLocaleString()} results</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="search-all" class="db-search-input" placeholder="Search by name..." value="${escapeHtml(allNameQuery)}">
+            <button class="btn btn-outline btn-sm" id="filter-btn-all">
+              <span aria-hidden="true">&#9776;</span> ${filterLabel}
+            </button>
+          </div>
+        </div>
+        <div class="db-tabs" role="tablist" aria-label="Flagged rows" style="margin-bottom:16px;border-bottom:none">
+          ${flagToggleHtml(allFlagMode, 'flagmode-all')}
+        </div>
+        <div id="filter-panel-all" class="filter-panel" hidden></div>
+        <div class="db-table-wrap">
+          <table class="db-table">
+            <thead><tr>${headerCells}</tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="db-pagination">
+          <button class="btn btn-outline btn-sm" id="db-first" aria-label="First page" ${currentPage === 1 ? 'disabled' : ''}>&laquo;</button>
+          <button class="btn btn-outline btn-sm" id="db-prev" aria-label="Previous page" ${currentPage === 1 ? 'disabled' : ''}>&lsaquo;</button>
+          <span class="text-secondary" style="font-size:0.875rem">Page ${currentPage.toLocaleString()} of ${totalPages.toLocaleString()}</span>
+          <button class="btn btn-outline btn-sm" id="db-next" aria-label="Next page" ${currentPage === totalPages ? 'disabled' : ''}>&rsaquo;</button>
+          <button class="btn btn-outline btn-sm" id="db-last" aria-label="Last page" ${currentPage === totalPages ? 'disabled' : ''}>&raquo;</button>
+        </div>
+      `;
+
+      document.getElementById('db-first').addEventListener('click', () => { currentPage = 1; renderTablePage(); window.scrollTo({ top: 0 }); });
+      document.getElementById('db-prev').addEventListener('click', () => { currentPage--; renderTablePage(); window.scrollTo({ top: 0 }); });
+      document.getElementById('db-next').addEventListener('click', () => { currentPage++; renderTablePage(); window.scrollTo({ top: 0 }); });
+      document.getElementById('db-last').addEventListener('click', () => { currentPage = totalPages; renderTablePage(); window.scrollTo({ top: 0 }); });
+
+      document.querySelectorAll('.db-table th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+          const key = th.dataset.sort;
+          if (sortField === key) {
+            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            sortField = key;
+            sortDir = 'desc';
+          }
+          applySort();
+          currentPage = 1;
+          renderTablePage();
+        });
+      });
+
+      document.querySelectorAll('#content [data-flagmode]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          allFlagMode = btn.dataset.flagmode;
+          recomputeAllEntries();
+          applySort();
+          currentPage = 1;
+          renderTablePage();
+        });
+      });
+
+      const allSearchInput = document.getElementById('search-all');
+      allSearchInput.addEventListener('input', (e) => {
+        allNameQuery = e.target.value.toLowerCase();
+        const cursorPos = e.target.selectionStart;
+        recomputeAllEntries();
+        applySort();
+        currentPage = 1;
+        renderTablePage();
+        const newInput = document.getElementById('search-all');
+        newInput.focus();
+        newInput.setSelectionRange(cursorPos, cursorPos);
+      });
+
+      allFilterController.rewire();
+    }
+
+    // ---- Screener tab (V1.12): Finviz-style always-visible bucketed filter
+    // grid, distinct from All Strategies' hidden specific-value Filter Panel
+    // (V1.11). Every bucket's thresholds are computed live from the actual
+    // loaded dataset's percentiles (buildBucketOptions(), called once after
+    // dbEntries loads) rather than hardcoded, so they stay meaningful as the
+    // database grows/changes instead of going stale like fixed numbers would.
+    function fmtBucketValue(v, fmt) {
+      if (fmt === 'pct') return `${(v * 100).toFixed(Math.abs(v) < 0.1 ? 1 : 0)}%`;
+      if (fmt === 'pct2') return `${(v * 100).toFixed(2)}%`;
+      if (fmt === 'ratio') return `${Math.round(v * 100) / 100}`;
+      if (fmt === 'duration') {
+        if (v < 60) return `${Math.round(v)}d`;
+        if (v < 365) return `${Math.round(v / 30)} months`;
+        const years = v / 365;
+        return `${years >= 10 ? Math.round(years) : Math.round(years * 10) / 10} years`;
+      }
+      return String(v);
+    }
+
+    // direction: which side of the threshold is "better" (higher ARR is
+    // good; lower Std Deviation is good; max_drawdown's "higher" is really
+    // "closer to zero", handled naturally since -0.1 > -0.3 numerically).
+    const BUCKET_FIELDS = [
+      { key: 'annualized_rate_of_return', label: 'ARR', direction: 'higher', fmt: 'pct' },
+      { key: 'trailing_one_year_return', label: '1Y Return', direction: 'higher', fmt: 'pct' },
+      { key: 'trailing_three_month_return', label: '3M Return', direction: 'higher', fmt: 'pct' },
+      { key: 'trailing_one_month_return', label: '1M Return', direction: 'higher', fmt: 'pct' },
+      { key: 'trailing_two_week_return', label: '2W Return', direction: 'higher', fmt: 'pct' },
+      { key: 'max_drawdown', label: 'Max Drawdown', direction: 'higher', fmt: 'pct', verb: 'Better than' },
+      { key: 'standard_deviation', label: 'Std Deviation', direction: 'lower', fmt: 'pct' },
+      { key: 'sharpe_ratio', label: 'Sharpe Ratio', direction: 'higher', fmt: 'ratio' },
+      { key: 'calmar_ratio', label: 'Calmar Ratio', direction: 'higher', fmt: 'ratio' },
+      { key: 'sortino_ratio', label: 'Sortino Ratio', direction: 'higher', fmt: 'ratio' },
+      { key: 'win_rate', label: 'Win Rate', direction: 'higher', fmt: 'pct' },
+      { key: 'median', label: 'Median Return', direction: 'higher', fmt: 'pct2' },
+      { key: 'skewness', label: 'Skewness', direction: 'higher', fmt: 'ratio' },
+      { key: 'kurtosis', label: 'Kurtosis', direction: 'lower', fmt: 'ratio' },
+      { key: 'tail_ratio', label: 'Tail Ratio', direction: 'higher', fmt: 'ratio' },
+      { key: 'top_one_day_contribution', label: 'Top 1-Day %', direction: 'lower', fmt: 'pct' },
+      { key: 'top_five_percent_day_contribution', label: 'Top 5% %', direction: 'lower', fmt: 'pct' },
+      { key: 'top_ten_percent_day_contribution', label: 'Top 10% %', direction: 'lower', fmt: 'pct' },
+      { key: 'backtest_days', label: 'Backtest', direction: 'higher', fmt: 'duration' },
+      { key: 'oos_date', label: 'OOS Date', direction: 'higher', fmt: 'duration', derived: oosDaysValue },
+    ];
+
+    let BUCKET_OPTIONS = {}; // key -> [{ label, min, max }, ...], first is always "Any"
+
+    function buildBucketOptions() {
+      BUCKET_OPTIONS = {};
+      BUCKET_FIELDS.forEach(f => {
+        const getter = f.derived || (e => e[f.key]);
+        const vals = dbEntries.map(getter).filter(v => typeof v === 'number').sort((a, b) => a - b);
+        const n = vals.length;
+        const opts = [{ label: 'Any', min: null, max: null }];
+        if (n) {
+          const at = p => vals[Math.min(n - 1, Math.max(0, Math.floor(p * n)))];
+          const verb = f.verb || (f.direction === 'higher' ? 'Over' : 'Under');
+          // 9 deciles, loosest (matches most rows) to strictest, so the
+          // dropdown reads as a gradient from "almost everyone" to "top/
+          // bottom 10%" - same shape for every field regardless of
+          // direction, always 9 buckets + Any = 10 total options.
+          if (f.direction === 'higher') {
+            [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90].forEach(p => {
+              const t = at(p);
+              opts.push({ label: `${verb} ${fmtBucketValue(t, f.fmt)}`, min: t, max: null });
+            });
+          } else {
+            [0.90, 0.80, 0.70, 0.60, 0.50, 0.40, 0.30, 0.20, 0.10].forEach(p => {
+              const t = at(p);
+              opts.push({ label: `${verb} ${fmtBucketValue(t, f.fmt)}`, min: null, max: t });
+            });
+          }
+        }
+        BUCKET_OPTIONS[f.key] = opts;
+      });
+    }
+
+    let screenerBucketSelections = {}; // key -> selected {label,min,max} option
+    let screenerNameQuery = '';
+    let screenerTierMax = null;        // max TIER_ORDER index allowed, null = Any
+
+    // Tier filter options. Cumulative ("or better") rather than exact-match, to
+    // match the threshold semantics every other bucket filter already uses
+    // ("Over 12%", "Better than -30%"), so the whole grid reads consistently.
+    // Built lazily because TIER_ORDER is declared further down this script.
+    function tierFilterOptions() {
+      return [
+        { label: 'Any', max: null },
+        { label: 'S+ only', max: TIER_ORDER['S+'] },
+        { label: 'S or better', max: TIER_ORDER.S },
+        { label: 'A or better', max: TIER_ORDER.A },
+        { label: 'B or better', max: TIER_ORDER.B },
+        { label: 'C or better', max: TIER_ORDER.C },
+      ];
+    }
+
+    function matchesBucketSelections(e) {
+      if (screenerNameQuery && !String(e.name || '').toLowerCase().includes(screenerNameQuery)) return false;
+      if (screenerTierMax != null) {
+        const r = rankBySymphonyId.get(e.symphony_id);
+        // Unscored rows can't satisfy a tier floor, so they drop out here.
+        if (!r || TIER_ORDER[r.tier] > screenerTierMax) return false;
+      }
+      return BUCKET_FIELDS.every(f => {
+        const sel = screenerBucketSelections[f.key];
+        if (!sel || (sel.min == null && sel.max == null)) return true;
+        const getter = f.derived || (en => en[f.key]);
+        const v = getter(e);
+        if (typeof v !== 'number') return false;
+        if (sel.min != null && v < sel.min) return false;
+        if (sel.max != null && v > sel.max) return false;
+        return true;
+      });
+    }
+
+    function bucketGridHtml() {
+      const cells = BUCKET_FIELDS.map(f => {
+        const opts = BUCKET_OPTIONS[f.key] || [{ label: 'Any', min: null, max: null }];
+        const selected = screenerBucketSelections[f.key];
+        const selectedLabel = selected ? selected.label : 'Any';
+        const optionsHtml = opts.map(o =>
+          `<option value="${escapeHtml(o.label)}"${o.label === selectedLabel ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
+        ).join('');
+        return `
+          <div class="screener-filter-cell">
+            <label>${f.label}</label>
+            <select class="screener-bucket-select" data-key="${f.key}">${optionsHtml}</select>
+          </div>
+        `;
+      }).join('');
+      const tierOptionsHtml = tierFilterOptions().map(o =>
+        `<option value="${escapeHtml(o.label)}"${o.max === screenerTierMax ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
+      ).join('');
+      return `
+        <div class="screener-filter-grid">
+          <div class="screener-filter-cell">
+            <label>Symphony Name</label>
+            <input type="text" id="screener-name-search" placeholder="Search..." value="${escapeHtml(screenerNameQuery)}">
+          </div>
+          <div class="screener-filter-cell">
+            <label>Leaderboard Tier</label>
+            <select id="screener-tier-select">${tierOptionsHtml}</select>
+          </div>
+          ${cells}
+        </div>
+      `;
+    }
+
+    // Leaderboard Rank / Tier / Score columns, shown in every Screener view so
+    // the ranking travels with whatever metrics you are looking at. These are
+    // not fields on the entry: they come from the global rankBySymphonyId index
+    // (see recomputeGlobalRanking), so both the cell renderer and
+    // screenerSortValue special-case them instead of reading e[col.key].
+    const RANK_COLUMNS = [
+      { key: '_rank', label: 'Rank', rankCol: true },
+      { key: '_tier', label: 'Tier', rankCol: true },
+      { key: '_score', label: 'Score', rankCol: true },
+    ];
+
+    const SCREENER_VIEWS = {
+      overview: {
+        label: 'Overview',
+        columns: [
+          ...RANK_COLUMNS,
+          { key: 'name', label: 'Symphony', sortable: false },
+          { key: 'annualized_rate_of_return', label: 'ARR', fmt: formatPct, colored: true },
+          { key: 'trailing_one_year_return', label: '1Y Return', fmt: formatPct, colored: true },
+          { key: 'max_drawdown', label: 'Max Drawdown', fmt: formatPct, colored: true },
+          { key: 'sharpe_ratio', label: 'Sharpe', fmt: formatRatio, colored: true },
+          { key: 'calmar_ratio', label: 'Calmar', fmt: formatRatio, colored: true },
+          { key: 'backtest_days', label: 'Backtest', fmt: (n) => `~${Math.round(n / 252)} years`, colored: false },
+        ],
+      },
+      riskAdjusted: {
+        label: 'Risk-Adjusted',
+        columns: [
+          ...RANK_COLUMNS,
+          { key: 'name', label: 'Symphony', sortable: false },
+          { key: 'sharpe_ratio', label: 'Sharpe', fmt: formatRatio, colored: true },
+          { key: 'calmar_ratio', label: 'Calmar', fmt: formatRatio, colored: true },
+          { key: 'sortino_ratio', label: 'Sortino', fmt: formatRatio, colored: true },
+          { key: 'win_rate', label: 'Win Rate', fmt: formatPct, colored: false },
+          { key: 'max_drawdown', label: 'Max Drawdown', fmt: formatPct, colored: true },
+          { key: 'standard_deviation', label: 'Std Deviation', fmt: formatPct, colored: false },
+        ],
+      },
+      distribution: {
+        label: 'Distribution',
+        columns: [
+          ...RANK_COLUMNS,
+          { key: 'name', label: 'Symphony', sortable: false },
+          { key: 'median', label: 'Median', fmt: formatPct, colored: true },
+          { key: 'skewness', label: 'Skewness', fmt: formatRatio, colored: false },
+          { key: 'kurtosis', label: 'Kurtosis', fmt: formatRatio, colored: false },
+          { key: 'tail_ratio', label: 'Tail Ratio', fmt: formatRatio, colored: false },
+          { key: 'top_one_day_contribution', label: 'Top 1-Day %', fmt: formatPct, colored: false },
+          { key: 'top_five_percent_day_contribution', label: 'Top 5% %', fmt: formatPct, colored: false },
+          { key: 'top_ten_percent_day_contribution', label: 'Top 10% %', fmt: formatPct, colored: false },
+        ],
+      },
+    };
+
+    // ---- CSV export (Screener) ----------------------------------------
+    // Split deliberately in two: screenerCsv() builds the text and returns it,
+    // csvDownload() puts it on disk. The build half is then testable from the
+    // console without fighting the browser's download plumbing, which is how
+    // this was verified.
+
+    // RFC-4180. Quote any field holding a comma, a quote or a newline, and
+    // double the quotes inside it. Symphony names are user-authored and do
+    // contain commas.
+    function csvCell(v) {
+      if (v === null || v === undefined) return '';
+      const s = String(v);
+      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    // Rank, tier and score live in rankBySymphonyId, not on the entry, and an
+    // un-refreshed row is in the Screener pool but absent from the ranking.
+    // Mirrors the three-way handling in the cell renderer above so the export
+    // cannot disagree with what is on screen: unranked rows export as blanks,
+    // not as zeros, because zero is a score and blank is an absence.
+    function rankTriple(e) {
+      const r = rankBySymphonyId.get(e.symphony_id);
+      return r ? [r.rank, r.tier, r.score] : ['', '', ''];
+    }
+
+    // The union of keys across every exported row, not the keys of the first.
+    // export_summary.py shipped exactly that bug (v1.25.1): it read its column
+    // list off entry zero and would have silently dropped any field added to
+    // later entries. Object-valued fields (last_market_days_holdings,
+    // active_asset_nodes) are excluded: they are maps, not cells.
+    function allScalarFields(entries) {
+      const seen = new Set();
+      const order = [];
+      const objectish = new Set();
+      entries.forEach(e => Object.keys(e).forEach(k => {
+        const v = e[k];
+        // Two passes in one: collect the key order, and separately remember
+        // any key seen holding an object ANYWHERE. Deciding scalar-ness from
+        // the first row that carries the key is not enough, because
+        // last_market_days_holdings is null on some rows and a map on others,
+        // so a first-row null would admit it and every populated row would
+        // then export the string "[object Object]". Verified: that is exactly
+        // what the first version of this function did.
+        if (v !== null && typeof v === 'object') { objectish.add(k); return; }
+        if (seen.has(k)) return;
+        seen.add(k);
+        order.push(k);
+      }));
+      return order.filter(k => !objectish.has(k));
+    }
+
+    // kind: 'view' for the active column view, 'all' for every scalar field.
+    // Values are written raw (0.4264), never display-formatted (42.64%),
+    // because the export exists to be calculated on and a percent sign turns
+    // every cell into text the moment it opens in a spreadsheet.
+    function screenerCsv(kind) {
+      let header, rows;
+      if (kind === 'all') {
+        const fields = allScalarFields(screenerFiltered);
+        header = ['Rank', 'Tier', 'Score'].concat(fields);
+        rows = screenerFiltered.map(e =>
+          rankTriple(e).concat(fields.map(k => e[k])));
+      } else {
+        const cols = SCREENER_VIEWS[screenerView].columns;
+        header = cols.map(c => c.label).concat(['Symphony ID', 'URL']);
+        rows = screenerFiltered.map(e => {
+          const t = rankTriple(e);
+          const cells = cols.map(c => {
+            if (c.key === '_rank') return t[0];
+            if (c.key === '_tier') return t[1];
+            if (c.key === '_score') return t[2];
+            if (c.key === 'name') return e.name || e.symphony_id;
+            return e[c.key];
+          });
+          return cells.concat([e.symphony_id, e.symphony_url || '']);
+        });
+      }
+      const text = [header].concat(rows)
+        .map(r => r.map(csvCell).join(',')).join('\r\n');
+      const stamp = new Date().toISOString().slice(0, 10);
+      const label = kind === 'all' ? 'all-fields' : screenerView;
+      return {
+        filename: 'composer-atlas-screener-' + label + '-'
+          + screenerFiltered.length + 'rows-' + stamp + '.csv',
+        text: text,
+      };
+    }
+
+    function csvDownload(kind) {
+      const out = screenerCsv(kind);
+      // The BOM is not decoration. Without it Excel reads the file as the
+      // system codepage and mangles every non-ASCII symphony name, and plenty
+      // of them carry accents and emoji.
+      const blob = new Blob(['\ufeff' + out.text], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = out.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(a.href), 0);
+    }
+
+    let screenerFiltered = [];
+    let screenerPage = 1;
+    let screenerSortField = null;
+    let screenerSortDir = 'desc';
+    let screenerView = 'overview';
+
+    // Screener always excludes flagged rows (Working only), same as
+    // Leaderboard - unlike All Strategies, this is not user-toggleable.
+    function recomputeScreenerEntries() {
+      screenerFiltered = applyFlagMode(dbEntries, 'default').filter(matchesBucketSelections);
+    }
+
+    // Sort value for a Screener column. The Rank/Tier/Score columns live in the
+    // global ranking index rather than on the entry; unranked rows return null
+    // so the existing null-last handling below pushes them to the bottom.
+    function screenerSortValue(e, field) {
+      if (field === '_rank' || field === '_tier' || field === '_score') {
+        const r = rankBySymphonyId.get(e.symphony_id);
+        if (!r) return null;
+        if (field === '_rank') return r.rank;
+        if (field === '_score') return r.score;
+        return TIER_ORDER[r.tier];
+      }
+      return e[field];
+    }
+
+    function applyScreenerSort() {
+      if (!screenerSortField) return;
+      const dir = screenerSortDir === 'asc' ? 1 : -1;
+      screenerFiltered.sort((a, b) => {
+        const av = screenerSortValue(a, screenerSortField);
+        const bv = screenerSortValue(b, screenerSortField);
+        const aNull = av === null || av === undefined;
+        const bNull = bv === null || bv === undefined;
+        if (aNull && bNull) return 0;
+        if (aNull) return 1;
+        if (bNull) return -1;
+        if (av < bv) return -1 * dir;
+        if (av > bv) return 1 * dir;
+        return 0;
+      });
+    }
+
+    function screenerSortIndicator(key) {
+      if (screenerSortField !== key) return '<span class="db-sort-arrow">&#8597;</span>';
+      return `<span class="db-sort-arrow active">${screenerSortDir === 'asc' ? '&#9650;' : '&#9660;'}</span>`;
+    }
+
+    // ---- Shareable Screener links ------------------------------------------
+    // The Screener's entire state is client-side, so a link only has to carry
+    // it: no backend, no saved searches. It lives in the URL fragment rather
+    // than the query string, which keeps it off the wire and stops a filtered
+    // view being indexed as a page of its own.
+    //
+    // Bucket filters are encoded by OPTION INDEX, not by threshold. The options
+    // are deciles of the loaded dataset (buildBucketOptions), so their
+    // thresholds move on every data refresh. An index means "the top 30% on
+    // Calmar", which is the only thing the dropdown can express anyway, and it
+    // still resolves after a refresh. A pinned number would survive the refresh
+    // as a filter the UI could no longer show as selected.
+    const SCREENER_HASH_TAB = 'screener';
+
+    function screenerTabIsActive() {
+      const panel = document.getElementById('tab-screener');
+      return !!panel && !panel.hidden;
+    }
+
+    // Only non-default state is written, so an untouched Screener yields a bare
+    // "#screener" and the common link stays short.
+    function screenerStateHash() {
+      const parts = [SCREENER_HASH_TAB];
+      if (screenerView !== 'overview') parts.push('view=' + screenerView);
+      const tierIdx = tierFilterOptions().findIndex(o => o.max === screenerTierMax);
+      if (tierIdx > 0) parts.push('tier=' + tierIdx);
+      if (screenerNameQuery) parts.push('q=' + encodeURIComponent(screenerNameQuery));
+      if (screenerSortField) {
+        parts.push('sort=' + screenerSortField);
+        parts.push('dir=' + screenerSortDir);
+      }
+      if (screenerPage > 1) parts.push('page=' + screenerPage);
+      const buckets = [];
+      BUCKET_FIELDS.forEach(f => {
+        const sel = screenerBucketSelections[f.key];
+        if (!sel) return;
+        const idx = (BUCKET_OPTIONS[f.key] || []).findIndex(o => o.label === sel.label);
+        if (idx > 0) buckets.push(f.key + '.' + idx);
+      });
+      if (buckets.length) parts.push('f=' + buckets.join(','));
+      return '#' + parts.join('&');
+    }
+
+    function screenerShareUrl() {
+      // file:// has no usable origin, so there the address bar is the best we
+      // can offer; over http(s) the link is absolute and ready to paste.
+      if (location.protocol === 'file:') return location.href;
+      return location.origin + location.pathname + location.search + screenerStateHash();
+    }
+
+    // replaceState, not pushState: the Screener re-renders on every keystroke in
+    // the name box, and pushing would bury the back button under hundreds of
+    // entries.
+    function writeScreenerHash() {
+      if (!window.history || !history.replaceState) return;
+      const next = screenerTabIsActive() ? screenerStateHash() : '';
+      if ((location.hash || '') === next) return;
+      const base = location.pathname + location.search;
+      history.replaceState(null, '', next ? base + next : base);
+    }
+
+    // Returns true if the fragment held Screener state, which tells the caller
+    // to open that tab. Every value is validated against the live options, so a
+    // hand-edited or stale fragment degrades to the default and never throws.
+    function applyScreenerHash() {
+      const raw = (location.hash || '').replace(/^#/, '');
+      if (!raw) return false;
+      const parts = raw.split('&');
+      if (parts[0] !== SCREENER_HASH_TAB) return false;
+      const params = {};
+      parts.slice(1).forEach(part => {
+        const i = part.indexOf('=');
+        if (i > 0) params[part.slice(0, i)] = part.slice(i + 1);
+      });
+      if (params.view && SCREENER_VIEWS[params.view]) screenerView = params.view;
+      if (params.tier) {
+        const opt = tierFilterOptions()[parseInt(params.tier, 10)];
+        if (opt) screenerTierMax = opt.max;
+      }
+      if (params.q) {
+        try {
+          screenerNameQuery = decodeURIComponent(params.q).toLowerCase();
+        } catch (e) { /* malformed escape: leave the search empty */ }
+      }
+      if (params.f) {
+        params.f.split(',').forEach(token => {
+          const dot = token.lastIndexOf('.');
+          if (dot < 1) return;
+          const key = token.slice(0, dot);
+          const idx = parseInt(token.slice(dot + 1), 10);
+          const opts = BUCKET_OPTIONS[key];
+          if (!opts || !(idx > 0) || idx >= opts.length) return;
+          screenerBucketSelections[key] = opts[idx];
+        });
+      }
+      if (params.sort) {
+        // Accept only a sortable column of the view we ended up on, so a shared
+        // sort never points at a header that is not on screen.
+        const cols = SCREENER_VIEWS[screenerView].columns;
+        if (cols.some(c => c.key === params.sort && c.sortable !== false)) {
+          screenerSortField = params.sort;
+          screenerSortDir = params.dir === 'asc' ? 'asc' : 'desc';
+        }
+      }
+      const page = parseInt(params.page, 10);
+      if (page > 1) screenerPage = page; // renderScreenerPage clamps it
+      return true;
+    }
+
+    function renderScreenerPage() {
+      const columns = SCREENER_VIEWS[screenerView].columns;
+      const totalPages = Math.max(1, Math.ceil(screenerFiltered.length / PAGE_SIZE));
+      screenerPage = Math.min(Math.max(1, screenerPage), totalPages);
+      const start = (screenerPage - 1) * PAGE_SIZE;
+      const pageRows = screenerFiltered.slice(start, start + PAGE_SIZE);
+
+      // Every state change in this tab ends in a render, so this one call keeps
+      // the URL in step with the filters. It no-ops on the other tabs.
+      writeScreenerHash();
+
+      const viewTabsHtml = Object.entries(SCREENER_VIEWS).map(([key, view]) =>
+        `<button class="db-tab${key === screenerView ? ' active' : ''}" data-view="${key}" style="font-size:0.8125rem;padding:8px 14px">${view.label}</button>`
+      ).join('');
+
+      const headerCells = columns.map(col => {
+        if (col.sortable === false) return `<th>${col.label}</th>`;
+        return `<th class="sortable" data-sort="${col.key}">${col.label} ${screenerSortIndicator(col.key)}</th>`;
+      }).join('');
+
+      const rows = pageRows.map(e => {
+        const cells = columns.map(col => {
+          if (col.rankCol) {
+            const r = rankBySymphonyId.get(e.symphony_id);
+            // Un-refreshed rows are in the Screener pool but not the ranking.
+            if (!r) return '<td class="db-col-narrow" title="Not yet scored: awaiting a full metric refresh">&ndash;</td>';
+            if (col.key === '_rank') return `<td class="db-col-narrow">${r.rank.toLocaleString()}</td>`;
+            if (col.key === '_score') return `<td class="db-col-narrow" title="${r.score.toLocaleString()} of ${CANONICAL_MODEL.total} possible points on the ${CANONICAL_MODEL.label} model">${r.score.toLocaleString()}</td>`;
+            const tierClass = TIER_LABEL_CLASS[r.tier] || 'f';
+            return `<td class="db-col-narrow"><span class="tier-badge tier-${tierClass}">${r.tier}</span></td>`;
+          }
+          if (col.key === 'name') {
+            const fullName = e.name || e.symphony_id;
+            const shortName = fullName.length > 22 ? fullName.slice(0, 22) + '…' : fullName;
+            const url = encodeURI(e.symphony_url || '#');
+            return `<td><a href="${url}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(fullName)}">${escapeHtml(shortName)}</a></td>`;
+          }
+          const val = e[col.key];
+          const cls = col.colored && typeof val === 'number' ? colorClass(val) : '';
+          return `<td class="${cls}">${formatMetric(val, col.fmt)}</td>`;
+        }).join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+
+      document.getElementById('screener-content').innerHTML = `
+        <div class="db-toolbar">
+          <div>
+            <h2>Screener</h2>
+            <span class="db-count-pill">${screenerFiltered.length.toLocaleString()} results</span>
+          </div>
+          <div class="db-export">
+            <button class="btn btn-outline btn-sm" id="screener-export-view"${screenerFiltered.length ? '' : ' disabled'}>Export view .csv</button>
+            <button class="btn btn-outline btn-sm" id="screener-export-all"${screenerFiltered.length ? '' : ' disabled'}>Export all fields .csv</button>
+            <button class="btn btn-outline btn-sm" id="screener-copy-link" title="Copy a link that reopens the Screener with these filters">Copy link</button>
+          </div>
+        </div>
+        ${bucketGridHtml()}
+        <div class="db-tabs" role="tablist" aria-label="Screener column views" style="margin-bottom:16px">
+          ${viewTabsHtml}
+        </div>
+        <div class="db-table-wrap">
+          <table class="db-table">
+            <thead><tr>${headerCells}</tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="db-pagination">
+          <button class="btn btn-outline btn-sm" id="screener-first" aria-label="First page" ${screenerPage === 1 ? 'disabled' : ''}>&laquo;</button>
+          <button class="btn btn-outline btn-sm" id="screener-prev" aria-label="Previous page" ${screenerPage === 1 ? 'disabled' : ''}>&lsaquo;</button>
+          <span class="text-secondary" style="font-size:0.875rem">Page ${screenerPage.toLocaleString()} of ${totalPages.toLocaleString()}</span>
+          <button class="btn btn-outline btn-sm" id="screener-next" aria-label="Next page" ${screenerPage === totalPages ? 'disabled' : ''}>&rsaquo;</button>
+          <button class="btn btn-outline btn-sm" id="screener-last" aria-label="Last page" ${screenerPage === totalPages ? 'disabled' : ''}>&raquo;</button>
+        </div>
+      `;
+
+      document.getElementById('screener-export-view').addEventListener('click', () => csvDownload('view'));
+      document.getElementById('screener-export-all').addEventListener('click', () => csvDownload('all'));
+
+      const copyLinkBtn = document.getElementById('screener-copy-link');
+      copyLinkBtn.addEventListener('click', () => {
+        const url = screenerShareUrl();
+        const done = (ok) => {
+          copyLinkBtn.textContent = ok ? 'Link copied \u2713' : 'Press Ctrl+C';
+          setTimeout(() => { copyLinkBtn.textContent = 'Copy link'; }, 1600);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(() => done(true), () => done(false));
+          return;
+        }
+        // execCommand fallback, the same shape as the referral copy button: the
+        // async Clipboard API is unavailable on file:// and on old Safari.
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        done(ok);
+      });
+
+      document.getElementById('screener-first').addEventListener('click', () => { screenerPage = 1; renderScreenerPage(); window.scrollTo({ top: 0 }); });
+      document.getElementById('screener-prev').addEventListener('click', () => { screenerPage--; renderScreenerPage(); window.scrollTo({ top: 0 }); });
+      document.getElementById('screener-next').addEventListener('click', () => { screenerPage++; renderScreenerPage(); window.scrollTo({ top: 0 }); });
+      document.getElementById('screener-last').addEventListener('click', () => { screenerPage = totalPages; renderScreenerPage(); window.scrollTo({ top: 0 }); });
+
+      document.querySelectorAll('#screener-content .db-tabs .db-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          screenerView = btn.dataset.view;
+          screenerSortField = null;
+          renderScreenerPage();
+        });
+      });
+
+      document.querySelectorAll('#screener-content .db-table th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+          const key = th.dataset.sort;
+          if (screenerSortField === key) {
+            screenerSortDir = screenerSortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            screenerSortField = key;
+            screenerSortDir = 'desc';
+          }
+          applyScreenerSort();
+          screenerPage = 1;
+          renderScreenerPage();
+        });
+      });
+
+      const nameSearchInput = document.getElementById('screener-name-search');
+      nameSearchInput.addEventListener('input', (e) => {
+        screenerNameQuery = e.target.value.toLowerCase();
+        const cursorPos = e.target.selectionStart;
+        recomputeScreenerEntries();
+        applyScreenerSort();
+        screenerPage = 1;
+        renderScreenerPage();
+        const newInput = document.getElementById('screener-name-search');
+        newInput.focus();
+        newInput.setSelectionRange(cursorPos, cursorPos);
+      });
+
+      document.querySelectorAll('#screener-content .screener-bucket-select').forEach(sel => {
+        sel.addEventListener('change', (e) => {
+          const key = e.target.dataset.key;
+          const opts = BUCKET_OPTIONS[key] || [];
+          screenerBucketSelections[key] = opts.find(o => o.label === e.target.value) || null;
+          recomputeScreenerEntries();
+          applyScreenerSort();
+          screenerPage = 1;
+          renderScreenerPage();
+        });
+      });
+
+      const tierSelect = document.getElementById('screener-tier-select');
+      if (tierSelect) {
+        tierSelect.addEventListener('change', (e) => {
+          const opt = tierFilterOptions().find(o => o.label === e.target.value);
+          screenerTierMax = opt ? opt.max : null;
+          recomputeScreenerEntries();
+          applyScreenerSort();
+          screenerPage = 1;
+          renderScreenerPage();
+        });
+      }
+    }
+
+    // ---- Leaderboard tab (V1.13, reweighted V1.17): relative-percentile scoring model. ----
+    // Methodology locked in docs/PRD.md Section 14 (V1.17): 20 metrics, 4
+    // categories, 1,000 points total. Every metric is ranked by percentile
+    // among eligible entries (not raw value), then run through a clamp curve
+    // so only the top ~14% of a metric earns full marks; missing data scores
+    // a hard zero. Tiers are assigned by rank (S+/S/A/B/C/F at
+    // 1/9/10/20/25/25%), ties round up into the better tier. Noise-flagged
+    // entries are always excluded from the eligible pool (V1.14 Part B) -
+    // unlike All Strategies, this is not user-toggleable (same as Screener).
+    //
+    // V1.17 (2026-07-13): metric weights re-derived from a 1.0-10.0
+    // importance rating exercise against the site's actual goal (best
+    // return + long backtest + relatively safe), not the original
+    // category-based point allocation. Clamp constant raised from 0.22 to
+    // 0.14 so top performers separate more (a flatter clamp meant anyone
+    // above the 78th percentile on a metric scored identically). S+
+    // redefined from "literal perfect 1,000/1,000" (which never fired) to
+    // a real top-1% rank cut. See docs/PRD.md Section 14, V1.17 for the
+    // full rationale behind every weight.
+    const CLAMP_Q = 0.14;
+    function scoreClamp(x, lo, hi) { return x < lo ? lo : (x > hi ? hi : x); }
+    function pointsFromPct(p, cap) { return scoreClamp(cap * (p - CLAMP_Q) / (1 - 2 * CLAMP_Q), 0, cap); }
+
+    const ADVANCED_METRICS = [
+      { key: 'arr', cap: 99, higher: true, get: e => e.annualized_rate_of_return },
+      { key: 'max_dd', cap: 98, higher: true, get: e => e.max_drawdown },
+      { key: 'backtest', cap: 97, higher: true, get: e => e.backtest_days },
+      { key: 'calmar', cap: 96, higher: true, get: e => e.calmar_ratio },
+      { key: 'sharpe', cap: 85, higher: true, get: e => e.sharpe_ratio },
+      { key: 'sortino', cap: 75, higher: true, get: e => e.sortino_ratio },
+      { key: 't1y', cap: 64, higher: true, get: e => e.trailing_one_year_return },
+      { key: 'median', cap: 59, higher: true, get: e => e.median },
+      { key: 'win_rate', cap: 48, higher: true, get: e => e.win_rate },
+      { key: 'top1day', cap: 43, higher: false, get: e => e.top_one_day_contribution },
+      { key: 'skew', cap: 37, higher: true, get: e => e.skewness },
+      { key: 't3m', cap: 32, higher: true, get: e => e.trailing_three_month_return },
+      { key: 'top5pct', cap: 32, higher: false, get: e => e.top_five_percent_day_contribution },
+      { key: 'tail_ratio', cap: 27, higher: true, get: e => e.tail_ratio },
+      { key: 'oos', cap: 25, higher: true, get: oosDaysValue },
+      { key: 'std_dev', cap: 25, higher: false, get: e => e.standard_deviation },
+      { key: 'top10pct', cap: 21, higher: false, get: e => e.top_ten_percent_day_contribution },
+      { key: 't1m', cap: 16, higher: true, get: e => e.trailing_one_month_return },
+      { key: 't2w', cap: 11, higher: true, get: e => e.trailing_two_week_return },
+      { key: 'kurtosis', cap: 10, higher: false, get: e => e.kurtosis },
+    ];
+
+    // ---- Out-of-sample record (V1.18) ----
+    // data/oos.js carries one true out-of-sample backtest per candidate row,
+    // fetched by scripts/refresh_oos.py with start_date set to the symphony's
+    // last logic edit. Rows outside the candidate set have no entry here and
+    // score a hard zero on the pillar, which is the same rule the model already
+    // applies to missing data everywhere else. See docs/PRD.md V1.18.
+    const OOS_SERIES = (window.OOS_DATA && window.OOS_DATA.series) || {};
+    // A row needs a year of untouched history to reach S+ or S. This is an
+    // eligibility rule, not a weighting change, so it cannot disturb the fixed
+    // denominator. Rows below it can still reach A.
+    const OOS_TIER_FLOOR_DAYS = 365;
+    function oosRowFor(e) { return OOS_SERIES[e.symphony_id] || null; }
+    function oosExcessValue(e) {
+      const r = oosRowFor(e);
+      return r && typeof r.excess_return === 'number' ? r.excess_return : null;
+    }
+    // Short records are ranked against other short records, never against a
+    // row with three untouched years. This makes no annualisation claim, which
+    // is the whole point: annualising a 120-day excess triples its apparent
+    // severity out of compounding noise alone.
+    function oosDurationGroup(e) {
+      const r = oosRowFor(e);
+      const d = r && r.oos_calendar_days;
+      if (typeof d !== 'number') return null;
+      return d >= 730 ? '730+' : (d >= 365 ? '365-729' : '90-364');
+    }
+    function meetsOosTierFloor(e) {
+      const d = oosDaysValue(e);
+      return typeof d === 'number' && d >= OOS_TIER_FLOOR_DAYS;
+    }
+
+    // The Simplified model: five metrics, 100 points, and a third of the weight
+    // on the one number none of the others can fake, the out-of-sample return
+    // against SPY. Canonical: the Screener's Rank/Score/Tier columns and the
+    // strategy pages read this model, not the Advanced one.
+    const SIMPLIFIED_METRICS = [
+      { key: 'oos_excess', cap: 35, higher: true, get: oosExcessValue, group: oosDurationGroup },
+      { key: 'arr', cap: 25, higher: true, get: e => e.annualized_rate_of_return },
+      { key: 'backtest', cap: 15, higher: true, get: e => e.backtest_days },
+      { key: 'max_dd', cap: 15, higher: true, get: e => e.max_drawdown },
+      { key: 'std_dev', cap: 10, higher: false, get: e => e.standard_deviation },
+    ];
+    const TIER_CUTS = [['S+', 0.0025], ['S', 0.10], ['A', 0.20], ['B', 0.50], ['C', 0.75]]; // F = the rest
+    const TIER_LABEL_CLASS = { 'S+': 'sp', S: 's', A: 'a', B: 'b', C: 'c', F: 'f' };
+    // Best-to-worst ordinal for each tier, used by the Screener's Tier column
+    // sort and its "or better" tier filter. Derived from TIER_CUTS so the two
+    // can never drift apart; F is the implicit last tier.
+    const TIER_ORDER = (() => {
+      const o = {};
+      TIER_CUTS.forEach((c, i) => { o[c[0]] = i; });
+      o.F = TIER_CUTS.length;
+      return o;
+    })();
+
+    // Category grouping + human labels, for the per-row score breakdown modal
+    // and the Methodology modal. Mirrors the locked model in docs/PRD.md
+    // Section 14, V1.17, keep both in sync if the model ever changes.
+    const ADVANCED_CATEGORIES = [
+      { label: 'Return', keys: ['arr', 't1y', 'median', 't3m', 't1m', 't2w'] },
+      { label: 'Risk-Adjusted / Downside Risk', keys: ['max_dd', 'calmar', 'sharpe', 'sortino', 'win_rate', 'std_dev'] },
+      { label: 'Shape & Concentration', keys: ['top1day', 'skew', 'top5pct', 'tail_ratio', 'top10pct', 'kurtosis'] },
+      { label: 'Longevity', keys: ['backtest', 'oos'] },
+    ];
+    const SIMPLIFIED_CATEGORIES = [
+      { label: 'Out of sample', keys: ['oos_excess'] },
+      { label: 'Return', keys: ['arr'] },
+      { label: 'Risk', keys: ['max_dd', 'std_dev'] },
+      { label: 'Track record', keys: ['backtest'] },
+    ];
+
+    // Both models are permanent. Neither is a migration step towards the other,
+    // and there is no transition label on either, per owner decision 2026-09-06:
+    // they stay side by side until one is deliberately retired.
+    const SCORING_MODELS = {
+      simplified: { id: 'simplified', label: 'Simplified', metrics: SIMPLIFIED_METRICS, categories: SIMPLIFIED_CATEGORIES, tierFloor: true },
+      advanced: { id: 'advanced', label: 'Advanced', metrics: ADVANCED_METRICS, categories: ADVANCED_CATEGORIES, tierFloor: false },
+    };
+    Object.keys(SCORING_MODELS).forEach(id => {
+      SCORING_MODELS[id].total = SCORING_MODELS[id].metrics.reduce((s, m) => s + m.cap, 0);
+    });
+    const CANONICAL_MODEL = SCORING_MODELS.simplified;
+    let activeModelId = 'simplified';
+    const METRIC_LABELS = {
+      arr: 'Annualized Rate of Return', median: 'Median Period Return',
+      t1y: '1-Year Trailing Return', t3m: '3-Month Trailing Return',
+      t1m: '1-Month Trailing Return', t2w: '2-Week Trailing Return',
+      sharpe: 'Sharpe Ratio', calmar: 'Calmar Ratio', sortino: 'Sortino Ratio', win_rate: 'Win Rate',
+      max_dd: 'Max Drawdown', std_dev: 'Standard Deviation',
+      skew: 'Skewness', tail_ratio: 'Tail Ratio', kurtosis: 'Kurtosis',
+      top1day: 'Top 1-Day Contribution', top5pct: 'Top 5% Contribution', top10pct: 'Top 10% Contribution',
+      backtest: 'Backtest Days', oos: 'OOS Days',
+      oos_excess: 'Out-of-sample return vs SPY',
+    };
+    function metricCap(model, key) {
+      const m = model.metrics.find(x => x.key === key);
+      return m ? m.cap : 0;
+    }
+
+    // entries: the eligible pool (has been refreshed, i.e. sharpe_ratio present)
+    function computeScores(entries, model) {
+      const ptsByIdx = entries.map(() => ({}));
+
+      model.metrics.forEach(m => {
+        // A metric carrying a group function is percentiled inside its peer
+        // group rather than across the whole pool, and a row whose group comes
+        // back null is left out of the ranking entirely (it scores the same
+        // hard zero as missing data). Metrics without one land in a single
+        // bucket, which is the pre-V1.18 behaviour unchanged.
+        const groups = new Map();
+        entries.forEach((e, i) => {
+          const v = m.get(e);
+          if (typeof v !== 'number') return;
+          const g = m.group ? m.group(e) : '';
+          if (g === null || g === undefined) return;
+          if (!groups.has(g)) groups.set(g, []);
+          groups.get(g).push({ i, v });
+        });
+        groups.forEach(vals => {
+          const n = vals.length;
+          if (!n) return;
+          vals.sort((a, b) => a.v - b.v);
+          let i = 0;
+          while (i < n) {
+            let j = i;
+            while (j + 1 < n && vals[j + 1].v === vals[i].v) j++; // average-rank ties
+            let perc = n > 1 ? ((i + j) / 2) / (n - 1) : 0.5;
+            if (!m.higher) perc = 1 - perc;
+            const p = pointsFromPct(perc, m.cap);
+            for (let k = i; k <= j; k++) ptsByIdx[vals[k].i][m.key] = p;
+            i = j + 1;
+          }
+        });
+      });
+
+      // `raw` orders the board, `score` is what the board shows. Rounding to
+      // one decimal before sorting was manufacturing ties that the model had
+      // not actually produced: measured on the full pool, 59 of the top 100
+      // shared a rounded score and only 14 shared a real one. Those 14 are all
+      // near-duplicate strategies, the same logic re-uploaded under a different
+      // name, which genuinely deserve the same score, so no tie-break rule is
+      // needed once the false ties are gone. See docs/PRD.md V1.18.
+      return entries.map((e, i) => {
+        const pts = ptsByIdx[i];
+        const total = model.metrics.reduce((s, m) => s + (pts[m.key] || 0), 0);
+        return { entry: e, raw: total, score: Math.round(total * 10) / 10, fieldsPresent: Object.keys(pts).length, parts: pts };
+      });
+    }
+
+    function computeTiers(scored, model) {
+      const ranked = scored.slice().sort((a, b) => b.raw - a.raw);
+      const n = ranked.length;
+      const cuts = TIER_CUTS.map(c => Math.max(1, Math.round(c[1] * n)));
+      for (let k = 0; k < cuts.length; k++) {
+        let j = Math.min(cuts[k], n) - 1;
+        const boundary = ranked[j].raw;
+        while (j + 1 < n && ranked[j + 1].raw === boundary) j++; // ties round up
+        cuts[k] = j + 1;
+        if (k > 0 && cuts[k] < cuts[k - 1]) cuts[k] = cuts[k - 1];
+      }
+      let ci = 0;
+      ranked.forEach((r, i) => {
+        while (ci < cuts.length && i >= cuts[ci]) ci++;
+        r.tier = ci < TIER_CUTS.length ? TIER_CUTS[ci][0] : 'F';
+      });
+      // The OOS floor demotes rather than reorders: rank is untouched, only the
+      // top two tier labels are withheld from rows without a year of untouched
+      // history. Applied after the cuts so it can never move a cut.
+      if (model && model.tierFloor) {
+        ranked.forEach(r => {
+          if ((r.tier === 'S+' || r.tier === 'S') && !meetsOosTierFloor(r.entry)) r.tier = 'A';
+        });
+      }
+      return ranked; // already sorted by score descending
+    }
+
+    let leaderboardRanked = []; // [{ entry, score, tier, fieldsPresent, parts }], sorted by score desc
+    const modelRanked = { simplified: [], advanced: [] }; // every model, scored on the same pool
+    let leaderboardFiltered = [];
+    let leaderboardPage = 1;
+    let leaderboardNameQuery = '';
+
+    // symphony_id -> { rank, score, tier } for the whole eligible pool.
+    let rankBySymphonyId = new Map();
+
+    // Eligibility: has been refreshed under the full schema (sharpe_ratio
+    // present is the proxy used throughout) AND is not flag-noise. Unlike
+    // All Strategies, this is not user-toggleable (same as Screener) - the
+    // Leaderboard always excludes flagged rows from scoring, no "show all" option.
+    //
+    // Scored ONCE, globally, against the full eligible pool. Both the
+    // Leaderboard and the Screener's Rank/Score/Tier columns read this same
+    // ranking, so a symphony's rank and tier mean the same thing everywhere and
+    // do not shift as the Screener is filtered. Re-scoring inside a filtered
+    // subset was rejected: it would make the Screener's tier filter circular
+    // (filtering to "S or better" would immediately re-tier the survivors, so
+    // the set could never settle) and would let the two tabs disagree about the
+    // same symphony. See PRD Section 14, V2.2.
+    function recomputeGlobalRanking() {
+      const refreshed = dbEntries.filter(e => typeof e.sharpe_ratio === 'number');
+      const eligible = applyFlagMode(refreshed, 'default');
+      // Both models are scored on the same pool up front, so the toggle is a
+      // re-render rather than a re-score and the two can be compared row for
+      // row without either one shifting underneath the other.
+      Object.keys(SCORING_MODELS).forEach(id => {
+        modelRanked[id] = computeTiers(computeScores(eligible, SCORING_MODELS[id]), SCORING_MODELS[id]);
+      });
+      leaderboardRanked = modelRanked[activeModelId];
+      // Exported to the Screener and the strategy pages from the CANONICAL
+      // model only. The toggle is a Leaderboard view, not a site-wide mode: a
+      // symphony's rank has to mean one thing everywhere it is quoted.
+      rankBySymphonyId = new Map();
+      modelRanked[CANONICAL_MODEL.id].forEach((r, i) => {
+        rankBySymphonyId.set(r.entry.symphony_id, { rank: i + 1, score: r.score, tier: r.tier });
+      });
+    }
+
+    function recomputeLeaderboard() {
+      leaderboardFiltered = leaderboardRanked.filter(r => leaderboardFilterController.filterFn(r.entry));
+      if (leaderboardNameQuery) {
+        leaderboardFiltered = leaderboardFiltered.filter(r => String(r.entry.name || '').toLowerCase().includes(leaderboardNameQuery));
+      }
+    }
+
+    // ---- Shared modal (score breakdown + Methodology) ----
+    // The panel already carried role="dialog" and aria-modal="true" before
+    // v1.32.3. What was missing was everything that makes those attributes
+    // true: Tab walked straight out into the page behind, focus never entered
+    // the modal on open, and it was never returned to the trigger on close.
+    // aria-modal="true" is a promise that the rest of the page is unreachable,
+    // so shipping it without the behaviour was worse than not setting it: it
+    // told assistive technology something false.
+
+    // Each selector is scoped individually. Writing '#modal-overlay ' + the
+    // whole comma-separated list scopes only the FIRST one and leaves the rest
+    // global, which is exactly the bug the first version of this shipped: the
+    // trap collected 47 elements, 44 of them symphony links in the table
+    // behind the modal, and the forward wrap then tried to focus a nav link
+    // that inert had just made unfocusable.
+    const FOCUSABLE = ['button', '[href]', 'input', 'select', 'textarea',
+                       '[tabindex]:not([tabindex="-1"])']
+      .map(sel => '#modal-overlay ' + sel).join(',');
+    let modalReturnFocus = null;
+
+    // Rect-based rather than offsetParent-based. offsetParent is null for
+    // position:fixed elements, and .modal-overlay is fixed, so an
+    // offsetParent check would have reported every control in the panel as
+    // invisible and produced an empty trap.
+    function modalFocusable() {
+      return Array.from(document.querySelectorAll(FOCUSABLE))
+        .filter(el => {
+          const r = el.getBoundingClientRect();
+          return (r.width > 0 || r.height > 0) && !el.disabled;
+        });
+    }
+
+    // inert does what a focus trap alone cannot: it removes the background
+    // from the accessibility tree as well as the tab order. A trap stops Tab,
+    // but a screen reader user can still browse past the modal into the 6,547
+    // rows behind it, which is the actual failure this item describes.
+    function setBackgroundInert(on) {
+      [document.getElementById('nav-root'),
+       document.querySelector('.page'),
+       document.getElementById('footer-root')].forEach(el => {
+        if (el) el.inert = on;
+      });
+    }
+
+    function openModal(title, bodyHtml) {
+      modalReturnFocus = document.activeElement;
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-body').innerHTML = bodyHtml;
+      document.getElementById('modal-overlay').hidden = false;
+      setBackgroundInert(true);
+      // Focus the close button rather than the panel. It is the one control
+      // every modal here has, and landing on it tells a screen reader user
+      // how to get out before it reads them anything else.
+      const close = document.getElementById('modal-close');
+      (close || modalFocusable()[0] || document.getElementById('modal-overlay')).focus();
+    }
+
+    function closeModal() {
+      document.getElementById('modal-overlay').hidden = true;
+      setBackgroundInert(false);
+      // Return focus where it came from. Without this the next Tab restarts
+      // from the top of the document, which on this page means walking the
+      // whole nav again to get back to the row you were reading.
+      if (modalReturnFocus && document.contains(modalReturnFocus)) {
+        modalReturnFocus.focus();
+      }
+      modalReturnFocus = null;
+    }
+
+    document.getElementById('modal-close').addEventListener('click', closeModal);
+    document.getElementById('modal-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'modal-overlay') closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      const overlay = document.getElementById('modal-overlay');
+      if (overlay.hidden) return;
+      if (e.key === 'Escape') { closeModal(); return; }
+      if (e.key !== 'Tab') return;
+      const f = modalFocusable();
+      if (!f.length) { e.preventDefault(); return; }
+      const first = f[0], last = f[f.length - 1];
+      // Wrap at both ends. Also catches the case where focus is somehow
+      // outside the panel entirely, by pulling it back to the first control.
+      if (!document.getElementById('modal-overlay').contains(document.activeElement)) {
+        e.preventDefault(); first.focus(); return;
+      }
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+
+    function fmtScoreValue(v) {
+      return Math.round(v * 10) / 10;
+    }
+
+    // Per-row score breakdown: every category's earned/max, and every metric
+    // within it; "no data" is distinguished from "scored zero" (bottom of
+    // the pack still earned a real score of 0, missing data never entered
+    // the ranking at all for that metric).
+    function scoreBreakdownHtml(r, model) {
+      const e = r.entry;
+      const name = e.name || e.symphony_id;
+      let html = `<p class="text-secondary">${escapeHtml(name)} scored <strong style="color:var(--color-primary)">${fmtScoreValue(r.score)} / ${model.total}</strong> on the <strong style="color:var(--color-primary)">${model.label}</strong> model, tier <strong style="color:var(--color-primary)">${r.tier}</strong>.</p>`;
+
+      // Why a row that scores well is not in S+ or S is otherwise invisible, so
+      // the floor states itself here rather than leaving the reader to guess.
+      if (model.tierFloor && !meetsOosTierFloor(e)) {
+        const d = oosDaysValue(e);
+        html += `<p class="text-secondary">Capped at A: S+ and S need at least ${OOS_TIER_FLOOR_DAYS} days since the last logic edit, and this one has ${d === null ? 'no recorded edit date' : d.toLocaleString() + '.'}</p>`;
+      }
+
+      model.categories.forEach(cat => {
+        const catCap = cat.keys.reduce((s, k) => s + metricCap(model, k), 0);
+        const catEarned = cat.keys.reduce((s, k) => s + (r.parts[k] || 0), 0);
+        html += `<h3>${cat.label} <span class="text-secondary" style="font-weight:400">(${fmtScoreValue(catEarned)} / ${catCap})</span></h3>`;
+        cat.keys.forEach(k => {
+          const hasData = r.parts[k] !== undefined;
+          const cls = hasData ? '' : 'no-data';
+          const valueText = hasData ? `${fmtScoreValue(r.parts[k])} / ${metricCap(model, k)}` : `No data / ${metricCap(model, k)}`;
+          html += `<div class="score-row ${cls}"><span class="score-row-label">${METRIC_LABELS[k]}</span><span class="score-row-value">${valueText}</span></div>`;
+        });
+      });
+      return html;
+    }
+
+    function methodologyHtml(model) {
+      const other = SCORING_MODELS[model.id === 'simplified' ? 'advanced' : 'simplified'];
+      let html = `<p>The Leaderboard carries <strong>two scoring models</strong>, and the toggle above the table switches between them. Both are permanent, and both rank the same pool of strategies. You are reading the <strong style="color:var(--color-primary)">${model.label}</strong> model; the other is <strong>${other.label}</strong>.</p>`;
+
+      if (model.id === 'simplified') {
+        html += `
+          <p><strong>Simplified</strong> scores ${model.metrics.length} metrics out of ${model.total} points and spends 35 of them, more than any other single figure, on the one number a backtest cannot flatter: how the strategy actually did against SPY over the period since its logic was last edited. Everything before that edit is a curve fitted with hindsight; everything after it is a record.</p>
+          <p>Out-of-sample records are ranked <strong>within duration groups</strong> (90 to 364 days, 365 to 729, and 730 or more), so a strategy with four untouched months is judged against others with four untouched months rather than against one with three untouched years. Nothing is annualized, because annualizing a short excess return mostly compounds noise.</p>
+          <p>A strategy with no out-of-sample record scores a hard zero on that pillar. The ${model.total}-point denominator never shrinks, so an incomplete strategy can never outscore a complete one just by having fewer things to fail.</p>
+          <p>Tiers are assigned by <strong>rank</strong>, not raw score: S+ = top 0.25% of scored strategies, S = next 9.75%, A = next 10%, B = next 30%, C = next 25%, F = bottom 25%. <strong>S+ and S additionally require at least ${OOS_TIER_FLOOR_DAYS} days out of sample</strong>; a strategy under that floor is capped at A however well it scores, because there is not yet enough untouched history to call it proven.</p>
+        `;
+      } else {
+        html += `
+          <p><strong>Advanced</strong> scores ${model.metrics.length} metrics grouped into ${model.categories.length} categories, ${model.total} points total. It is the wider view: where Simplified asks whether a strategy has actually worked since it stopped being edited, Advanced measures the full shape of the backtest, including distribution statistics that no single return figure captures.</p>
+          <p>Metric weights aren't split evenly, they're set by how directly each one serves the goal of finding strategies with strong returns, long track records, and relatively low risk: Annualized Return, Max Drawdown, and Backtest Days carry the most weight; second-order shape statistics like Kurtosis carry the least.</p>
+          <p>Missing data scores a hard zero for that one metric, the ${model.total}-point denominator never shrinks, so an incomplete strategy can never outscore a complete one just by having fewer things to fail.</p>
+          <p>Tiers are assigned by <strong>rank</strong>, not raw score: S+ = top 0.25% of scored strategies, S = next 9.75% (top 0.25-10%), A = next 10% (10-20%), B = next 30% (20-50%), C = next 25% (50-75%), F = bottom 25%. Advanced applies no out-of-sample floor.</p>
+        `;
+      }
+
+      html += `<p>Every metric is scored by <strong>percentile rank</strong> among strategies with usable data, not by its raw value, so a strategy is judged against its peers rather than an arbitrary fixed scale. Only the top ~14% of a metric earns full marks and the bottom ~14% earns zero, with a straight ramp in between.</p>`;
+
+      model.categories.forEach(cat => {
+        const catCap = cat.keys.reduce((s, k) => s + metricCap(model, k), 0);
+        html += `<h3>${cat.label} <span class="text-secondary" style="font-weight:400">(${catCap} pts)</span></h3>`;
+        cat.keys.forEach(k => {
+          html += `<div class="score-row"><span class="score-row-label">${METRIC_LABELS[k]}</span><span class="score-row-value">${metricCap(model, k)} pts</span></div>`;
+        });
+      });
+      html += `<p style="margin-top:16px">The <strong style="color:var(--color-primary)">${other.label}</strong> model is used elsewhere on the site only where it says so: the Screener's Rank, Score and Tier columns and the strategy pages always quote <strong>${CANONICAL_MODEL.label}</strong>, so a strategy's rank means one thing wherever it appears.</p>`;
+      html += `<p>See the <strong style="color:var(--color-primary)">Metrics</strong> tab (next to Screener) for a plain-English explanation of what each metric measures.</p>`;
+      return html;
+    }
+
+    // Where the two models disagree, and by how much. Two models that agreed
+    // everywhere would not be worth carrying two of, so this is the view that
+    // says what the second one is actually buying. Restricted to rows that
+    // place well in at least one model, because a move from rank 5,900 to
+    // 6,100 is noise and would otherwise fill the whole list.
+    function modelDiffHtml() {
+      const a = SCORING_MODELS.simplified, b = SCORING_MODELS.advanced;
+      const rankIn = m => {
+        const map = new Map();
+        modelRanked[m.id].forEach((r, i) => map.set(r.entry.symphony_id, { rank: i + 1, tier: r.tier, score: r.score }));
+        return map;
+      };
+      const ra = rankIn(a), rb = rankIn(b);
+      const RELEVANT = 500;
+      const rows = [];
+      modelRanked[a.id].forEach(r => {
+        const id = r.entry.symphony_id;
+        const x = ra.get(id), y = rb.get(id);
+        if (!x || !y) return;
+        if (Math.min(x.rank, y.rank) > RELEVANT) return;
+        rows.push({ e: r.entry, a: x, b: y, move: y.rank - x.rank });
+      });
+      if (!rows.length) return '<p class="text-secondary">Nothing to compare yet.</p>';
+
+      const fmtRow = d => {
+        const name = d.e.name || d.e.symphony_id;
+        const short = name.length > 40 ? name.slice(0, 40) + '\u2026' : name;
+        const url = encodeURI(d.e.symphony_url || '#');
+        return `<div class="score-row"><span class="score-row-label"><a href="${url}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(name)}">${escapeHtml(short)}</a></span><span class="score-row-value">${a.label} #${d.a.rank.toLocaleString()} ${d.a.tier} &nbsp;&rarr;&nbsp; ${b.label} #${d.b.rank.toLocaleString()} ${d.b.tier}</span></div>`;
+      };
+
+      const agree = rows.filter(d => Math.abs(d.move) <= 50).length;
+      let html = `<p class="text-secondary">Comparing every strategy that reaches the top ${RELEVANT.toLocaleString()} of either model: <strong>${rows.length.toLocaleString()}</strong> rows, of which <strong>${agree.toLocaleString()}</strong> land within 50 places of each other. The rest are where the two models genuinely disagree, and each one is worth a look rather than a verdict: a strategy the Simplified model likes has an out-of-sample record behind it, and a strategy only the Advanced model likes has a well-shaped backtest and not much else yet.</p>`;
+
+      const worse = rows.slice().sort((p, q) => q.move - p.move).slice(0, 15);
+      html += `<h3>${a.label} rates these far higher</h3>`;
+      html += `<p class="text-secondary">Their out-of-sample record carries them past strategies with prettier backtest statistics.</p>`;
+      worse.forEach(d => { html += fmtRow(d); });
+
+      const better = rows.slice().sort((p, q) => p.move - q.move).slice(0, 15);
+      html += `<h3>${b.label} rates these far higher</h3>`;
+      html += `<p class="text-secondary">Strong on the wider factor set, but thin or negative since their logic was last edited. Treat a large gap here as a question, not a disqualification.</p>`;
+      better.forEach(d => { html += fmtRow(d); });
+      return html;
+    }
+
+    const leaderboardFilterController = createFilterController({
+      panelId: 'filter-panel-leaderboard',
+      buttonId: 'filter-btn-leaderboard',
+      onApply: () => {
+        leaderboardFiltered = leaderboardRanked.filter(r => leaderboardFilterController.filterFn(r.entry));
+        leaderboardPage = 1;
+        renderLeaderboardPage();
+      },
+    });
+
+    function renderLeaderboardPage() {
+      const model = SCORING_MODELS[activeModelId];
+      const totalPages = Math.max(1, Math.ceil(leaderboardFiltered.length / PAGE_SIZE));
+      leaderboardPage = Math.min(Math.max(1, leaderboardPage), totalPages);
+      const start = (leaderboardPage - 1) * PAGE_SIZE;
+      const pageRows = leaderboardFiltered.slice(start, start + PAGE_SIZE);
+      const rankOffset = start;
+
+      const rows = pageRows.map((r, i) => {
+        const e = r.entry;
+        const fullName = e.name || e.symphony_id;
+        const shortName = fullName.length > 22 ? fullName.slice(0, 22) + '…' : fullName;
+        const url = encodeURI(e.symphony_url || '#');
+        const tierClass = TIER_LABEL_CLASS[r.tier] || 'f';
+        return `
+          <tr>
+            <td class="db-col-narrow">${(rankOffset + i + 1).toLocaleString()}</td>
+            <td><span class="tier-badge tier-${tierClass}">${r.tier}</span></td>
+            <td><button class="score-link" data-rank="${rankOffset + i}" title="Click for score breakdown">${r.score.toLocaleString()} / ${model.total}</button></td>
+            <td><a href="${url}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(fullName)}">${escapeHtml(shortName)}</a></td>
+            <td class="${colorClass(e.annualized_rate_of_return)}">${formatMetric(e.annualized_rate_of_return, formatPct)}</td>
+            <td class="${colorClass(e.sharpe_ratio)}">${formatMetric(e.sharpe_ratio, formatRatio)}</td>
+            <td class="${colorClass(e.calmar_ratio)}">${formatMetric(e.calmar_ratio, formatRatio)}</td>
+            <td class="${colorClass(e.max_drawdown)}">${formatMetric(e.max_drawdown, formatPct)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const filterCount = leaderboardFilterController.activeCount();
+      const filterLabel = filterCount ? `Filter (${filterCount})` : 'Filter';
+      const notRefreshedCount = dbEntries.length - dbEntries.filter(e => typeof e.sharpe_ratio === 'number').length;
+
+      document.getElementById('leaderboard-content').innerHTML = `
+        <div class="db-toolbar">
+          <div>
+            <h2>Leaderboard</h2>
+            <span class="db-count-pill">${leaderboardFiltered.length.toLocaleString()} ranked</span>
+            <input type="text" id="search-leaderboard" class="db-search-input" placeholder="Search by name..." value="${escapeHtml(leaderboardNameQuery)}" style="margin-left:8px">
+            <button class="btn btn-outline btn-sm" id="filter-btn-leaderboard" style="margin-left:8px">
+              <span aria-hidden="true">&#9776;</span> ${filterLabel}
+            </button>
+            <button class="btn btn-outline btn-sm" id="methodology-btn-leaderboard" style="margin-left:8px">Methodology</button>
+            <button class="btn btn-outline btn-sm" id="modeldiff-btn-leaderboard" style="margin-left:8px">Model diff</button>
+            <span class="model-toggle" role="group" aria-label="Scoring model">
+              ${Object.keys(SCORING_MODELS).map(id => `<button type="button" class="model-toggle-btn${id === activeModelId ? ' is-active' : ''}" data-model="${id}" aria-pressed="${id === activeModelId}">${SCORING_MODELS[id].label}</button>`).join('')}
+            </span>
+          </div>
+          <span class="text-secondary" style="font-size:0.8125rem">${model.label} model, scored out of ${model.total}; ${notRefreshedCount.toLocaleString()} not yet refreshed and any flagged rows excluded from ranking</span>
+        </div>
+        <div id="filter-panel-leaderboard" class="filter-panel" hidden></div>
+        <div class="db-table-wrap">
+          <table class="db-table">
+            <thead>
+              <tr>
+                <th class="db-col-narrow">Rank</th>
+                <th>Tier</th>
+                <th>Score</th>
+                <th>Symphony</th>
+                <th>ARR</th>
+                <th>Sharpe</th>
+                <th>Calmar</th>
+                <th>Max Drawdown</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="db-pagination">
+          <button class="btn btn-outline btn-sm" id="leaderboard-first" aria-label="First page" ${leaderboardPage === 1 ? 'disabled' : ''}>&laquo;</button>
+          <button class="btn btn-outline btn-sm" id="leaderboard-prev" aria-label="Previous page" ${leaderboardPage === 1 ? 'disabled' : ''}>&lsaquo;</button>
+          <span class="text-secondary" style="font-size:0.875rem">Page ${leaderboardPage.toLocaleString()} of ${totalPages.toLocaleString()}</span>
+          <button class="btn btn-outline btn-sm" id="leaderboard-next" aria-label="Next page" ${leaderboardPage === totalPages ? 'disabled' : ''}>&rsaquo;</button>
+          <button class="btn btn-outline btn-sm" id="leaderboard-last" aria-label="Last page" ${leaderboardPage === totalPages ? 'disabled' : ''}>&raquo;</button>
+        </div>
+      `;
+
+      document.getElementById('leaderboard-first').addEventListener('click', () => { leaderboardPage = 1; renderLeaderboardPage(); window.scrollTo({ top: 0 }); });
+      document.getElementById('leaderboard-prev').addEventListener('click', () => { leaderboardPage--; renderLeaderboardPage(); window.scrollTo({ top: 0 }); });
+      document.getElementById('leaderboard-next').addEventListener('click', () => { leaderboardPage++; renderLeaderboardPage(); window.scrollTo({ top: 0 }); });
+      document.getElementById('leaderboard-last').addEventListener('click', () => { leaderboardPage = totalPages; renderLeaderboardPage(); window.scrollTo({ top: 0 }); });
+
+      document.querySelectorAll('#leaderboard-content .score-link').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const r = leaderboardFiltered[Number(btn.dataset.rank)];
+          if (r) openModal('Score Breakdown', scoreBreakdownHtml(r, model));
+        });
+      });
+
+      document.getElementById('methodology-btn-leaderboard').addEventListener('click', () => {
+        openModal('Leaderboard Methodology', methodologyHtml(model));
+      });
+
+      document.getElementById('modeldiff-btn-leaderboard').addEventListener('click', () => {
+        openModal('Where the two models disagree', modelDiffHtml());
+      });
+
+      // Switching models is a re-render, not a re-score: both rankings were
+      // built in recomputeGlobalRanking. The filter and the search box carry
+      // over, and the page resets to 1 because rank 40 in one model is not
+      // rank 40 in the other.
+      document.querySelectorAll('#leaderboard-content .model-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.dataset.model;
+          if (!SCORING_MODELS[id] || id === activeModelId) return;
+          activeModelId = id;
+          leaderboardRanked = modelRanked[id];
+          recomputeLeaderboard();
+          leaderboardPage = 1;
+          renderLeaderboardPage();
+        });
+      });
+
+      const leaderboardSearchInput = document.getElementById('search-leaderboard');
+      leaderboardSearchInput.addEventListener('input', (e) => {
+        leaderboardNameQuery = e.target.value.toLowerCase();
+        const cursorPos = e.target.selectionStart;
+        recomputeLeaderboard();
+        leaderboardPage = 1;
+        renderLeaderboardPage();
+        const newInput = document.getElementById('search-leaderboard');
+        newInput.focus();
+        newInput.setSelectionRange(cursorPos, cursorPos);
+      });
+
+      leaderboardFilterController.rewire();
+    }
+
+    // The summary payload is columnar ({ fields: [...], rows: [[...], ...] })
+    // rather than one object per entry, that's most of the Performance Fix
+    // (V1.16): repeating every field name as a key on 6,488 objects was the
+    // biggest chunk of the old file's size, not any single field's data.
+    // Reconstruct plain row objects here so the rest of the page (COLUMNS,
+    // sorting, rendering) doesn't need to know the wire format changed.
+    function rowsFromColumnar(payload) {
+      const { fields, rows } = payload;
+      return rows.map(row => {
+        const obj = {};
+        fields.forEach((f, i) => { obj[f] = row[i]; });
+        return obj;
+      });
+    }
+
+    async function loadFullDatabase() {
+      if (window.DATABASE_SUMMARY_DATA) return rowsFromColumnar(window.DATABASE_SUMMARY_DATA);
+      const res = await fetch(`${BASE}/data/database_summary.json`);
+      if (!res.ok) throw new Error('Failed to load database_summary.json');
+      return rowsFromColumnar(await res.json());
+    }
+
+    function renderUpdatedBadge(entries) {
+      const dates = entries.map(e => e.refresh_date).filter(Boolean);
+      if (!dates.length) return;
+      const latest = dates.reduce((a, b) => (a > b ? a : b));
+      document.getElementById('db-updated-badge').innerHTML = `
+        <span class="updated-badge"><span class="updated-badge-dot"></span>Last database update: ${formatDate(latest)}</span>
+      `;
+    }
+
+    (async function () {
+      dbEntries = await loadFullDatabase();
+      renderUpdatedBadge(dbEntries);
+      recomputeAllEntries();
+      renderTablePage();
+      buildBucketOptions();
+
+      // Must run before the Screener renders: its Rank/Tier/Score columns and
+      // tier filter read the global ranking index this builds.
+      recomputeGlobalRanking();
+
+      // A shared link is read here: after buildBucketOptions, because it
+      // resolves bucket option indexes against those options, and before the
+      // first render, which would otherwise overwrite the fragment with the
+      // default state.
+      if (applyScreenerHash()) activateDbTab('screener');
+
+      recomputeScreenerEntries();
+      applyScreenerSort();
+      renderScreenerPage();
+
+      recomputeLeaderboard();
+      renderLeaderboardPage();
+    })().catch(err => {
+      const errorHtml = `
+        <div class="error-state">
+          <h2>Failed to load database</h2>
+          <p>${err.message}</p>
+        </div>`;
+      document.getElementById('content').innerHTML = errorHtml;
+      document.getElementById('screener-content').innerHTML = errorHtml;
+      document.getElementById('leaderboard-content').innerHTML = errorHtml;
+    });
+  </script>
+</body>
+</html>

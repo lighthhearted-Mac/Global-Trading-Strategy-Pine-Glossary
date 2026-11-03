@@ -1,0 +1,89 @@
+# Files in the repo root that should NOT be served as part of the site.
+#
+# wrangler.jsonc sets `assets.directory` to ".", so by default every file in
+# the repository is published, including internal planning documents. Nothing
+# here is secret, but docs/PRD.md is an internal roadmap and there is no reason
+# for it to have a public URL.
+#
+# Syntax is gitignore-style. Anything NOT listed here is still served, so the
+# pages, css/, js/ and data/ are untouched.
+
+# Internal documentation and planning
+docs/
+README.md
+
+# Build, test and data-refresh tooling (Python; never executed by the site)
+scripts/
+
+# Input to scripts/update_metrics.py, not a site asset. No .html or .js
+# references it, and deploy.yml already excluded it from the GitHub Pages build
+# without this file being kept in step.
+#
+# It has to be here, not merely ought to be: on 2026-09-01 a routine metrics
+# refresh (90f6dcf) grew it from 22.8 MB past Cloudflare's 25 MiB per-file
+# upload limit, which fails the WHOLE deployment. The site stopped updating and
+# the only symptom was a red build. scripts/check_asset_sizes.py now catches
+# this class of failure before a push.
+data/symphony_scores.json
+
+# The full database and its file:// twin, 19 MiB each and growing every week.
+# Closes PRD open question 2.
+#
+# NOT a runtime asset, despite the name pairing with database.html. That page
+# loads data/database_summary.js, a 3.86 MiB columnar export carrying the same
+# 6,816 rows and 29 of the 37 fields (the V1.16 page-weight work). Verified
+# three ways before excluding these: no page lists data/database.js in a
+# <script src>, nothing anywhere reads the window.DATABASE_DATA global it
+# defines, and database.html's only data path is database_summary, with a
+# detail modal that renders from a row already in memory rather than fetching.
+#
+# The eight fields held ONLY here (active_asset_nodes, annualized_turnover,
+# cumulative_return, herfindahl_index, max, mean, min, total_costs) are joined
+# in at BUILD time by scripts/build_strategy_extras.py, which writes the 0.06
+# MiB data/strategy_extras.json that strategies.html actually loads. That
+# script's own docstring gives the reason: a browser-side join against 6,669
+# entries was rejected on page weight.
+#
+# So this is a build input, not a site asset, and serving it was the accident:
+# a stranger could pull 38 MiB the site itself never requests. Excluding it
+# also takes the two largest served files off the path to the 25 MiB per-file
+# limit that broke the deployment on 2026-09-01.
+#
+# IMPORTANT: this file is NOT .gitignore. Both stay committed and on disk, and
+# the 17 scripts that read them, including two of the five deploy gates, are
+# unaffected.
+data/database.json
+data/database.js
+
+# Local UI mockups: gitignored as well, listed here as a second line of defence
+_wf-mockup.html
+_harness_*.html
+_harness_*_driver.js
+
+# Repo and tooling config.
+#
+# `.git/` is listed defensively. wrangler may well exclude it already, but a
+# build log reported reading 140 files from the assets directory where a clean
+# clone holds 91 tracked ones, and the likeliest remainder is the repository
+# itself. If it were served, /.git/ would expose the full history and every
+# stray file ever committed. One line closes the question either way.
+.git/
+wrangler.jsonc
+.gitignore
+.assetsignore
+.github/
+
+# Brand identity work: concepts, the logo system, the brand kit, the guidelines
+# and every render check. Committed so it is versioned and backed up, excluded
+# here so the served site is unchanged by it.
+#
+# This entry is what keeps that promise. wrangler.jsonc sets assets.directory
+# to ".", so anything NOT listed in this file is published: without these two
+# lines, committing the brand work would add 104 public URLs and 4.6 MB to the
+# site, including a 539 KB PDF and 2.5 MB of contact sheets that exist only as
+# evidence for a design decision.
+#
+# NOT .gitignore. Everything here stays committed and on disk. The one brand
+# file that is gitignored is brand/brand-design.html, and that is a separate
+# decision recorded in docs/PRD.md.
+brand/

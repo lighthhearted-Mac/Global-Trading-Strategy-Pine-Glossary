@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Theme boot. Inline and first on purpose: this runs before the first
+       paint so a visitor who chose light mode never sees a dark page flash.
+       Putting it in app.js, which is deferred, would guarantee that flash on
+       every navigation. Dark is the default and stays the default when
+       nothing is stored; the system preference is deliberately NOT consulted,
+       per the owner's instruction that the site opens dark. -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('ca-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* private mode: fall through to the dark default */ }
+    })();
+  </script>
+  <!-- Social sharing (PRD Section 27). Kept high in <head>, above the stylesheet
+       and any inline CSS, because some scrapers read only the first few KB of a
+       document. Text only by policy: no og:image, so twitter:card is "summary",
+       since a declared image that does not exist renders worse than none.
+       og:* takes property=, twitter:* takes name=. No drifting numbers: nothing
+       in these descriptions is read from a data file. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Composer Atlas">
+  <meta property="og:url" content="https://composeratlas.com/guides">
+  <link rel="canonical" href="https://composeratlas.com/guides">
+  <meta property="og:title" content="Guides to Building and Testing Symphonies">
+  <meta property="og:description" content="Practical guides on testing a strategy before you trust it, on the gap between live trading and the backtest, and on what the instruments inside a symphony can actually do.">
+  <meta name="twitter:card" content="summary">
+  <meta name="description" content="Practical guides on testing a strategy before you trust it, on the gap between live trading and the backtest, and on what the instruments inside a symphony can actually do.">
+  <title>Guides: Composer Atlas</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <nav class="nav" id="nav-root"></nav>
+
+  <div class="page">
+    <div class="ref-banner" id="referral-banner" hidden></div>
+    <div class="container py-12">
+      <div id="breadcrumb-root"></div>
+      <div id="content">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <footer id="footer-root"></footer>
+
+  <script src="data/guides.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (function () {
+      const slug = new URLSearchParams(window.location.search).get('slug');
+
+      // Fixed order, not alphabetical. A reader arrives wanting to know whether
+      // a strategy is real before they care how it executes, and what it holds
+      // is the thing they think about last, which is itself part of the problem.
+      const CATEGORY_ORDER = ['testing', 'execution', 'instrument-risk'];
+
+      const label = c => CATEGORY_LABELS[c] || c;
+
+      loadGuides().then(function (guides) {
+        if (!slug) return renderIndex(guides);
+        return renderDetail(guides, slug);
+      }).catch(function (err) {
+        document.getElementById('content').innerHTML =
+          '<div class="error-state">' +
+            '<h2>Failed to load guides</h2>' +
+            '<p>' + escapeHtml(err.message) + '</p>' +
+            '<a href="' + u('/') + '" class="btn btn-outline" style="margin-top:16px">Back to Home</a>' +
+          '</div>';
+      });
+
+      // ---- Listing view ----
+      function renderIndex(guides) {
+        document.title = 'Guides: Composer Atlas';
+
+        renderBreadcrumb('breadcrumb-root', [
+          { label: 'Home', href: u('/') },
+          { label: 'Guides' },
+        ]);
+
+        // Anything with a category nobody listed above still gets a group.
+        // Dropping it would remove the guide from the page silently, with no
+        // error to notice.
+        const present = CATEGORY_ORDER.filter(c => guides.some(g => g.category === c));
+        const extra = [...new Set(guides.map(g => g.category))]
+          .filter(c => !CATEGORY_ORDER.includes(c));
+        const groups = [...present, ...extra];
+
+        const groupOf = c => guides
+          .filter(g => g.category === c)
+          .sort((a, b) => a.title.localeCompare(b.title));
+
+        const jump = groups.map(c =>
+          '<a href="#cat-' + c + '">' + escapeHtml(label(c)) +
+          '<span class="wiki-jump-count">' + groupOf(c).length + '</span></a>'
+        ).join('');
+
+        const body = groups.map(function (c) {
+          const items = groupOf(c).map(function (g) {
+            const href = u('/guides.html?slug=' + g.slug);
+            const n = (g.takeaways || []).length;
+            return '' +
+              '<div class="wiki-entry">' +
+                '<p class="wiki-entry-name"><a href="' + href + '">' + escapeHtml(g.title) + '</a></p>' +
+                '<p class="wiki-entry-desc">' + escapeHtml(g.summary) + '</p>' +
+                '<span class="wiki-entry-meta">' + n + ' takeaway' + (n === 1 ? '' : 's') + '</span>' +
+              '</div>';
+          }).join('');
+          return '' +
+            '<section class="wiki-group" id="cat-' + c + '">' +
+              '<div class="wiki-group-head">' +
+                '<h2>' + escapeHtml(label(c)) + '</h2>' +
+                '<span class="wiki-group-count">' + groupOf(c).length + ' guide' +
+                  (groupOf(c).length === 1 ? '' : 's') + '</span>' +
+              '</div>' +
+              items +
+            '</section>';
+        }).join('');
+
+        document.getElementById('content').innerHTML = '' +
+          '<div style="max-width:640px;margin-bottom:4px">' +
+            '<h1 style="color:var(--color-primary);margin-bottom:8px">Guides</h1>' +
+            '<p style="color:var(--color-secondary);font-size:1.0625rem">' +
+              'How to test a strategy before you trust it, what changes when it trades live, ' +
+              'and what the instruments inside it can actually do. The Glossary defines the ' +
+              'terms; these pages are about practice.' +
+            '</p>' +
+          '</div>' +
+          '<nav class="wiki-jump" aria-label="Jump to a category">' +
+            '<span class="wiki-jump-label">Jump to</span>' + jump +
+          '</nav>' +
+          body +
+          // The acknowledgement. One line, on the index rather than inside every
+          // guide, because the prose is the site's own and breaking it up with
+          // credits would read as defensive rather than accurate.
+          '<p style="color:var(--color-disabled);font-size:0.875rem;margin-top:32px;' +
+             'padding-top:20px;border-top:1px solid var(--color-border);max-width:640px">' +
+            'These guides draw on lessons shared by the wider Composer builder community, ' +
+            'alongside published research on strategy testing. Nothing here is investment advice.' +
+          '</p>';
+      }
+
+      // ---- Detail view ----
+      function renderDetail(guides, wanted) {
+        const guide = guides.find(g => g.slug === wanted);
+
+        if (!guide) {
+          document.getElementById('content').innerHTML = '' +
+            '<div class="empty-state">' +
+              '<p class="empty-eyebrow">Not Found</p>' +
+              '<h1 class="empty-title">Guide not found</h1>' +
+              '<p class="empty-desc text-secondary">No guide with slug "' +
+                escapeHtml(wanted) + '".</p>' +
+              '<div class="empty-actions">' +
+                '<a href="' + u('/guides.html') + '" class="btn btn-green">Browse Guides</a>' +
+              '</div>' +
+            '</div>';
+          return;
+        }
+
+        document.title = guide.title + ': Composer Atlas Guides';
+        document.querySelector('meta[name="description"]').setAttribute('content', guide.summary);
+        // each guide is its own document: point canonical and og:url at its
+        // sitemap URL, not the bare listing
+        setPageUrl('https://composeratlas.com/guides?slug=' + encodeURIComponent(guide.slug));
+
+        renderBreadcrumb('breadcrumb-root', [
+          { label: 'Home', href: u('/') },
+          { label: 'Guides', href: u('/guides.html') },
+          { label: guide.title },
+        ]);
+
+        // Optional, and only one guide uses it. The standard footer line covers the
+        // collection; a guide about tax mechanics needs a notice the reader meets
+        // before the content rather than after it.
+        const disclaimerHtml = guide.disclaimer
+          ? '<div class="guide-disclaimer"><strong>Read this first.</strong> ' +
+            mdInline(escapeHtml(guide.disclaimer)) + '</div>'
+          : '';
+
+        const takeawaysHtml = (guide.takeaways || []).length
+          ? '<div class="guide-takeaways" style="margin-bottom:28px">' +
+              '<p class="hero-eyebrow" style="margin-bottom:10px">In short</p>' +
+              '<ul>' +
+                guide.takeaways.map(t => '<li>' + mdInline(escapeHtml(t)) + '</li>').join('') +
+              '</ul>' +
+            '</div>'
+          : '';
+
+        const sectionsHtml = (guide.sections || []).map(function (s) {
+          const paragraphs = s.paragraphs
+            .map(p => '<p>' + mdInline(escapeHtml(p)) + '</p>').join('');
+          return '<div style="margin-bottom:28px">' +
+                   '<h2>' + escapeHtml(s.title) + '</h2>' + paragraphs +
+                 '</div>';
+        }).join('');
+
+        // Cross-links. Both lists are validated at build time by
+        // scripts/build_guides_twin.py, so a dead slug fails the build rather
+        // than rendering a link that goes nowhere.
+        const terms = guide.related_terms || [];
+        const termsHtml = terms.length
+          ? '<div>' +
+              '<h2 style="color:var(--color-primary);font-size:1rem;font-weight:600;margin-bottom:8px">Related Terms</h2>' +
+              '<div class="strategy-list-compact">' +
+                terms.map(t =>
+                  '<a href="' + u('/glossary.html?slug=' + t) + '" class="strategy-list-item">' +
+                    '<span>' + escapeHtml(t.replace(/-/g, ' ')) + '</span>' +
+                  '</a>').join('') +
+              '</div>' +
+            '</div>'
+          : '';
+
+        const tools = guide.related_tools || [];
+        const toolsHtml = tools.length
+          ? '<div style="margin-top:24px">' +
+              '<h2 style="color:var(--color-primary);font-size:1rem;font-weight:600;margin-bottom:8px">Try It Here</h2>' +
+              tools.map(function (t) {
+                const note = t.note
+                  ? '<p style="color:var(--color-disabled);font-size:0.8125rem;margin:4px 0 12px;line-height:1.5">' +
+                      escapeHtml(t.note) + '</p>'
+                  : '<div style="margin-bottom:12px"></div>';
+                return '<a href="' + u(t.href) + '" class="strategy-list-item">' +
+                         '<span>' + escapeHtml(t.label) + '</span>' +
+                       '</a>' + note;
+              }).join('') +
+            '</div>'
+          : '';
+
+        const others = guides.filter(g => g.slug !== wanted).slice(0, 6);
+        const othersHtml = others.length
+          ? '<div style="margin-top:24px">' +
+              '<h2 style="color:var(--color-primary);font-size:1rem;font-weight:600;margin-bottom:8px">More Guides</h2>' +
+              '<div class="strategy-list-compact">' +
+                others.map(g =>
+                  '<a href="' + u('/guides.html?slug=' + g.slug) + '" class="strategy-list-item">' +
+                    '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+                      escapeHtml(g.title) + '</span>' +
+                    '<span class="badge badge-' + g.category + '" style="font-size:0.6875rem;flex-shrink:0">' +
+                      escapeHtml(label(g.category)) + '</span>' +
+                  '</a>').join('') +
+              '</div>' +
+            '</div>'
+          : '';
+
+        document.getElementById('content').innerHTML = '' +
+          '<div class="grid-2">' +
+            '<div class="detail-main">' +
+              '<div style="margin-bottom:28px">' +
+                '<span class="badge badge-' + guide.category + '" style="margin-bottom:12px;display:inline-flex">' +
+                  escapeHtml(label(guide.category)) + '</span>' +
+                '<h1 style="color:var(--color-primary);font-size:clamp(1.5rem,3vw,2rem);margin-bottom:12px">' +
+                  escapeHtml(guide.title) + '</h1>' +
+                '<p style="color:var(--color-secondary);font-size:1rem;line-height:1.7">' +
+                  escapeHtml(guide.summary) + '</p>' +
+              '</div>' +
+              disclaimerHtml +
+              takeawaysHtml +
+              '<div class="prose">' + sectionsHtml + '</div>' +
+              '<p style="color:var(--color-disabled);font-size:0.8125rem;margin-top:28px">' +
+                'Last reviewed ' + escapeHtml(guide.last_updated) + '. Not investment advice.' +
+              '</p>' +
+            '</div>' +
+            '<div class="detail-sidebar">' +
+              '<div class="detail-sidebar-sticky">' +
+                toolsHtml + termsHtml + othersHtml +
+              '</div>' +
+            '</div>' +
+          '</div>';
+      }
+    })();
+  </script>
+</body>
+</html>

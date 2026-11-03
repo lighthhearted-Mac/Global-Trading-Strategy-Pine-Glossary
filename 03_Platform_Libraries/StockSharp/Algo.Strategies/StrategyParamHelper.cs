@@ -1,0 +1,943 @@
+﻿namespace StockSharp.Algo.Strategies;
+
+using System.Numerics;
+
+using Ecng.Reflection;
+
+/// <summary>
+/// The auxiliary class for <see cref="StrategyParam{T}"/>.
+/// </summary>
+public static class StrategyParamHelper
+{
+	/// <summary>
+	/// Check can optimize parameter.
+	/// </summary>
+	/// <param name="type">The type of the parameter value.</param>
+	/// <returns><see langword="true" />, if can optimize the parameter, otherwise, <see langword="false" />.</returns>
+	public static bool CanOptimize(this Type type)
+	{
+		if (type is null)
+			throw new ArgumentNullException(nameof(type));
+
+		type = type.GetUnderlyingType() ?? type;
+
+		return type.IsNumeric() && !type.IsEnum() || type == typeof(bool) || type == typeof(Unit) || type == typeof(TimeSpan) || type == typeof(DataType);
+	}
+
+	private static StrategyParam<T> CreateParam<T>(string id) => new(id);
+
+	private static readonly MethodInfo _createParamMethod = typeof(StrategyParamHelper).GetMethod(nameof(CreateParam), BindingFlags.Static | BindingFlags.NonPublic);
+
+	/// <summary>
+	/// Create parameter.
+	/// </summary>
+	/// <param name="type"><see cref="IStrategyParam.Type"/></param>
+	/// <param name="id"><see cref="IStrategyParam.Id"/></param>
+	/// <returns><see cref="IStrategyParam"/></returns>
+	public static IStrategyParam CreateParam(Type type, string id)
+		=> (IStrategyParam)_createParamMethod.Make(type).Invoke(null, [id]);
+
+	/// <summary>
+	/// Get the parameter name.
+	/// </summary>
+	/// <param name="param"><see cref="IStrategyParam"/></param>
+	/// <returns>Display name.</returns>
+	public static string GetName(this IStrategyParam param)
+	{
+		if (param is null)
+			throw new ArgumentNullException(nameof(param));
+
+		return param.GetDisplayName().IsEmpty(param.Id);
+	}
+
+	/// <summary>
+	/// Generate a random value within the optimization range for the parameter.
+	/// </summary>
+	/// <typeparam name="T">The type of the parameter value.</typeparam>
+	/// <param name="param"><see cref="StrategyParam{T}"/></param>
+	/// <param name="provider">Where the value is drawn from.</param>
+	/// <returns>Random value within the optimization range.</returns>
+	/// <exception cref="InvalidOperationException">Thrown when parameter cannot be optimized or optimization range is not set.</exception>
+	public static T GetRandom<T>(this StrategyParam<T> param, IRandomProvider provider)
+		=> (T)GetRandom((IStrategyParam)param, provider);
+
+	/// <summary>
+	/// Generate a random value within the optimization range for the parameter.
+	/// </summary>
+	/// <param name="param"><see cref="IStrategyParam"/></param>
+	/// <param name="provider">Where the value is drawn from. A search worth keeping the result of is
+	/// worth running again, so the caller states the source rather than a default deciding for it -
+	/// <see cref="Strategy.RandomProvider"/> is the one a strategy runs on.</param>
+	/// <returns>Random value within the optimization range.</returns>
+	/// <exception cref="InvalidOperationException">Thrown when parameter cannot be optimized or optimization range is not set.</exception>
+	public static object GetRandom(this IStrategyParam param, IRandomProvider provider)
+	{
+		if (param is null)
+			throw new ArgumentNullException(nameof(param));
+
+		if (provider is null)
+			throw new ArgumentNullException(nameof(provider));
+
+		if (!param.CanOptimize)
+			throw new InvalidOperationException($"Parameter '{param.Id}' cannot be optimized. Set CanOptimize to true.");
+
+		// Check for explicit values first (for Security, DataType, etc.)
+		var explicitValues = param.OptimizeValues.Cast<object>().ToArray();
+		if (explicitValues.Length > 0)
+			return provider.GetElement(explicitValues);
+
+		if (param.OptimizeFrom == null || param.OptimizeTo == null)
+			throw new InvalidOperationException($"Parameter '{param.Id}' optimization range is not set. Use SetOptimize or SetOptimizeValues method.");
+
+		var type = param.Type.GetUnderlyingType() ?? param.Type;
+
+		return type switch
+		{
+			_ when type == typeof(int) => GenerateRandomInt((int)param.OptimizeFrom, (int)param.OptimizeTo, (int?)param.OptimizeStep, provider),
+			_ when type == typeof(long) => GenerateRandomLong((long)param.OptimizeFrom, (long)param.OptimizeTo, (long?)param.OptimizeStep, provider),
+			_ when type == typeof(decimal) => GenerateRandomDecimal((decimal)param.OptimizeFrom, (decimal)param.OptimizeTo, (decimal?)param.OptimizeStep, provider),
+			_ when type == typeof(double) => GenerateRandomDouble((double)param.OptimizeFrom, (double)param.OptimizeTo, (double?)param.OptimizeStep, provider),
+			_ when type == typeof(float) => GenerateRandomFloat((float)param.OptimizeFrom, (float)param.OptimizeTo, (float?)param.OptimizeStep, provider),
+			_ when type == typeof(bool) => GenerateRandomBool((bool)param.OptimizeFrom, (bool)param.OptimizeTo, provider),
+			_ when type == typeof(TimeSpan) => GenerateRandomTimeSpan((TimeSpan)param.OptimizeFrom, (TimeSpan)param.OptimizeTo, (TimeSpan?)param.OptimizeStep, provider),
+			_ when type == typeof(Unit) => GenerateRandomUnit((Unit)param.OptimizeFrom, (Unit)param.OptimizeTo, (Unit)param.OptimizeStep, provider),
+			_ => param.Value
+		};
+	}
+
+	private static bool GenerateRandomBool(bool from, bool to, IRandomProvider rnd)
+		=> from == to ? from : rnd.GetBool();
+
+	private static int GenerateRandomInt(int from, int to, int? step, IRandomProvider rnd)
+	{
+		if (step.HasValue && step.Value > 0)
+		{
+			var steps = (to - from) / step.Value;
+			return from + rnd.GetInt(0, steps) * step.Value;
+		}
+
+		return rnd.GetInt(from, to);
+	}
+
+	private static long GenerateRandomLong(long from, long to, long? step, IRandomProvider rnd)
+	{
+		if (step.HasValue && step.Value > 0)
+		{
+			var steps = (to - from) / step.Value;
+			return from + rnd.GetInt(0, (int)steps) * step.Value;
+		}
+
+		return rnd.GetLong(from, to);
+	}
+
+	private static decimal GenerateRandomDecimal(decimal from, decimal to, decimal? step, IRandomProvider rnd)
+	{
+		if (step.HasValue && step.Value > 0)
+		{
+			var steps = (int)((to - from) / step.Value);
+			return from + rnd.GetInt(0, steps) * step.Value;
+		}
+
+		return rnd.GetDecimal(from, to, from.GetDecimalInfo().EffectiveScale);
+	}
+
+	private static double GenerateRandomDouble(double from, double to, double? step, IRandomProvider rnd)
+	{
+		if (step.HasValue && step.Value > 0)
+		{
+			var steps = (int)((to - from) / step.Value);
+			return from + rnd.GetInt(0, steps) * step.Value;
+		}
+
+		return rnd.GetDouble(from, to);
+	}
+
+	private static float GenerateRandomFloat(float from, float to, float? step, IRandomProvider rnd)
+	{
+		if (step.HasValue && step.Value > 0)
+		{
+			var steps = (int)((to - from) / step.Value);
+			return from + rnd.GetInt(0, steps) * step.Value;
+		}
+
+		return rnd.GetFloat(from, to);
+	}
+
+	private static TimeSpan GenerateRandomTimeSpan(TimeSpan from, TimeSpan to, TimeSpan? step, IRandomProvider rnd)
+	{
+		if (step.HasValue && step.Value > TimeSpan.Zero)
+		{
+			var steps = (int)((to - from).Ticks / step.Value.Ticks);
+			return from + TimeSpan.FromTicks(rnd.GetInt(0, steps) * step.Value.Ticks);
+		}
+
+		var range = to - from;
+		return from + TimeSpan.FromTicks(rnd.GetLong(0, range.Ticks));
+	}
+
+	private static Unit GenerateRandomUnit(Unit from, Unit to, Unit step, IRandomProvider rnd)
+	{
+		if (from.Type != to.Type)
+			throw new ArgumentException($"Unit types must match: from.Type={from.Type}, to.Type={to.Type}");
+
+		if (step is not null && step.Type != from.Type)
+			throw new ArgumentException($"Step unit type must match range type: step.Type={step.Type}, range.Type={from.Type}");
+
+		var randomValue = step is not null && step.Value > 0
+			? GenerateRandomDecimal(from.Value, to.Value, step.Value, rnd)
+			: GenerateRandomDecimal(from.Value, to.Value, null, rnd);
+
+		return new Unit(randomValue, from.Type);
+	}
+
+	#region Optimization Values Generation
+
+	/// <summary>
+	/// Get the number of optimization iterations for the parameter.
+	/// </summary>
+	/// <param name="param"><see cref="IStrategyParam"/></param>
+	/// <returns>Number of iterations.</returns>
+	public static int GetIterationsCount(this IStrategyParam param)
+	{
+		if (param is null)
+			throw new ArgumentNullException(nameof(param));
+
+		if (!param.CanOptimize)
+			return 1;
+
+		// A shape that walks nowhere still leaves the parameter its own value, and a run needs one.
+		return GetIterationsCount(param.Type, param.OptimizeFrom, param.OptimizeTo, param.OptimizeStep, param.OptimizeValues).Max(1);
+	}
+
+	/// <summary>
+	/// Get the number of optimization iterations for a parameter shape.
+	/// </summary>
+	/// <param name="type">The type of the parameter value.</param>
+	/// <param name="from">Initial value, or <see langword="null" />.</param>
+	/// <param name="to">Final value, or <see langword="null" />.</param>
+	/// <param name="step">Increment value, or <see langword="null" />.</param>
+	/// <param name="values">Explicit values, or <see langword="null" />. Win over the range when not empty.</param>
+	/// <returns>Number of iterations, zero when the shape defines no values of its own.</returns>
+	public static int GetIterationsCount(Type type, object from, object to, object step, IEnumerable values)
+	{
+		if (type is null)
+			throw new ArgumentNullException(nameof(type));
+
+		// Check for explicit values first (for Security, DataType, etc.)
+		var explicitValues = values?.Cast<object>().ToArray() ?? [];
+		if (explicitValues.Length > 0)
+			return explicitValues.Length;
+
+		if (from is null || to is null)
+			return 0;
+
+		type = type.GetUnderlyingType() ?? type;
+
+		if (step is null && type != typeof(bool))
+			return 0;
+
+		// A step of zero walks nowhere, and Walk yields nothing for it; the count says the same instead
+		// of dividing by it.
+		static int getIterCountDec(decimal fromVal, decimal toVal, decimal stepVal)
+			=> stepVal == 0 ? 0 : (int)decimal.Floor(Math.Abs(toVal - fromVal) / Math.Abs(stepVal)) + 1;
+
+		static int getIterCountLong(long fromVal, long toVal, long stepVal)
+			=> stepVal == 0 ? 0 : (int)(Math.Abs(toVal - fromVal) / Math.Abs(stepVal)) + 1;
+
+		if (type == typeof(bool))
+			return from.Equals(to) ? 1 : 2;
+		else if (type == typeof(Unit))
+		{
+			var fromTyped = (Unit)from;
+			var toTyped = (Unit)to;
+			var stepTyped = (Unit)step;
+
+			return getIterCountDec(fromTyped.Value, toTyped.Value, stepTyped.Value);
+		}
+		else if (type == typeof(TimeSpan) || type.IsNumericInteger())
+		{
+			var fromTyped = from.To<long>();
+			var toTyped = to.To<long>();
+			var stepTyped = step.To<long>();
+
+			return getIterCountLong(fromTyped, toTyped, stepTyped);
+		}
+		else
+		{
+			var fromTyped = from.To<decimal>();
+			var toTyped = to.To<decimal>();
+			var stepTyped = step.To<decimal>();
+
+			return getIterCountDec(fromTyped, toTyped, stepTyped);
+		}
+	}
+
+	/// <summary>
+	/// Get all optimization values for the parameter.
+	/// </summary>
+	/// <param name="param"><see cref="IStrategyParam"/></param>
+	/// <returns>Enumerable of all optimization values.</returns>
+	public static IEnumerable<object> GetOptimizationValues(this IStrategyParam param)
+	{
+		if (param is null)
+			throw new ArgumentNullException(nameof(param));
+
+		if (!param.CanOptimize)
+			return [param.Value];
+
+		// A shape that walks nowhere still leaves the parameter its own value, and a run needs one.
+		return GetOptimizationValues(param.Type, param.OptimizeFrom, param.OptimizeTo, param.OptimizeStep, param.OptimizeValues)
+			.DefaultIfEmpty(param.Value);
+	}
+
+	/// <summary>
+	/// Get all optimization values for a parameter shape.
+	/// </summary>
+	/// <param name="type">The type of the parameter value.</param>
+	/// <param name="from">Initial value, or <see langword="null" />.</param>
+	/// <param name="to">Final value, or <see langword="null" />.</param>
+	/// <param name="step">Increment value, or <see langword="null" />.</param>
+	/// <param name="values">Explicit values, or <see langword="null" />. Win over the range when not empty.</param>
+	/// <returns>Enumerable of all optimization values, empty when the shape defines none of its own.</returns>
+	public static IEnumerable<object> GetOptimizationValues(Type type, object from, object to, object step, IEnumerable values)
+	{
+		if (type is null)
+			throw new ArgumentNullException(nameof(type));
+
+		return Walk(type.GetUnderlyingType() ?? type, from, to, step, values);
+	}
+
+	private static IEnumerable<object> Walk(Type type, object from, object to, object step, IEnumerable values)
+	{
+		// Check for explicit values first (for Security, DataType, etc.)
+		var explicitValues = values?.Cast<object>().ToArray() ?? [];
+		if (explicitValues.Length > 0)
+		{
+			foreach (var v in explicitValues)
+				yield return v;
+			yield break;
+		}
+
+		if (from is null || to is null)
+			yield break;
+
+		if (step is null && type != typeof(bool))
+			yield break;
+
+		if (type == typeof(bool))
+		{
+			var fromTyped = (bool)from;
+			var toTyped = (bool)to;
+
+			yield return fromTyped;
+
+			if (fromTyped != toTyped)
+				yield return toTyped;
+		}
+		else if (type == typeof(Unit))
+		{
+			var fromTyped = (Unit)from;
+
+			foreach (var value in Range(fromTyped.Value, ((Unit)to).Value, ((Unit)step).Value))
+				yield return new Unit(value, fromTyped.Type);
+		}
+		else if (type == typeof(TimeSpan))
+		{
+			foreach (var ticks in Range(((TimeSpan)from).Ticks, ((TimeSpan)to).Ticks, ((TimeSpan)step).Ticks))
+				yield return TimeSpan.FromTicks(ticks);
+		}
+		else if (type == typeof(decimal))
+		{
+			foreach (var value in Range((decimal)from, (decimal)to, (decimal)step))
+				yield return value;
+		}
+		else if (type == typeof(double))
+		{
+			foreach (var value in Range((double)from, (double)to, (double)step))
+				yield return value;
+		}
+		else if (type == typeof(float))
+		{
+			foreach (var value in Range((float)from, (float)to, (float)step))
+				yield return value;
+		}
+		else if (type.IsNumericInteger())
+		{
+			foreach (var value in Range(from.To<long>(), to.To<long>(), step.To<long>()))
+				yield return value.To(type);
+		}
+		else
+			throw new NotSupportedException(LocalizedStrings.TypeNotSupported.Put(type));
+	}
+
+	// A descending shape reaches here as from > to with a step of either sign, because that is what an
+	// editor writes. GetIterationsCount reads the step by modulus and counts both bounds, so the walk
+	// does the same, or the editor's count and the engine's runs disagree.
+	private static IEnumerable<T> Range<T>(T from, T to, T step)
+		where T : INumber<T>
+	{
+		var delta = T.Abs(step);
+
+		if (delta == T.Zero)
+			yield break;
+
+		if (from > to)
+		{
+			for (var value = from; value >= to; value -= delta)
+				yield return value;
+		}
+		else
+		{
+			for (var value = from; value <= to; value += delta)
+				yield return value;
+		}
+	}
+
+	#endregion
+
+	#region Brute Force Optimization
+
+	/// <summary>
+	/// Generate all strategy clones with parameter permutations for brute force optimization.
+	/// </summary>
+	/// <param name="strategy">The base strategy to clone.</param>
+	/// <param name="parameters">The parameters to optimize.</param>
+	/// <param name="optimizedParams">Output: all parameters involved in optimization.</param>
+	/// <param name="totalCount">Output: total number of iterations.</param>
+	/// <returns>Lazy enumerable of strategy clones with their parameter arrays.</returns>
+	[Obsolete("Blocking sync-over-async wrapper. Use ToBruteForceAsync instead.")]
+	public static IEnumerable<(Strategy strategy, IStrategyParam[] parameters)> ToBruteForce(
+		this Strategy strategy,
+		IStrategyParam[] parameters,
+		out IStrategyParam[] optimizedParams,
+		out int totalCount)
+		=> strategy.ToBruteForceAsync(parameters, out optimizedParams, out totalCount).ToBlockingEnumerable();
+
+	/// <summary>
+	/// Generate all strategy clones with parameter permutations for brute force optimization.
+	/// </summary>
+	/// <param name="strategy">The base strategy to clone.</param>
+	/// <param name="parameters">The parameters to optimize.</param>
+	/// <param name="optimizedParams">Output: all parameters involved in optimization.</param>
+	/// <param name="totalCount">Output: total number of iterations.</param>
+	/// <returns>Lazy enumerable of strategy clones with their parameter arrays.</returns>
+	public static IAsyncEnumerable<(Strategy strategy, IStrategyParam[] parameters)> ToBruteForceAsync(
+		this Strategy strategy,
+		IStrategyParam[] parameters,
+		out IStrategyParam[] optimizedParams,
+		out int totalCount)
+	{
+		if (strategy is null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (parameters is null)
+			throw new ArgumentNullException(nameof(parameters));
+
+		if (parameters.Length == 0)
+			throw new ArgumentOutOfRangeException(nameof(parameters), "No optimization parameters.");
+
+		var singleParams = new List<IStrategyParam>();
+		var optimizeDict = new Dictionary<string, (IStrategyParam param, IEnumerable<object> values, int iterCount)>();
+
+		foreach (var param in parameters)
+		{
+			if (!param.CanOptimize)
+			{
+				singleParams.Add(param);
+				continue;
+			}
+
+			var iterCount = param.GetIterationsCount();
+			var values = param.GetOptimizationValues();
+
+			if (iterCount == 0)
+				continue;
+			else if (iterCount == 1)
+			{
+				singleParams.Add(param);
+				continue;
+			}
+			else
+				optimizeDict[param.Id] = (param, values, iterCount);
+		}
+
+		if (optimizeDict.IsEmpty() && singleParams.IsEmpty())
+			throw new ArgumentException("No any params for optimize.", nameof(parameters));
+
+		totalCount = optimizeDict.Aggregate(1, (c, p) => c * p.Value.iterCount);
+		optimizedParams = [.. singleParams.Concat(optimizeDict.Values.Select(p => p.param)).Distinct()];
+
+		async IAsyncEnumerable<(Strategy strategy, IStrategyParam[] parameters)> _([EnumeratorCancellation] CancellationToken cancellationToken = default)
+		{
+			if (optimizeDict.IsEmpty())
+			{
+				if (singleParams.IsEmpty())
+					throw new InvalidOperationException("singleParams empty");
+
+				yield return (strategy, singleParams.ToArray());
+				yield break;
+			}
+
+			foreach (var combination in GetParameterCombinations(optimizeDict))
+			{
+				Strategy iter;
+
+				using (new Scope<StrategyContext>(new() { ExcludeUI = true }))
+					iter = await strategy.CloneAsync(cancellationToken);
+
+				var resultParams = new List<IStrategyParam>();
+
+				foreach (var (id, value) in combination)
+				{
+					var param = iter.Parameters[id];
+					param.Value = value;
+					resultParams.Add(param);
+				}
+
+				yield return (iter, resultParams.ToArray());
+			}
+		}
+
+		return _();
+	}
+
+	/// <summary>
+	/// Generate all strategy clones with parameter permutations for brute force optimization.
+	/// Supports explicit value lists for parameters like Security, DataType.
+	/// </summary>
+	/// <param name="strategy">The base strategy to clone.</param>
+	/// <param name="parameters">The parameters with optional explicit values to use instead of range.</param>
+	/// <param name="optimizedParams">Output: all parameters involved in optimization.</param>
+	/// <param name="totalCount">Output: total number of iterations.</param>
+	/// <returns>Lazy enumerable of strategy clones with their parameter arrays.</returns>
+	[Obsolete("Blocking sync-over-async wrapper. Use ToBruteForceAsync instead.")]
+	public static IEnumerable<(Strategy strategy, IStrategyParam[] parameters)> ToBruteForce(
+		this Strategy strategy,
+		IEnumerable<(IStrategyParam param, IEnumerable values)> parameters,
+		out IStrategyParam[] optimizedParams,
+		out int totalCount)
+		=> strategy.ToBruteForceAsync(parameters, out optimizedParams, out totalCount).ToBlockingEnumerable();
+
+	/// <summary>
+	/// Generate all strategy clones with parameter permutations for brute force optimization.
+	/// Supports explicit value lists for parameters like Security, DataType.
+	/// </summary>
+	/// <param name="strategy">The base strategy to clone.</param>
+	/// <param name="parameters">The parameters with optional explicit values to use instead of range.</param>
+	/// <param name="optimizedParams">Output: all parameters involved in optimization.</param>
+	/// <param name="totalCount">Output: total number of iterations.</param>
+	/// <returns>Lazy enumerable of strategy clones with their parameter arrays.</returns>
+	public static IAsyncEnumerable<(Strategy strategy, IStrategyParam[] parameters)> ToBruteForceAsync(
+		this Strategy strategy,
+		IEnumerable<(IStrategyParam param, IEnumerable values)> parameters,
+		out IStrategyParam[] optimizedParams,
+		out int totalCount)
+	{
+		if (strategy is null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (parameters is null)
+			throw new ArgumentNullException(nameof(parameters));
+
+		var paramArr = parameters.ToArray();
+
+		if (paramArr.Length == 0)
+			throw new ArgumentOutOfRangeException(nameof(parameters), "No optimization parameters.");
+
+		var singleParams = new List<IStrategyParam>();
+		var optimizeDict = new Dictionary<string, (IStrategyParam param, IEnumerable<object> values, int iterCount)>();
+
+		foreach (var (param, explicitValues) in paramArr)
+		{
+			if (!param.CanOptimize)
+			{
+				singleParams.Add(param);
+				continue;
+			}
+
+			IEnumerable<object> values;
+			int iterCount;
+
+			if (explicitValues?.Cast<object>().Any() == true)
+			{
+				// Use explicit values (for Security, DataType, etc.)
+				values = explicitValues.Cast<object>();
+				iterCount = values.Count();
+			}
+			else
+			{
+				// Use range from/to/step
+				iterCount = param.GetIterationsCount();
+				values = param.GetOptimizationValues();
+			}
+
+			if (iterCount == 0)
+				continue;
+			else if (iterCount == 1)
+			{
+				singleParams.Add(param);
+				continue;
+			}
+			else
+				optimizeDict[param.Id] = (param, values, iterCount);
+		}
+
+		if (optimizeDict.IsEmpty() && singleParams.IsEmpty())
+			throw new ArgumentException("No any params for optimize.", nameof(parameters));
+
+		totalCount = optimizeDict.Aggregate(1, (c, p) => c * p.Value.iterCount);
+		optimizedParams = [.. singleParams.Concat(optimizeDict.Values.Select(p => p.param)).Distinct()];
+
+		async IAsyncEnumerable<(Strategy strategy, IStrategyParam[] parameters)> _([EnumeratorCancellation] CancellationToken cancellationToken = default)
+		{
+			if (optimizeDict.IsEmpty())
+			{
+				if (singleParams.IsEmpty())
+					throw new InvalidOperationException("singleParams empty");
+
+				yield return (strategy, singleParams.ToArray());
+				yield break;
+			}
+
+			foreach (var combination in GetParameterCombinations(optimizeDict))
+			{
+				Strategy iter;
+
+				using (new Scope<StrategyContext>(new() { ExcludeUI = true }))
+					iter = await strategy.CloneAsync(cancellationToken);
+
+				var resultParams = new List<IStrategyParam>();
+
+				foreach (var (id, value) in combination)
+				{
+					var clonedParam = iter.Parameters[id];
+					clonedParam.Value = value;
+					resultParams.Add(clonedParam);
+				}
+
+				yield return (iter, resultParams.ToArray());
+			}
+		}
+
+		return _();
+	}
+
+	/// <summary>
+	/// Generate all strategy clones with random parameter values for brute force optimization.
+	/// </summary>
+	/// <param name="strategy">The base strategy to clone.</param>
+	/// <param name="parameters">The parameters to optimize.</param>
+	/// <param name="randomCount">Number of random samples per parameter.</param>
+	/// <param name="optimizedParams">Output: all parameters involved in optimization.</param>
+	/// <param name="totalCount">Output: total number of iterations.</param>
+	/// <returns>Lazy enumerable of strategy clones with their parameter arrays.</returns>
+	[Obsolete("Blocking sync-over-async wrapper. Use ToBruteForceRandomAsync instead.")]
+	public static IEnumerable<(Strategy strategy, IStrategyParam[] parameters)> ToBruteForceRandom(
+		this Strategy strategy,
+		IStrategyParam[] parameters,
+		int randomCount,
+		out IStrategyParam[] optimizedParams,
+		out int totalCount)
+		=> strategy.ToBruteForceRandomAsync(parameters, randomCount, out optimizedParams, out totalCount).ToBlockingEnumerable();
+
+	/// <summary>
+	/// Generate all strategy clones with random parameter values for brute force optimization.
+	/// </summary>
+	/// <param name="strategy">The base strategy to clone.</param>
+	/// <param name="parameters">The parameters to optimize.</param>
+	/// <param name="randomCount">Number of random samples per parameter.</param>
+	/// <param name="optimizedParams">Output: all parameters involved in optimization.</param>
+	/// <param name="totalCount">Output: total number of iterations.</param>
+	/// <returns>Lazy enumerable of strategy clones with their parameter arrays.</returns>
+	public static IAsyncEnumerable<(Strategy strategy, IStrategyParam[] parameters)> ToBruteForceRandomAsync(
+		this Strategy strategy,
+		IStrategyParam[] parameters,
+		int randomCount,
+		out IStrategyParam[] optimizedParams,
+		out int totalCount)
+	{
+		if (strategy is null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (parameters is null)
+			throw new ArgumentNullException(nameof(parameters));
+
+		if (parameters.Length == 0)
+			throw new ArgumentOutOfRangeException(nameof(parameters), "No optimization parameters.");
+
+		if (randomCount <= 0)
+			throw new ArgumentOutOfRangeException(nameof(randomCount), "Random count must be positive.");
+
+		var singleParams = new List<IStrategyParam>();
+		var optimizeDict = new Dictionary<string, (IStrategyParam param, HashSet<object> values)>();
+
+		foreach (var param in parameters)
+		{
+			if (!param.CanOptimize || param.OptimizeFrom is null || param.OptimizeTo is null)
+			{
+				singleParams.Add(param);
+				continue;
+			}
+
+			var values = new HashSet<object>();
+
+			for (var i = 0; i < randomCount; i++)
+			{
+				var randomValue = param.GetRandom(strategy.RandomProvider);
+				if (randomValue is not null)
+					values.Add(randomValue);
+			}
+
+			if (values.Count == 0)
+				singleParams.Add(param);
+			else if (values.Count == 1)
+			{
+				strategy.Parameters[param.Id].Value = values.First();
+				singleParams.Add(param);
+			}
+			else
+				optimizeDict[param.Id] = (param, values);
+		}
+
+		if (optimizeDict.IsEmpty() && singleParams.IsEmpty())
+			throw new ArgumentException("No any params for optimize.", nameof(parameters));
+
+		totalCount = optimizeDict.Aggregate(1, (c, p) => c * p.Value.values.Count);
+		optimizedParams = [.. singleParams.Concat(optimizeDict.Values.Select(p => p.param)).Distinct()];
+
+		async IAsyncEnumerable<(Strategy strategy, IStrategyParam[] parameters)> _([EnumeratorCancellation] CancellationToken cancellationToken = default)
+		{
+			if (optimizeDict.IsEmpty())
+			{
+				if (singleParams.IsEmpty())
+					throw new InvalidOperationException("singleParams empty");
+
+				yield return (strategy, singleParams.ToArray());
+				yield break;
+			}
+
+			var dictForCombinations = optimizeDict.ToDictionary(
+				p => p.Key,
+				p => (p.Value.param, values: (IEnumerable<object>)p.Value.values, iterCount: p.Value.values.Count));
+
+			foreach (var combination in GetParameterCombinations(dictForCombinations))
+			{
+				Strategy iter;
+
+				using (new Scope<StrategyContext>(new() { ExcludeUI = true }))
+					iter = await strategy.CloneAsync(cancellationToken);
+
+				var resultParams = new List<IStrategyParam>();
+
+				foreach (var (id, value) in combination)
+				{
+					var param = iter.Parameters[id];
+					param.Value = value;
+					resultParams.Add(param);
+				}
+
+				yield return (iter, resultParams.ToArray());
+			}
+		}
+
+		return _();
+	}
+
+	private static IEnumerable<(string id, object value)[]> GetParameterCombinations(
+		Dictionary<string, (IStrategyParam param, IEnumerable<object> values, int iterCount)> optimizeDict)
+	{
+		var keys = optimizeDict.Keys.ToArray();
+		var valueLists = keys.Select(k => optimizeDict[k].values.ToArray()).ToArray();
+		var indices = new int[keys.Length];
+		var counts = valueLists.Select(v => v.Length).ToArray();
+
+		while (true)
+		{
+			var result = new (string id, object value)[keys.Length];
+			for (var i = 0; i < keys.Length; i++)
+				result[i] = (keys[i], valueLists[i][indices[i]]);
+
+			yield return result;
+
+			// Increment indices (like a multi-digit counter)
+			var pos = keys.Length - 1;
+			while (pos >= 0)
+			{
+				indices[pos]++;
+				if (indices[pos] < counts[pos])
+					break;
+
+				indices[pos] = 0;
+				pos--;
+			}
+
+			if (pos < 0)
+				yield break;
+		}
+	}
+
+	#endregion
+
+	#region Genetic Optimization
+
+	/// <summary>
+	/// Convert strategy parameters to genetic optimizer format.
+	/// </summary>
+	/// <param name="strategy">The strategy with parameters.</param>
+	/// <param name="parameters">The parameters to optimize.</param>
+	/// <returns>Array of tuples suitable for <see cref="Optimization.GeneticOptimizer.RunAsync"/>.</returns>
+	public static (IStrategyParam param, object from, object to, object step, IEnumerable values)[] ToGeneticParameters(
+		this Strategy strategy,
+		IStrategyParam[] parameters)
+	{
+		if (strategy is null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (parameters is null)
+			throw new ArgumentNullException(nameof(parameters));
+
+		if (parameters.Length == 0)
+			throw new ArgumentOutOfRangeException(nameof(parameters), "No optimization parameters.");
+
+		var result = new List<(IStrategyParam param, object from, object to, object step, IEnumerable values)>();
+
+		foreach (var param in parameters)
+		{
+			if (!param.CanOptimize)
+				continue;
+
+			// Check for explicit values first
+			var explicitValues = param.OptimizeValues;
+			if (explicitValues?.Cast<object>().Any() == true)
+			{
+				result.Add((param, null, null, param.OptimizeStep, explicitValues));
+				continue;
+			}
+
+			var from = param.OptimizeFrom;
+			var to = param.OptimizeTo;
+			var step = param.OptimizeStep;
+
+			if (from is null || to is null)
+				continue;
+
+			result.Add((param, from, to, step, null));
+		}
+
+		return [.. result];
+	}
+
+	/// <summary>
+	/// Convert strategy parameters to genetic optimizer format with explicit values support.
+	/// </summary>
+	/// <param name="strategy">The strategy with parameters.</param>
+	/// <param name="parameters">The parameters with optional explicit values to use instead of range.</param>
+	/// <returns>Array of tuples suitable for <see cref="Optimization.GeneticOptimizer.RunAsync"/>.</returns>
+	public static (IStrategyParam param, object from, object to, object step, IEnumerable values)[] ToGeneticParameters(
+		this Strategy strategy,
+		IEnumerable<(IStrategyParam param, IEnumerable values)> parameters)
+	{
+		if (strategy is null)
+			throw new ArgumentNullException(nameof(strategy));
+
+		if (parameters is null)
+			throw new ArgumentNullException(nameof(parameters));
+
+		var result = new List<(IStrategyParam param, object from, object to, object step, IEnumerable values)>();
+
+		foreach (var (param, explicitValues) in parameters)
+		{
+			if (!param.CanOptimize)
+				continue;
+
+			if (explicitValues?.Cast<object>().Any() == true)
+			{
+				// Use explicit values instead of range
+				result.Add((param, null, null, param.OptimizeStep, explicitValues));
+			}
+			else
+			{
+				var from = param.OptimizeFrom;
+				var to = param.OptimizeTo;
+				var step = param.OptimizeStep;
+
+				if (from is null || to is null)
+					continue;
+
+				result.Add((param, from, to, step, null));
+			}
+		}
+
+		return [.. result];
+	}
+
+	#endregion
+
+	#region Random Values Generation (Batch)
+
+	/// <summary>
+	/// Generate a set of unique random values for the parameter.
+	/// </summary>
+	/// <typeparam name="T">The type of the parameter value.</typeparam>
+	/// <param name="param"><see cref="StrategyParam{T}"/></param>
+	/// <param name="count">Number of random values to generate.</param>
+	/// <param name="provider">Where the values are drawn from.</param>
+	/// <returns>Set of unique random values.</returns>
+	public static HashSet<T> GetRandomValues<T>(this StrategyParam<T> param, int count, IRandomProvider provider)
+	{
+		if (param is null)
+			throw new ArgumentNullException(nameof(param));
+
+		if (count <= 0)
+			throw new ArgumentOutOfRangeException(nameof(count), "Count must be positive.");
+
+		var values = new HashSet<T>();
+
+		// Try to generate unique values, but limit attempts to prevent infinite loops
+		var maxAttempts = count * 10;
+		var attempts = 0;
+
+		while (values.Count < count && attempts < maxAttempts)
+		{
+			var value = param.GetRandom(provider);
+			values.Add(value);
+			attempts++;
+		}
+
+		return values;
+	}
+
+	/// <summary>
+	/// Generate a set of unique random values for the parameter.
+	/// </summary>
+	/// <param name="param"><see cref="IStrategyParam"/></param>
+	/// <param name="count">Number of random values to generate.</param>
+	/// <param name="provider">Where the values are drawn from.</param>
+	/// <returns>Set of unique random values.</returns>
+	public static HashSet<object> GetRandomValues(this IStrategyParam param, int count, IRandomProvider provider)
+	{
+		if (param is null)
+			throw new ArgumentNullException(nameof(param));
+
+		if (count <= 0)
+			throw new ArgumentOutOfRangeException(nameof(count), "Count must be positive.");
+
+		var values = new HashSet<object>();
+
+		// Try to generate unique values, but limit attempts to prevent infinite loops
+		var maxAttempts = count * 10;
+		var attempts = 0;
+
+		while (values.Count < count && attempts < maxAttempts)
+		{
+			var value = param.GetRandom(provider);
+			if (value is not null)
+				values.Add(value);
+			attempts++;
+		}
+
+		return values;
+	}
+
+	#endregion
+}

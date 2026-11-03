@@ -1,0 +1,489 @@
+namespace StockSharp.MatchingEngine;
+
+/// <summary>
+/// Order book level containing orders.
+/// </summary>
+class OrderBookLevelImpl(decimal price)
+{
+	private readonly LinkedList<EmulatorOrder> _orders = [];
+	private readonly Dictionary<long, LinkedListNode<EmulatorOrder>> _nodesByTransId = [];
+	private decimal _ordersVolume;
+
+	public decimal Price { get; } = price;
+	public decimal MarketVolume { get; set; }
+
+	public decimal TotalVolume => MarketVolume + _ordersVolume;
+	public int OrderCount => _nodesByTransId.Count;
+	public IEnumerable<EmulatorOrder> Orders => _orders;
+
+	public decimal AddOrder(EmulatorOrder order)
+	{
+		if (order.TransactionId == default)
+			throw new ArgumentException("TransactionId cannot be default", nameof(order));
+
+		if (_nodesByTransId.TryGetValue(order.TransactionId, out var existing))
+		{
+			var volumeDelta = order.Balance - existing.Value.Balance;
+			existing.Value = order;
+			_ordersVolume += volumeDelta;
+			return volumeDelta;
+		}
+		else
+		{
+			_nodesByTransId[order.TransactionId] = _orders.AddLast(order);
+			_ordersVolume += order.Balance;
+			return order.Balance;
+		}
+	}
+
+	public bool RemoveOrder(long transactionId, out EmulatorOrder order)
+	{
+		if (_nodesByTransId.Remove(transactionId, out var node))
+		{
+			order = node.Value;
+			_orders.Remove(node);
+			_ordersVolume -= order.Balance;
+			return true;
+		}
+
+		order = null;
+		return false;
+	}
+
+	public decimal ConsumeOrder(EmulatorOrder order, decimal volume)
+	{
+		var consumed = volume.Min(order.Balance);
+		order.Balance -= consumed;
+		_ordersVolume -= consumed;
+
+		if (order.Balance <= 0)
+			RemoveOrder(order.TransactionId, out _);
+
+		return consumed;
+	}
+
+	public bool TryGetOrder(long transactionId, out EmulatorOrder order)
+	{
+		if (_nodesByTransId.TryGetValue(transactionId, out var node))
+		{
+			order = node.Value;
+			return true;
+		}
+
+		order = null;
+		return false;
+	}
+
+	public IEnumerable<EmulatorOrder> GetAllOrders() => [.. _orders];
+
+	public bool IsEmpty => MarketVolume <= 0 && _nodesByTransId.Count == 0;
+}
+
+/// <summary>
+/// Order book implementation.
+/// </summary>
+/// <remarks>
+/// Create a new order book.
+/// </remarks>
+public class OrderBook(SecurityId securityId) : IOrderBook
+{
+	private readonly SortedDictionary<decimal, OrderBookLevelImpl> _bids = new(new BackwardComparer<decimal>());
+	private readonly SortedDictionary<decimal, OrderBookLevelImpl> _asks = [];
+
+	private decimal _totalBidVolume;
+	private decimal _totalAskVolume;
+
+	/// <inheritdoc />
+	public SecurityId SecurityId { get; } = securityId;
+
+	/// <inheritdoc />
+	public (decimal price, decimal volume)? BestBid
+		=> GetBestQuote(_bids);
+
+	/// <inheritdoc />
+	public (decimal price, decimal volume)? BestAsk
+		=> GetBestQuote(_asks);
+
+	/// <inheritdoc />
+	public decimal TotalBidVolume => _totalBidVolume;
+
+	/// <inheritdoc />
+	public decimal TotalAskVolume => _totalAskVolume;
+
+	/// <inheritdoc />
+	public int BidLevels => _bids.Count;
+
+	/// <inheritdoc />
+	public int AskLevels => _asks.Count;
+
+	/// <summary>
+	/// Get worst (lowest) bid level.
+	/// </summary>
+	public (decimal price, decimal volume)? GetWorstBid()
+	{
+		var last = _bids.LastOrDefault();
+		return last.Value is null ? null : (last.Key, last.Value.TotalVolume);
+	}
+
+	/// <summary>
+	/// Get worst (highest) ask level.
+	/// </summary>
+	public (decimal price, decimal volume)? GetWorstAsk()
+	{
+		var last = _asks.LastOrDefault();
+		return last.Value is null ? null : (last.Key, last.Value.TotalVolume);
+	}
+
+	private SortedDictionary<decimal, OrderBookLevelImpl> GetQuotes(Sides side)
+		=> side == Sides.Buy ? _bids : _asks;
+
+	private static (decimal price, decimal volume)? GetBestQuote(SortedDictionary<decimal, OrderBookLevelImpl> quotes)
+	{
+		using var enumerator = quotes.GetEnumerator();
+
+		if (!enumerator.MoveNext())
+			return null;
+
+		var first = enumerator.Current;
+		return first.Value is null ? null : (first.Key, first.Value.TotalVolume);
+	}
+
+	private static QuoteChange[] ToQuoteChanges(SortedDictionary<decimal, OrderBookLevelImpl> quotes)
+	{
+		var result = new QuoteChange[quotes.Count];
+		var index = 0;
+		using var enumerator = quotes.GetEnumerator();
+
+		while (enumerator.MoveNext())
+		{
+			var quote = enumerator.Current;
+			result[index++] = new QuoteChange(quote.Key, quote.Value.TotalVolume);
+		}
+
+		return result;
+	}
+
+	private OrderBookLevelImpl GetOrCreateLevel(Sides side, decimal price)
+	{
+		var quotes = GetQuotes(side);
+
+		if (!quotes.TryGetValue(price, out var level))
+		{
+			level = new OrderBookLevelImpl(price);
+			quotes[price] = level;
+		}
+
+		return level;
+	}
+
+	/// <inheritdoc />
+	public void AddQuote(EmulatorOrder order)
+	{
+		if (order is null)
+			throw new ArgumentNullException(nameof(order));
+
+		var level = GetOrCreateLevel(order.Side, order.Price);
+		decimal volumeDelta;
+
+		if (order.TransactionId != default)
+		{
+			volumeDelta = level.AddOrder(order);
+		}
+		else
+		{
+			level.MarketVolume += order.Balance;
+			volumeDelta = order.Balance;
+		}
+
+		AddTotalVolume(order.Side, volumeDelta);
+	}
+
+	/// <inheritdoc />
+	public bool RemoveQuote(long transactionId, Sides side, decimal price)
+	{
+		var quotes = GetQuotes(side);
+
+		if (!quotes.TryGetValue(price, out var level))
+			return false;
+
+		if (!level.RemoveOrder(transactionId, out var order))
+			return false;
+
+		AddTotalVolume(side, -order.Balance);
+
+		if (level.IsEmpty)
+			quotes.Remove(price);
+
+		return true;
+	}
+
+	/// <inheritdoc />
+	public void UpdateLevel(Sides side, decimal price, decimal volume)
+	{
+		var quotes = GetQuotes(side);
+
+		if (quotes.TryGetValue(price, out var level))
+		{
+			var diff = volume - level.MarketVolume;
+			level.MarketVolume = volume;
+			AddTotalVolume(side, diff);
+
+			if (level.IsEmpty)
+				quotes.Remove(price);
+		}
+		else if (volume > 0)
+		{
+			level = new OrderBookLevelImpl(price) { MarketVolume = volume };
+			quotes[price] = level;
+			AddTotalVolume(side, volume);
+		}
+	}
+
+	/// <inheritdoc />
+	public IEnumerable<EmulatorOrder> RemoveLevel(Sides side, decimal price)
+	{
+		var quotes = GetQuotes(side);
+
+		if (!quotes.TryGetValue(price, out var level))
+			return [];
+
+		var orders = level.GetAllOrders();
+		var totalVolume = level.TotalVolume;
+
+		quotes.Remove(price);
+		AddTotalVolume(side, -totalVolume);
+
+		return orders;
+	}
+
+	/// <inheritdoc />
+	public IEnumerable<OrderBookLevel> GetLevels(Sides side)
+	{
+		var quotes = GetQuotes(side);
+
+		foreach (var kvp in quotes)
+		{
+			yield return new OrderBookLevel(kvp.Key, kvp.Value.TotalVolume, [.. kvp.Value.Orders]);
+		}
+	}
+
+	/// <inheritdoc />
+	public decimal GetVolumeAtPrice(Sides side, decimal price)
+	{
+		var quotes = GetQuotes(side);
+		return quotes.TryGetValue(price, out var level) ? level.TotalVolume : 0;
+	}
+
+	/// <inheritdoc />
+	public IEnumerable<EmulatorOrder> GetOrdersAtPrice(Sides side, decimal price)
+	{
+		var quotes = GetQuotes(side);
+		return quotes.TryGetValue(price, out var level) ? level.Orders : [];
+	}
+
+	/// <inheritdoc />
+	public bool HasLevel(Sides side, decimal price)
+	{
+		return GetQuotes(side).ContainsKey(price);
+	}
+
+	/// <inheritdoc />
+	public void Clear()
+	{
+		_bids.Clear();
+		_asks.Clear();
+		_totalBidVolume = 0;
+		_totalAskVolume = 0;
+	}
+
+	/// <inheritdoc />
+	public void Clear(Sides side)
+	{
+		var quotes = GetQuotes(side);
+		quotes.Clear();
+
+		if (side == Sides.Buy)
+			_totalBidVolume = 0;
+		else
+			_totalAskVolume = 0;
+	}
+
+	/// <inheritdoc />
+	public void SetSnapshot(IEnumerable<QuoteChange> bids, IEnumerable<QuoteChange> asks)
+	{
+		// Preserve user orders
+		var userBidOrders = _bids.Values
+			.SelectMany(l => l.Orders.Where(o => o.IsUserOrder))
+			.ToList();
+
+		var userAskOrders = _asks.Values
+			.SelectMany(l => l.Orders.Where(o => o.IsUserOrder))
+			.ToList();
+
+		Clear();
+
+		// Set market quotes from snapshot
+		foreach (var bid in bids)
+		{
+			var level = GetOrCreateLevel(Sides.Buy, bid.Price);
+			level.MarketVolume = bid.Volume;
+			_totalBidVolume += bid.Volume;
+		}
+
+		foreach (var ask in asks)
+		{
+			var level = GetOrCreateLevel(Sides.Sell, ask.Price);
+			level.MarketVolume = ask.Volume;
+			_totalAskVolume += ask.Volume;
+		}
+
+		// Restore user orders
+		foreach (var order in userBidOrders)
+		{
+			var level = GetOrCreateLevel(Sides.Buy, order.Price);
+			_totalBidVolume += level.AddOrder(order);
+		}
+
+		foreach (var order in userAskOrders)
+		{
+			var level = GetOrCreateLevel(Sides.Sell, order.Price);
+			_totalAskVolume += level.AddOrder(order);
+		}
+	}
+
+	/// <inheritdoc />
+	public QuoteChangeMessage ToMessage(DateTime localTime, DateTime serverTime)
+	{
+		return new QuoteChangeMessage
+		{
+			SecurityId = SecurityId,
+			LocalTime = localTime,
+			ServerTime = serverTime,
+			Bids = ToQuoteChanges(_bids),
+			Asks = ToQuoteChanges(_asks),
+		};
+	}
+
+	/// <inheritdoc />
+	public decimal GetTotalVolume(Sides side)
+		=> side == Sides.Buy ? _totalBidVolume : _totalAskVolume;
+
+	private void AddTotalVolume(Sides side, decimal diff)
+	{
+		if (side == Sides.Buy)
+			_totalBidVolume += diff;
+		else
+			_totalAskVolume += diff;
+	}
+
+	/// <summary>
+	/// Find and remove order by transaction ID from any level.
+	/// </summary>
+	public bool TryRemoveOrder(long transactionId, Sides side, out EmulatorOrder order)
+	{
+		var quotes = GetQuotes(side);
+
+		foreach (var level in quotes.Values)
+		{
+			if (level.RemoveOrder(transactionId, out order))
+			{
+				AddTotalVolume(side, -order.Balance);
+
+				if (level.IsEmpty)
+					quotes.Remove(level.Price);
+
+				return true;
+			}
+		}
+
+		order = null;
+		return false;
+	}
+
+	/// <summary>
+	/// Consume volume from best levels (for matching).
+	/// </summary>
+	/// <param name="side">Side to consume from (opposite to order side).</param>
+	/// <param name="maxPrice">Maximum price for buy / minimum for sell.</param>
+	/// <param name="volume">Volume to consume.</param>
+	/// <returns>Executions (price, volume, volume taken from each resting order).</returns>
+	public IEnumerable<(decimal price, decimal volume, IReadOnlyList<MatchFill> fills)> ConsumeVolume(
+		Sides side,
+		decimal? maxPrice,
+		decimal volume)
+	{
+		var quotes = GetQuotes(side);
+		var remaining = volume;
+
+		// Levels emptied while consuming are collected and removed in the finally below. Doing it there (instead of
+		// snapshotting the whole book with quotes.ToArray() on every match) keeps the dictionary unmodified during
+		// its own enumeration, yet the removal still runs when the caller abandons the enumerator early - it breaks
+		// out of the loop as soon as the order is filled, and disposing the iterator runs the finally.
+		List<decimal> toRemove = null;
+
+		try
+		{
+			foreach (var kvp in quotes)
+			{
+				if (remaining <= 0)
+					break;
+
+				var price = kvp.Key;
+
+				// Check price limit
+				if (maxPrice.HasValue)
+				{
+					if (side == Sides.Sell && price > maxPrice.Value)
+						break;
+					if (side == Sides.Buy && price < maxPrice.Value)
+						break;
+				}
+
+				var level = kvp.Value;
+				var available = level.TotalVolume;
+				var consumed = remaining.Min(available);
+
+				if (consumed <= 0)
+					continue;
+
+				// Consuming removes emptied orders from the level, so the queue is snapshotted first.
+				var levelOrders = level.Orders.ToList();
+				var fills = new List<MatchFill>(levelOrders.Count);
+
+				// Reduce market volume first
+				var marketConsumed = consumed.Min(level.MarketVolume);
+				level.MarketVolume -= marketConsumed;
+				var orderConsumed = consumed - marketConsumed;
+
+				// Then reduce user orders
+				foreach (var order in levelOrders)
+				{
+					if (orderConsumed <= 0)
+						break;
+
+					var orderConsume = level.ConsumeOrder(order, orderConsumed);
+					orderConsumed -= orderConsume;
+
+					if (orderConsume > 0)
+						fills.Add(new(order, orderConsume, order.Balance));
+				}
+
+				AddTotalVolume(side, -consumed);
+				remaining -= consumed;
+
+				if (level.IsEmpty)
+					(toRemove ??= []).Add(price);
+
+				yield return (price, consumed, fills);
+			}
+		}
+		finally
+		{
+			if (toRemove != null)
+			{
+				foreach (var price in toRemove)
+					quotes.Remove(price);
+			}
+		}
+	}
+}

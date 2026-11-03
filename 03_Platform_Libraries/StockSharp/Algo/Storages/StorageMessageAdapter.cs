@@ -1,0 +1,87 @@
+namespace StockSharp.Algo.Storages;
+
+/// <summary>
+/// Storage based message adapter.
+/// </summary>
+/// <remarks>
+/// Initializes a new instance of the <see cref="StorageMessageAdapter"/>.
+/// </remarks>
+/// <param name="innerAdapter">The adapter, to which messages will be directed.</param>
+/// <param name="storageProcessor">Storage processor.</param>
+public class StorageMessageAdapter(IMessageAdapter innerAdapter, IStorageProcessor storageProcessor) : MessageAdapterWrapper(innerAdapter)
+{
+	private readonly IStorageProcessor _storageProcessor = storageProcessor ?? throw new ArgumentNullException(nameof(storageProcessor));
+
+	/// <inheritdoc />
+	public override IAsyncEnumerable<DataType> GetSupportedMarketDataTypesAsync(SecurityId securityId, DateTime? from, DateTime? to)
+	{
+		var dataTypes = base.GetSupportedMarketDataTypesAsync(securityId, from, to);
+
+		var settings = _storageProcessor.Settings;
+
+		var drive = settings.Drive ?? settings.StorageRegistry.DefaultDrive;
+
+		if (drive != null)
+			dataTypes = dataTypes.Concat(drive.GetAvailableDataTypesAsync(default, settings.Format).Where(dt => dt.IsMarketData)).Distinct();
+
+		return dataTypes;
+	}
+
+	/// <inheritdoc />
+	protected override async ValueTask OnSendInMessageAsync(Message message, CancellationToken cancellationToken)
+	{
+		switch (message.Type)
+		{
+			case MessageTypes.Reset:
+				_storageProcessor.Reset();
+				await base.OnSendInMessageAsync(message, cancellationToken);
+				return;
+
+			case MessageTypes.MarketData:
+			{
+				MarketDataMessage forwardMessage = null;
+
+				await foreach (var outMsg in _storageProcessor.ProcessMarketData((MarketDataMessage)message, cancellationToken).WithEnforcedCancellation(cancellationToken))
+				{
+					if (outMsg is MarketDataMessage md)
+						forwardMessage = md;
+					else
+						await RaiseStorageMessage(outMsg, cancellationToken);
+				}
+
+				if (forwardMessage != null)
+					await base.OnSendInMessageAsync(forwardMessage, cancellationToken);
+
+				return;
+			}
+
+			default:
+				await base.OnSendInMessageAsync(message, cancellationToken);
+				return;
+		}
+	}
+
+	private ValueTask RaiseStorageMessage(Message message, CancellationToken cancellationToken)
+	{
+		message.TryInitLocalTime(this);
+
+		return RaiseNewOutMessageAsync(message, cancellationToken);
+	}
+
+	/// <inheritdoc />
+	protected override async ValueTask OnInnerAdapterNewOutMessageAsync(Message message, CancellationToken cancellationToken)
+	{
+		_storageProcessor.ProcessSubscriptionResult(message);
+		await base.OnInnerAdapterNewOutMessageAsync(message, cancellationToken);
+	}
+
+	/// <summary>
+	/// Create a copy of <see cref="StorageMessageAdapter"/>.
+	/// </summary>
+	/// <param name="cancellationToken"><see cref="CancellationToken"/></param>
+	/// <returns>Copy.</returns>
+	public override async ValueTask<IMessageAdapter> CloneAsync(CancellationToken cancellationToken)
+	{
+		return new StorageMessageAdapter(await InnerAdapter.CloneAsync(cancellationToken), _storageProcessor);
+	}
+}
